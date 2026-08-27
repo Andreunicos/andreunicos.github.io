@@ -1841,7 +1841,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '3.4 — 27/08 21:20';
+const VERSAO = '3.5 — 27/08 22:10';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2951,7 +2951,30 @@ async function aplicarPerfilVideo(par){
   // resolvido pela escada de degraus com histerese ali embaixo.
   const degrada = seguraFps ? 'maintain-framerate' : 'maintain-resolution';
   void 0;
-  const camadas = cfg.camadas!==false ? 'L1T3' : null;
+  /* ---------------------------------------------------------------------
+   * CAMADAS TEMPORAIS — por que elas saíram do caminho
+   * ---------------------------------------------------------------------
+   * L1T3 divide o vídeo em três camadas de tempo. Quando a banda aperta,
+   * o compressor não encolhe a imagem: ele JOGA FORA a camada de cima. E
+   * as taxas dessas camadas são exatamente 60, 30 e 15 — é daí que vem a
+   * queda limpa para 30 quadros que parece defeito e não é.
+   *
+   * Isso faz sentido quando um servidor no meio precisa servir gente com
+   * internets muito diferentes a partir de UMA compressão só. Aqui não
+   * existe servidor no meio: cada amigo tem a própria conexão e o próprio
+   * compressor, cada um já cede sozinho. As camadas só trazem o corte
+   * pela metade, sem trazer o benefício.
+   *
+   * Medido lado a lado, com a banda apertada: 26 quadros com L1T3 contra
+   * 30 sem. Então some quando a prioridade é fluidez, e volta quando a
+   * prioridade é nitidez — aí a queda de quadros é justamente o que se
+   * quer que ceda.
+   *
+   * E tem que ser 'L1T1' explícito, nunca "não mexer": o objeto de
+   * parâmetros vem do navegador já com o valor de antes dentro. Deixar de
+   * escrever não apaga nada — foi assim que ficou impossível desligar.
+   * ------------------------------------------------------------------ */
+  const camadas = seguraFps ? 'L1T1' : 'L1T3';
   const assinatura = [teto,fps,encolher,degrada,camadas].join('|');
   // mexer no compressor custa um soluço na imagem: se nada mudou, não mexe
   if(par.perfilAplicado===assinatura) return;
@@ -2964,7 +2987,7 @@ async function aplicarPerfilVideo(par){
     e.maxFramerate = fps;
     e.scaleResolutionDownBy = encolher;
     e.networkPriority='high'; e.priority='high';
-    if(camadas) e.scalabilityMode = camadas;
+    e.scalabilityMode = camadas;
     par2.degradationPreference = degrada;
     try{
       await par.senderVideo.setParameters(par2);
@@ -3179,12 +3202,17 @@ async function pararTela(){
  * =================================================================== */
 function autoDe(par){
   return par.auto || (par.auto = { fator:1, ruim:0, bom:0, aquece:0, motivo:'', quando:0,
-                                   degrau:1, degrauQuer:1, degrauFirme:0, quandoDegrau:0, banda:0 });
+                                   degrau:1, degrauQuer:1, degrauFirme:0, quandoDegrau:0, banda:0,
+                                   // duas escadas separadas: uma comandada pela internet,
+                                   // outra pelos quadros. O tamanho final é o maior aperto
+                                   // das duas — cada uma sabe de um problema diferente.
+                                   degrauBanda:1, degrauFps:1, fpsRuim:0, fpsBom:0, quandoFps:0 });
 }
 function zerarAuto(par){
   const a = autoDe(par);
   a.fator=1; a.ruim=0; a.bom=0; a.aquece=0; a.motivo='';
   a.degrau=1; a.degrauQuer=1; a.degrauFirme=0; a.quandoDegrau=0; a.banda=0;
+  a.degrauBanda=1; a.degrauFps=1; a.fpsRuim=0; a.fpsBom=0; a.quandoFps=0;
   par.perfilAplicado=null;
 }
 
@@ -3204,7 +3232,7 @@ function degrauQueCabe(p, banda){
   return DEGRAUS[DEGRAUS.length-1];
 }
 
-async function ajustarQualidade(par, perda, apertado, banda){
+async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
   if(!cfg.auto || !est.streamTela || !par.senderVideo) return;
   const a = autoDe(par);
   if(a.aquece++ < 8) return;              // os primeiros segundos não valem
@@ -3221,10 +3249,56 @@ async function ajustarQualidade(par, perda, apertado, banda){
     const passou = Date.now()-(a.quandoDegrau||0);
     // só troca de tamanho se a mesma resposta se repetir por 6 segundos
     // e fazia pelo menos 20 s desde a última troca
-    if(quer!==a.degrau && a.degrauFirme>=6 && passou>20000){
-      a.degrau=quer; a.quandoDegrau=Date.now();
+    if(quer!==a.degrauBanda && a.degrauFirme>=6 && passou>20000){
+      a.degrauBanda=quer; a.quandoDegrau=Date.now();
+      a.degrau=Math.max(a.degrauBanda, a.degrauFps);
       await aplicarPerfilVideo(par);
       return;
+    }
+  }
+
+  /* ---------------------------------------------------------------------
+   * A ESCADA DOS QUADROS
+   * ---------------------------------------------------------------------
+   * A escada de cima é comandada pela internet: "não cabe tanta banda".
+   * Esta aqui é comandada pelo compressor: "não dou conta de tantos
+   * quadros nesse tamanho". São problemas diferentes e ninguém estava
+   * olhando o segundo — o resultado era o pior dos dois mundos, imagem
+   * pequena E travada, porque o navegador encolhia por causa da banda e
+   * ainda assim derrubava quadros por causa do esforço.
+   *
+   * Aqui a decisão é explícita: você pediu fluidez, então quando os
+   * quadros não chegam ao alvo a imagem encolhe MAIS, de propósito, até
+   * caber. Um 900p a 60 é muito melhor de jogar que um 1080p a 30.
+   * ------------------------------------------------------------------ */
+  const alvoFps = p0.fps;
+  if(cfg.prioridade!=='nitidez' && fpsAgora>0){
+    if(fpsAgora < alvoFps*0.75) a.fpsRuim++; else a.fpsRuim=0;
+    if(fpsAgora > alvoFps*0.92) a.fpsBom++;  else a.fpsBom=0;
+    const desdeFps = Date.now()-(a.quandoFps||0);
+
+    if(a.fpsRuim>=5 && desdeFps>8000){
+      const i = Math.max(0, DEGRAUS.indexOf(a.degrauFps));
+      const prox = DEGRAUS[Math.min(DEGRAUS.length-1, i+1)];
+      if(prox!==a.degrauFps){
+        a.degrauFps=prox; a.quandoFps=Date.now(); a.fpsRuim=0;
+        a.degrau=Math.max(a.degrauBanda, a.degrauFps);
+        a.motivo='imagem menor para segurar os '+alvoFps+' quadros';
+        await aplicarPerfilVideo(par);
+        return;
+      }
+    }
+    // devolver tamanho é luxo: só depois de 25 s inteiros no alvo
+    if(a.fpsBom>=20 && a.degrauFps>1 && desdeFps>25000){
+      const i = Math.max(0, DEGRAUS.indexOf(a.degrauFps));
+      const antes = DEGRAUS[Math.max(0, i-1)];
+      if(antes!==a.degrauFps){
+        a.degrauFps=antes; a.quandoFps=Date.now(); a.fpsBom=0;
+        a.degrau=Math.max(a.degrauBanda, a.degrauFps);
+        if(a.degrau===1) a.motivo='';
+        await aplicarPerfilVideo(par);
+        return;
+      }
     }
   }
 
@@ -3323,6 +3397,15 @@ async function atualizarNumeros(){
       par.anteriorV=sv;
     } else par.anteriorV=null;
 
+    // Só agora o fpsEnviado existe de verdade. Este bloco estava ACIMA da
+    // linha que o declara: cada volta estourava "Cannot access before
+    // initialization", a função inteira morria calada, e com ela morria o
+    // ajuste automático de qualidade. Um erro de ordem, não de lógica.
+    if(fpsEnviado>0){
+      (par.historicoFps || (par.historicoFps=[])).push(fpsEnviado);
+      while(par.historicoFps.length>30) par.historicoFps.shift();
+    }
+
     let caminho='';
     if(pardeIce){
       const acha=(id)=>{ let t=''; rel.forEach(x=>{ if(x.id===id) t=x.candidateType||''; }); return t; };
@@ -3339,7 +3422,7 @@ async function atualizarNumeros(){
   $('ping').textContent = piorPing ? piorPing+' ms' : '—';
   $('ponto').className = 'ponto '+(piorPing<60?'bom':piorPing<130?'medio':'ruim');
   // cada pessoa com a sua régua, medida na conexão dela
-  for(const x of porPessoa) ajustarQualidade(x.par, x.perda, x.apertado, x.banda);
+  for(const x of porPessoa) ajustarQualidade(x.par, x.perda, x.apertado, x.banda, x.fpsComprimido);
 
   // FPS sempre à vista enquanto você transmite: é o número que importa
   const alvoFps = (PERFIS[cfg.qualidade]||PERFIS['1080-60-8']).fps;
@@ -3378,6 +3461,17 @@ async function atualizarNumeros(){
       if(um.fpsComprimido) linha('O compressor dá conta de', um.fpsComprimido+' fps',
         um.fpsComprimido>=p.fps*0.85?'bom':um.fpsComprimido>=p.fps*0.5?'medio':'ruim');
       linha('Chega no seu amigo a', um.fpsEnviado+' fps', um.fpsEnviado>=p.fps*0.85?'bom':um.fpsEnviado>=p.fps*0.5?'medio':'ruim');
+      const hist = um.par.historicoFps||[];
+      if(hist.length>=8){
+        const pior = Math.min(...hist), melhor = Math.max(...hist);
+        linha('Pior momento nos últimos '+hist.length+'s', pior+' fps',
+              pior>=p.fps*0.85?'bom':pior>=p.fps*0.5?'medio':'ruim');
+        // oscilação é a distância entre o melhor e o pior. Um número só
+        // não mostra isso, e é exatamente disso que a pessoa reclama.
+        const balanco = melhor-pior;
+        if(balanco>=6) linha('Oscilação', 'de '+pior+' a '+melhor+' fps',
+                             balanco>p.fps*0.4?'ruim':'medio');
+      }
       if(um.codecEnv){
         const pedido=(cfg.codec||'auto');
         const bateu = pedido==='auto' || um.codecEnv.toLowerCase()===pedido;

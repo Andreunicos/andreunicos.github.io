@@ -425,7 +425,11 @@ async function principal() {
     /* ---------- 10. erros no console ---------- */
     titulo('10. Erros no console');
     const todos = [...erros.A.map(e => 'A: ' + e), ...erros.B.map(e => 'B: ' + e)];
-    const graves = todos.filter(e => /EXCECAO|is not defined|is not a function|Cannot read/i.test(e));
+    /* QUALQUER exceção de página é grave. Antes eu filtrava por uma lista
+       de frases, e foi assim que um "Cannot access X before
+       initialization" passou batido enquanto matava o ajuste automático
+       de qualidade a cada segundo, com 33 testes verdes na tela. */
+    const graves = todos.filter(e => /EXCECAO/.test(e));
     graves.length ? mal(graves.length + ' erro(s) grave(s)') : ok('nenhuma exceção de JavaScript');
     todos.slice(0, 12).forEach(e => info(e));
 
