@@ -1,0 +1,3840 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frag</title>
+<style>
+/* =====================================================================
+   FRAG — um arquivo, nenhum servidor.
+   ===================================================================== */
+:root{
+  --preto:#0c0d10; --fundo:#121419; --sup:#171a21; --sup2:#1d212a; --sup3:#252a35;
+  --linha:#2a2f3a; --linha2:#353b48;
+  --txt:#eef1f6; --txt2:#a2aab8; --txt3:#6d7583;
+  --azul:#5b7cfa; --azul2:#7b95ff; --azul-fraco:#1a2145;
+  --verde:#3fd07a; --amarelo:#f0b429; --vermelho:#f2564a;
+  --r:12px; --r2:16px;
+  --sombra:0 18px 50px rgba(0,0,0,.55);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{
+  height:100%;margin:0;background:var(--preto);color:var(--txt);
+  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;font-size:14px;
+  overflow:hidden;-webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font-family:inherit;font-size:inherit}
+:focus-visible{outline:2px solid var(--azul);outline-offset:2px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--sup3);border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:var(--linha2)}
+
+/* ---------- botões ---------- */
+.b{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  padding:11px 18px;border:0;border-radius:var(--r);cursor:pointer;
+  font-weight:600;transition:background .15s,transform .06s,opacity .15s;
+}
+.b:active{transform:translateY(1px)}
+.b:disabled{opacity:.4;cursor:not-allowed}
+.b-azul{background:var(--azul);color:#fff}
+.b-azul:hover:not(:disabled){background:var(--azul2)}
+.b-cinza{background:var(--sup3);color:var(--txt);border:1px solid var(--linha)}
+.b-cinza:hover:not(:disabled){background:var(--linha)}
+.b-vermelho{background:var(--vermelho);color:#fff}
+.b-vermelho:hover:not(:disabled){background:#ff6b60}
+.b-verde{background:var(--verde);color:#06210f}
+.b-largo{width:100%}
+.b-verde:hover:not(:disabled){background:#5ce094}
+.sala{padding:20px 30px 0}
+.sala-cx{margin-top:11px}
+.sala-cx textarea{font-size:12.5px}
+.sala-estado{display:flex;align-items:center;gap:9px;margin-top:11px;font-size:13px;color:var(--txt2)}
+.manual{margin:18px 30px 0;border-top:1px solid var(--linha);padding-top:14px}
+.manual>summary{cursor:pointer;font-size:13px;color:var(--txt3);list-style:none;user-select:none}
+.manual>summary::-webkit-details-marker{display:none}
+.manual>summary::before{content:'▸ ';color:var(--azul)}
+.manual[open]>summary::before{content:'▾ '}
+.manual>summary:hover{color:var(--txt)}
+.ou{display:flex;align-items:center;gap:11px;margin:20px 30px 0;color:var(--txt3);font-size:12px}
+.ou::before,.ou::after{content:'';flex:1;height:1px;background:var(--linha)}
+/* aviso de transmissao: fica por cima de tudo, inclusive de tela cheia */
+.aviso-tx{
+  position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99999;
+  display:flex;align-items:center;gap:11px;padding:8px 10px 8px 15px;
+  border-radius:30px;background:rgba(18,20,26,.94);border:1px solid var(--vermelho);
+  box-shadow:0 8px 26px rgba(0,0,0,.5);font-size:13px;color:var(--txt);
+  backdrop-filter:blur(9px);
+}
+.aviso-tx .luz{width:8px;height:8px;border-radius:50%;background:var(--vermelho);animation:pisca 1.6s infinite;flex-shrink:0}
+.aviso-tx button{
+  border:0;border-radius:22px;padding:7px 14px;cursor:pointer;
+  background:var(--vermelho);color:#fff;font:inherit;font-weight:700;font-size:12.5px;
+}
+.aviso-tx button:hover{background:#ff6b60}
+.aviso-tx.escondido{opacity:.28}
+.aviso-tx.escondido:hover{opacity:1}
+/* no quadro local os botoes ficam sempre visiveis */
+#q-local .quadro-acoes{opacity:1}
+.quadro-acoes:focus-within{opacity:1}
+@media (hover:none){ .quadro-acoes{opacity:1} }
+.campo-nome{padding:22px 30px 0;margin:0}
+/* dentro do bloco manual as margens já vêm do próprio bloco */
+.manual .papeis,.manual .fluxo{padding-left:0;padding-right:0}
+.manual .erro{margin-left:0;margin-right:0}
+#q-local .quadro-acoes .parar{background:var(--vermelho);border-color:var(--vermelho);color:#fff;font-weight:700}
+
+/* ---------- campos ---------- */
+.campo{margin-bottom:16px}
+.campo>span{
+  display:block;font-size:11px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--txt3);margin-bottom:7px;
+}
+textarea,select,input[type=text]{
+  width:100%;padding:11px 13px;background:var(--preto);border:1px solid var(--linha);
+  border-radius:var(--r);color:var(--txt);outline:none;transition:border-color .15s;
+}
+textarea{
+  font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.55;
+  color:var(--txt2);resize:vertical;
+}
+textarea:focus,select:focus,input:focus{border-color:var(--azul)}
+input[type=range]{width:100%;accent-color:var(--azul)}
+.chk{display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:12px}
+.chk input{width:17px;height:17px;accent-color:var(--azul);flex-shrink:0}
+.chk span{font-size:13.5px;color:var(--txt)}
+.ajuda{font-size:12px;line-height:1.6;color:var(--txt3);margin:8px 0 0}
+
+/* =====================================================================
+   TELA DE CONEXÃO
+   ===================================================================== */
+.entrada{
+  position:fixed;inset:0;z-index:50;display:grid;place-items:center;
+  overflow-y:auto;padding:28px;
+  background:
+    radial-gradient(1100px 620px at 50% -18%,rgba(91,124,250,.18),transparent 68%),
+    var(--preto);
+}
+.cartao{
+  width:min(600px,100%);background:var(--sup);border:1px solid var(--linha);
+  border-radius:22px;box-shadow:var(--sombra);overflow:hidden;
+}
+.cartao-topo{padding:30px 30px 0}
+.marca{display:flex;align-items:center;gap:15px}
+.logo{
+  width:52px;height:52px;flex-shrink:0;display:grid;place-items:center;
+  border-radius:15px;background:linear-gradient(145deg,var(--azul),#4159d6);
+  font-size:25px;color:#fff;box-shadow:0 8px 22px rgba(91,124,250,.35);
+}
+.marca h1{margin:0;font-size:25px;letter-spacing:-.03em}
+.marca p{margin:3px 0 0;font-size:12.5px;color:var(--txt3)}
+
+.papeis{display:grid;grid-template-columns:1fr 1fr;gap:11px;padding:26px 30px 0}
+.papel{
+  padding:17px;background:var(--sup2);border:2px solid transparent;
+  border-radius:var(--r2);cursor:pointer;text-align:left;transition:.15s;
+}
+.papel:hover{background:var(--sup3)}
+.papel.on{border-color:var(--azul);background:var(--azul-fraco)}
+.papel b{display:block;margin-bottom:5px;font-size:14.5px;color:var(--txt)}
+.papel span{font-size:12px;color:var(--txt3);line-height:1.5}
+
+.fluxo{padding:24px 30px 0}
+.etapa{margin-bottom:22px}
+.etapa-cab{display:flex;align-items:center;gap:11px;margin-bottom:11px}
+.bolha{
+  width:24px;height:24px;flex-shrink:0;display:grid;place-items:center;
+  border-radius:50%;background:var(--sup3);color:var(--txt2);
+  font-size:12px;font-weight:700;transition:.2s;
+}
+.etapa.ok .bolha{background:var(--verde);color:#06210f}
+.etapa-cab b{font-size:13.5px;font-weight:600}
+.etapa.ok .etapa-cab b{color:var(--txt2)}
+
+.linha-copia{display:flex;gap:9px;align-items:flex-start}
+.linha-copia textarea{flex:1}
+
+.erro{
+  margin:0 30px;padding:12px 14px;background:rgba(242,86,74,.1);
+  border:1px solid rgba(242,86,74,.35);border-radius:var(--r);
+  color:#ff9d94;font-size:13px;line-height:1.6;
+}
+.fone{
+  margin:20px 30px 0;padding:12px 15px;background:rgba(240,180,41,.08);
+  border:1px solid rgba(240,180,41,.28);border-radius:var(--r);
+  font-size:12.5px;line-height:1.6;color:#e9c46a;
+}
+.cartao-pe{padding:22px 30px 26px}
+
+/* =====================================================================
+   CHAMADA
+   ===================================================================== */
+.chamada{display:flex;flex-direction:column;height:100%;background:var(--preto)}
+
+.barra{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:10px 16px;background:var(--fundo);border-bottom:1px solid var(--linha);
+  flex-shrink:0;
+}
+.gente{display:flex;align-items:center;gap:9px}
+.ficha{
+  display:flex;align-items:center;gap:9px;padding:5px 13px 5px 5px;
+  background:var(--sup);border:1px solid var(--linha);border-radius:30px;
+}
+.av{
+  width:30px;height:30px;display:grid;place-items:center;border-radius:50%;
+  background:var(--sup3);font-weight:700;font-size:12.5px;flex-shrink:0;
+  border:2px solid transparent;transition:border-color .12s,box-shadow .12s;
+}
+.av.fala{border-color:var(--verde);box-shadow:0 0 0 3px rgba(63,208,122,.2)}
+.ficha-txt{line-height:1.25}
+.ficha-nome{font-size:12.5px;font-weight:600}
+.ficha-sub{font-size:10.5px;color:var(--txt3)}
+.pin{
+  display:inline-flex;align-items:center;gap:6px;padding:5px 12px;
+  background:var(--sup);border:1px solid var(--linha);border-radius:30px;
+  font-size:11.5px;color:var(--txt2);font-variant-numeric:tabular-nums;
+}
+.ponto{width:7px;height:7px;border-radius:50%;background:var(--txt3)}
+.ponto.bom{background:var(--verde)} .ponto.medio{background:var(--amarelo)} .ponto.ruim{background:var(--vermelho)}
+.barra-dir{display:flex;gap:8px;align-items:center}
+
+/* ---------- palco ---------- */
+.palco{
+  flex:1;position:relative;min-height:0;display:grid;gap:10px;padding:10px;
+  grid-template-columns:1fr;
+}
+.palco.dois{grid-template-columns:1fr 1fr}
+@media (max-width:820px){.palco.dois{grid-template-columns:1fr;grid-template-rows:1fr 1fr}}
+
+.quadro{
+  position:relative;background:#000;border:1px solid var(--linha);
+  border-radius:var(--r2);overflow:hidden;min-height:0;
+}
+.quadro video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+.quadro-tag{
+  position:absolute;left:12px;top:12px;display:flex;align-items:center;gap:7px;
+  padding:6px 13px;background:rgba(8,9,12,.78);backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.09);border-radius:30px;font-size:12px;font-weight:600;
+}
+.quadro-tag .luz{width:7px;height:7px;border-radius:50%;background:var(--vermelho);animation:pisca 2s infinite}
+@keyframes pisca{50%{opacity:.35}}
+.quadro-acoes{position:absolute;right:12px;top:12px;display:flex;gap:7px;opacity:0;transition:opacity .18s}
+.quadro:hover .quadro-acoes{opacity:1}
+.quadro-acoes button{
+  padding:7px 12px;background:rgba(8,9,12,.78);backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.09);border-radius:9px;color:#fff;
+  cursor:pointer;font-size:12px;
+}
+.quadro-acoes button:hover{background:rgba(8,9,12,.95)}
+
+.nada{
+  grid-column:1/-1;display:grid;place-content:center;justify-items:center;gap:10px;
+  text-align:center;color:var(--txt3);
+}
+.nada-ico{
+  width:64px;height:64px;display:grid;place-items:center;border-radius:20px;
+  background:var(--sup);border:1px solid var(--linha);font-size:28px;opacity:.7;
+}
+.nada h3{margin:6px 0 0;font-size:16px;color:var(--txt2);font-weight:600}
+.nada p{margin:0;font-size:13px;max-width:400px;line-height:1.6}
+
+/* ---------- controles flutuantes ---------- */
+.controles{
+  position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
+  display:flex;align-items:center;gap:8px;padding:9px;
+  background:rgba(18,20,25,.92);backdrop-filter:blur(16px);
+  border:1px solid var(--linha2);border-radius:50px;box-shadow:var(--sombra);
+  z-index:20;transition:opacity .25s,transform .25s;
+}
+.controles.oculto{opacity:0;transform:translateX(-50%) translateY(14px);pointer-events:none}
+/* Em tela cheia o quadro vira o topo da pilha; os controles precisam
+   continuar por cima dele. */
+.quadro:fullscreen{border:0;border-radius:0}
+.quadro:fullscreen video{object-fit:contain}
+.cbtn{
+  width:46px;height:46px;display:grid;place-items:center;border:0;border-radius:50%;
+  background:var(--sup3);color:var(--txt);cursor:pointer;font-size:17px;transition:.14s;
+}
+.cbtn:hover{background:var(--linha2)}
+.cbtn.on{background:var(--vermelho);color:#fff}
+.cbtn.destaque{width:auto;padding:0 22px;border-radius:26px;background:var(--azul);color:#fff;font-size:14px;font-weight:600;gap:8px}
+.cbtn.destaque:hover{background:var(--azul2)}
+.cbtn.destaque.parando{background:var(--vermelho)}
+.cbtn.destaque.parando:hover{background:#ff6b60}
+.divisor{width:1px;height:26px;background:var(--linha2);margin:0 3px}
+
+/* ---------- painel lateral ---------- */
+.painel{
+  position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);z-index:60;
+  background:var(--sup);border-left:1px solid var(--linha);
+  box-shadow:-20px 0 60px rgba(0,0,0,.5);
+  display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s ease;
+}
+.painel.aberto{transform:none}
+.painel-topo{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:18px 20px;border-bottom:1px solid var(--linha);flex-shrink:0;
+}
+.painel-topo h2{margin:0;font-size:16px}
+.painel-topo button{background:0;border:0;color:var(--txt2);font-size:22px;cursor:pointer;line-height:1}
+.painel-corpo{padding:20px;overflow-y:auto;flex:1}
+.secao{
+  font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--txt3);margin:24px 0 12px;
+}
+.secao:first-child{margin-top:0}
+
+.medidor{height:9px;background:var(--preto);border:1px solid var(--linha);border-radius:6px;overflow:hidden;margin-bottom:6px}
+.medidor div{height:100%;width:0;background:linear-gradient(90deg,var(--verde),var(--amarelo) 76%,var(--vermelho));transition:width .06s linear}
+
+.num{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:1px solid var(--linha)}
+.num:last-child{border:0}
+.num span{color:var(--txt3)}
+.num b{font-variant-numeric:tabular-nums}
+.num b.bom{color:var(--verde)} .num b.medio{color:var(--amarelo)} .num b.ruim{color:var(--vermelho)}
+
+.recado{
+  position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:90;
+  display:flex;flex-direction:column;gap:9px;pointer-events:none;
+}
+.recado>div{
+  padding:11px 20px;background:var(--sup2);border:1px solid var(--linha2);
+  border-radius:30px;font-size:13px;box-shadow:var(--sombra);
+  animation:sobe .22s ease;
+}
+.recado .ok{border-color:rgba(63,208,122,.45);color:#8fe8b3}
+.recado .mal{border-color:rgba(242,86,74,.45);color:#ff9d94}
+@keyframes sobe{from{opacity:0;transform:translateY(-10px)}}
+
+
+/* =====================================================================
+   CELULAR
+   ---------------------------------------------------------------------
+   No Android o Chrome não implementa getDisplayMedia — não existe como
+   transmitir a própria tela pelo navegador. Mas falar e ASSISTIR a tela
+   do amigo funciona perfeitamente, então a interface se ajusta para
+   isso em vez de mostrar um botão que não faria nada.
+   ===================================================================== */
+@media (max-width:700px){
+  .cartao{border-radius:18px}
+  .cartao-topo{padding:22px 20px 0}
+  .papeis{grid-template-columns:1fr;padding:20px 20px 0;gap:9px}
+  .fluxo{padding:18px 20px 0}
+  .erro,.fone{margin-left:20px;margin-right:20px}
+  .cartao-pe{padding:18px 20px 22px}
+  .marca h1{font-size:22px}
+  .logo{width:46px;height:46px;font-size:22px}
+
+  .sala{padding:16px 20px 0}
+  .manual{margin:16px 20px 0}
+  .campo-nome{padding:18px 20px 0}
+  .barra{padding:8px 10px;gap:8px}
+  .ficha{padding:4px 10px 4px 4px}
+  .ficha-sub{display:none}
+  .av{width:26px;height:26px;font-size:11px}
+  .barra-dir .b{padding:9px 12px;font-size:12.5px}
+  .palco{padding:6px;gap:6px}
+  .quadro{border-radius:12px}
+  .controles{bottom:10px;gap:6px;padding:7px}
+  .cbtn{width:42px;height:42px;font-size:16px}
+  .cbtn.destaque{padding:0 15px;font-size:13px}
+  .painel{width:100%}
+}
+body.sem-tela .cbtn.destaque{display:none}
+body.sem-tela .divisor{display:none}
+
+/* ---------- chat ---------- */
+.chat{
+  position:fixed;top:0;right:0;bottom:0;width:min(360px,100%);z-index:55;
+  background:var(--sup);border-left:1px solid var(--linha);
+  box-shadow:-20px 0 60px rgba(0,0,0,.5);
+  display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s ease;
+}
+.chat.aberto{transform:none}
+.chat-linhas{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.fala{max-width:85%;padding:9px 13px;border-radius:14px;font-size:13.5px;line-height:1.5;word-break:break-word}
+.fala.eu{align-self:flex-end;background:var(--azul);color:#fff;border-bottom-right-radius:5px}
+.fala.ele{align-self:flex-start;background:var(--sup3);border-bottom-left-radius:5px}
+.fala .quem{display:block;font-size:10.5px;opacity:.7;margin-bottom:3px;font-weight:600}
+.chat-vazio{margin:auto;color:var(--txt3);font-size:13px;text-align:center;line-height:1.6}
+.chat-envio{display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--linha)}
+.chat-envio input{flex:1}
+.bolinha-nova{
+  position:absolute;top:6px;right:6px;width:9px;height:9px;border-radius:50%;
+  background:var(--vermelho);border:2px solid var(--fundo);
+}
+.cbtn{position:relative}
+
+/* ---------- indicador de reconexão ---------- */
+.religando{
+  position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:80;
+  display:flex;align-items:center;gap:10px;padding:11px 20px;
+  background:var(--sup2);border:1px solid var(--amarelo);border-radius:30px;
+  font-size:13px;color:var(--amarelo);box-shadow:var(--sombra);
+}
+.girando{
+  width:13px;height:13px;border:2px solid var(--amarelo);border-top-color:transparent;
+  border-radius:50%;animation:gira .8s linear infinite;
+}
+@keyframes gira{to{transform:rotate(360deg)}}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* =====================================================================
+ * ACABAMENTO — movimento com propósito
+ * ---------------------------------------------------------------------
+ * Nada aqui é enfeite solto: cada animação existe para responder a um
+ * toque, mostrar que uma coisa nasceu ou morreu, ou puxar o olho para
+ * onde ele precisa ir. Tudo curto (0,12s a 0,5s) e tudo desligado de
+ * uma vez para quem pediu menos movimento no sistema.
+ * =================================================================== */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms!important;animation-iteration-count:1!important;
+    transition-duration:.001ms!important;scroll-behavior:auto!important;
+  }
+}
+
+/* ---- fundo vivo, bem devagar, só na tela de entrada ---- */
+.entrada::before{
+  content:'';position:absolute;inset:-25%;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(620px 420px at 22% 26%,rgba(91,124,250,.17),transparent 62%),
+    radial-gradient(560px 430px at 80% 74%,rgba(63,208,122,.11),transparent 64%);
+  animation:aurora 24s ease-in-out infinite alternate;
+}
+@keyframes aurora{from{transform:translate3d(-3%,-2%,0) scale(1)}to{transform:translate3d(4%,3%,0) scale(1.14)}}
+
+/* ---- o cartão e o que tem dentro entram em sequência ---- */
+.cartao{animation:entra .5s cubic-bezier(.2,.7,.3,1) both}
+@keyframes entra{from{opacity:0;transform:translateY(15px) scale(.985)}}
+.cartao-topo{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) both;animation-delay:.06s}
+.campo-nome{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) both;animation-delay:.12s}
+.sala{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) both;animation-delay:.18s}
+.manual{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) both;animation-delay:.24s}
+@keyframes sobeSuave{from{opacity:0;transform:translateY(10px)}}
+
+/* ---- botões respondem ao toque ---- */
+.b{transition:transform .12s cubic-bezier(.2,.7,.3,1),background .16s,box-shadow .2s,opacity .16s}
+.b:hover:not(:disabled){transform:translateY(-1px)}
+.b:active:not(:disabled){transform:translateY(1px) scale(.99)}
+.b:disabled{opacity:.6}
+.b.copiado{animation:pop .38s cubic-bezier(.2,1.6,.4,1)}
+
+/* o botão principal tem um brilho que passa de vez em quando */
+.b-verde{position:relative;overflow:hidden}
+.b-verde::after{
+  content:'';position:absolute;top:0;left:-60%;width:38%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.34),transparent);
+  animation:brilho 4.2s ease-in-out infinite;pointer-events:none;
+}
+.b-verde:disabled::after{animation:none}
+@keyframes brilho{0%,66%{left:-60%}92%,100%{left:120%}}
+
+.papel{transition:transform .14s cubic-bezier(.2,.7,.3,1),border-color .16s,background .16s}
+.papel:hover{transform:translateY(-2px)}
+.papel:active{transform:translateY(0)}
+.manual>summary::before{display:inline-block;transition:transform .2s}
+
+/* ---- a caixa do link abrindo ---- */
+.sala-cx{animation:abre .34s cubic-bezier(.2,.7,.3,1) both;transform-origin:top}
+@keyframes abre{from{opacity:0;transform:translateY(-7px) scaleY(.94)}}
+
+/* ---- a chamada aparecendo ---- */
+.chamada:not([hidden]){animation:entraChamada .45s ease both}
+@keyframes entraChamada{from{opacity:0;transform:scale(.995)}}
+.ficha.chegou{animation:pop .55s cubic-bezier(.2,1.45,.4,1) both}
+@keyframes pop{from{opacity:0;transform:scale(.88)}}
+
+/* ---- quem está falando ---- */
+.av{transition:border-color .22s,box-shadow .22s,transform .22s}
+.av.fala{animation:pulsa 1.6s ease-in-out infinite}
+@keyframes pulsa{
+  0%,100%{box-shadow:0 0 0 3px rgba(63,208,122,.24)}
+  50%{box-shadow:0 0 0 8px rgba(63,208,122,.07)}
+}
+
+/* ---- quadros de vídeo nascem e morrem, não piscam ---- */
+.quadro{animation:quadroEntra .4s cubic-bezier(.2,.7,.3,1) both}
+@keyframes quadroEntra{from{opacity:0;transform:scale(.97)}}
+.quadro.saindo{animation:quadroSai .24s ease forwards}
+@keyframes quadroSai{to{opacity:0;transform:scale(.97)}}
+.quadro-acoes{transition:opacity .2s}
+.quadro-acoes button{transition:transform .12s,background .16s}
+.quadro-acoes button:active{transform:scale(.95)}
+
+/* ---- barra de controles ---- */
+.cbtn{transition:transform .12s cubic-bezier(.2,.7,.3,1),background .16s,color .16s}
+.cbtn:hover{transform:translateY(-2px)}
+.cbtn:active{transform:translateY(0) scale(.93)}
+.cbtn.destaque.parando{animation:respira 2.6s ease-in-out infinite}
+@keyframes respira{50%{box-shadow:0 0 0 7px rgba(242,86,74,.13)}}
+.controles{transition:opacity .25s,transform .25s}
+
+/* ---- o aviso de transmissão pisca como um farol ---- */
+.aviso-tx{animation:sobe .3s cubic-bezier(.2,.7,.3,1) both}
+.aviso-tx .luz{animation:farol 1.9s ease-out infinite}
+@keyframes farol{
+  0%{box-shadow:0 0 0 0 rgba(242,86,74,.55)}
+  70%,100%{box-shadow:0 0 0 10px rgba(242,86,74,0)}
+}
+.aviso-tx button{transition:transform .12s,background .16s}
+.aviso-tx button:active{transform:scale(.95)}
+
+/* ---- recados entram e saem ---- */
+.recado-item{animation:sobe .26s cubic-bezier(.2,.7,.3,1) both}
+.recado-item.saindo{animation:someRecado .26s ease forwards}
+@keyframes someRecado{to{opacity:0;transform:translateY(-9px) scale(.97)}}
+
+/* ---- chat ---- */
+.fala.nova{animation:chegaFala .3s cubic-bezier(.2,.7,.3,1) both}
+@keyframes chegaFala{from{opacity:0;transform:translateY(8px) scale(.98)}}
+.bolinha-nova{animation:pop .4s cubic-bezier(.2,1.6,.4,1) both}
+.chat,.painel{transition:transform .32s cubic-bezier(.2,.8,.25,1)}
+
+/* ---- detalhes pequenos que dão vida ---- */
+.ponto{transition:background .5s ease}
+.nada-ico{animation:flutua 5.5s ease-in-out infinite}
+@keyframes flutua{50%{transform:translateY(-8px)}}
+.etapa.ok .bolha{animation:pop .42s cubic-bezier(.2,1.5,.4,1)}
+.medidor div{transition:width .06s linear,background .3s}
+.num b{transition:color .3s}
+
+/* ---- muita gente na barra de cima ---- */
+.gente.cheia .ficha{padding:6px 10px}
+.gente.cheia .av{width:30px;height:30px;font-size:12px}
+.gente.cheia .ficha-nome{font-size:11.5px}
+.gente.cheia .ficha-sub{font-size:9.5px}
+.gente{flex-wrap:wrap}
+.ficha.esperando{opacity:.6}
+.ficha.mudo .av{border-color:var(--vermelho)}
+#pin-fps{gap:5px}
+#pin-fps b{transition:color .3s}
+#pin-fps b.bom{color:var(--verde)} #pin-fps b.medio{color:var(--amarelo)} #pin-fps b.ruim{color:var(--vermelho)}
+.conserto{
+  margin-top:10px;padding:11px 13px;border-radius:12px;
+  background:rgba(240,180,41,.09);border:1px solid rgba(240,180,41,.35);
+}
+.conserto p{margin:0 0 9px;font-size:12.5px;line-height:1.55;color:var(--txt2)}
+.caixa-fechada{
+  margin-top:18px;padding:15px 17px;border-radius:14px;
+  background:rgba(242,86,74,.09);border:1px solid rgba(242,86,74,.4);
+}
+.caixa-fechada b{color:#ff9d94;font-size:14px}
+.caixa-fechada p{margin:8px 0 0;font-size:12.5px;line-height:1.6;color:var(--txt2)}
+.caixa-fechada p b{color:var(--verde);font-size:12.5px}
+#pin-quantos{color:var(--txt3)}
+
+/* ---- várias telas ao mesmo tempo ---- */
+.palco.varios{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));
+  align-content:center;
+}
+.palco.varios .quadro{aspect-ratio:16/9}
+#volumes .campo{margin-bottom:12px}
+
+/* ---- janela do teste ---- */
+.modal{
+  position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:22px;
+  background:rgba(6,7,10,.72);backdrop-filter:blur(6px);
+  animation:entraChamada .2s ease both;
+}
+.modal-cx{
+  width:min(540px,100%);max-height:86vh;display:flex;flex-direction:column;
+  background:var(--sup);border:1px solid var(--linha);border-radius:20px;
+  box-shadow:var(--sombra);overflow:hidden;animation:entra .32s cubic-bezier(.2,.7,.3,1) both;
+}
+.teste-corpo{padding:6px 22px 18px;overflow-y:auto}
+.modal-pe{display:flex;gap:9px;justify-content:flex-end;padding:14px 22px 20px;border-top:1px solid var(--linha)}
+.item{display:flex;gap:12px;padding:13px 0;border-bottom:1px solid var(--linha)}
+.item:last-child{border-bottom:0}
+.item .ico{font-size:17px;line-height:1.3;width:22px;flex-shrink:0;text-align:center}
+.item b{display:block;font-size:13.5px;margin-bottom:3px}
+.item span{font-size:12.5px;color:var(--txt2);line-height:1.55}
+.item.esperando .ico{animation:pisca 1.1s infinite}
+.item.mal b{color:#ff9d94} .item.meio b{color:var(--amarelo)} .item.bem b{color:#8fe8b3}
+.cbtn.gravando{background:var(--vermelho);color:#fff;animation:respira 2s ease-in-out infinite}
+</style>
+</head>
+<body>
+
+<!-- ===================== CONEXÃO ===================== -->
+<section id="entrada" class="entrada">
+  <div class="cartao">
+    <div class="cartao-topo">
+      <div class="marca">
+        <div class="logo">◈</div>
+        <div>
+          <h1>Frag</h1>
+          <p>voz e tela direto entre vocês — sem servidor, sem instalar</p>
+        </div>
+      </div>
+    </div>
+
+    <label class="campo campo-nome" for="meu-nome">
+      <span>Como você quer aparecer</span>
+      <input id="meu-nome" type="text" maxlength="18" placeholder="seu apelido" autocomplete="off">
+    </label>
+
+    <div class="sala" id="sala-bloco">
+      <button id="btn-sala" class="b b-verde b-largo" type="button">🔗 Criar sala e pegar o link</button>
+      <p class="ajuda">Um link só. Seu amigo clica nele e cai direto na call — sem código, sem colar nada.</p>
+      <div class="sala-cx" id="sala-cx" hidden>
+        <textarea id="sala-link" rows="2" readonly aria-label="Link da sala"></textarea>
+        <div id="sala-envio" style="display:flex;gap:9px;margin-top:9px">
+          <button id="btn-sala-whats" class="b b-azul" type="button" style="flex:1">Mandar no WhatsApp</button>
+          <button id="btn-sala-copiar" class="b b-cinza" type="button">Copiar</button>
+        </div>
+        <p class="ajuda" id="aviso-link" hidden style="color:var(--amarelo)"></p>
+        <div class="sala-estado" id="sala-estado"><span class="girando" id="sala-girando"></span><span id="sala-txt">esperando seu amigo abrir o link…</span></div>
+        <button id="btn-sala-denovo" class="b b-cinza b-largo" type="button" style="margin-top:11px" hidden>Tentar de novo</button>
+      </div>
+      <button id="btn-teste" class="b b-cinza b-largo" type="button" style="margin-top:11px">🩺 Testar minha conexão</button>
+    </div>
+
+    <details class="manual" id="manual-bloco">
+      <summary>Sem internet livre? Usar o modo manual (código)</summary>
+    <div class="papeis">
+      <button class="papel" id="papel-chamo" type="button">
+        <b>Eu chamo</b>
+        <span>Gero um convite e mando pro meu amigo.</span>
+      </button>
+      <button class="papel" id="papel-entro" type="button">
+        <b>Me chamaram</b>
+        <span>Recebi um convite e vou colar aqui.</span>
+      </button>
+    </div>
+
+    <!-- quem chama -->
+    <div id="fluxo-chamo" class="fluxo" hidden>
+      <div class="etapa" id="e1">
+        <div class="etapa-cab"><span class="bolha">1</span><b id="rot-e1">Gerar o convite</b></div>
+        <button id="btn-gerar" class="b b-azul b-largo" type="button">Gerar convite</button>
+        <div class="linha-copia" id="cx-meu" hidden>
+          <textarea id="meu-codigo" rows="3" readonly aria-label="Seu convite"></textarea>
+        </div>
+        <div id="cx-envio" hidden style="display:flex;gap:9px;margin-top:9px">
+          <button id="btn-whats" class="b b-azul" type="button" style="flex:1">
+            Mandar no WhatsApp
+          </button>
+          <button id="btn-copiar-meu" class="b b-cinza" type="button">Copiar</button>
+        </div>
+      </div>
+
+      <div class="etapa" id="e2">
+        <div class="etapa-cab"><span class="bolha">2</span><b>Colar a resposta dele</b></div>
+        <textarea id="resposta-dele" rows="3" placeholder="Seu amigo vai te devolver um link. Cole aqui."></textarea>
+        <button id="btn-conectar" class="b b-azul b-largo" type="button" style="margin-top:9px">Conectar</button>
+      </div>
+    </div>
+
+    <!-- quem foi chamado -->
+    <div id="fluxo-entro" class="fluxo" hidden>
+      <div class="etapa" id="f1">
+        <div class="etapa-cab"><span class="bolha">1</span><b>Colar o convite que te mandaram</b></div>
+        <textarea id="codigo-dele" rows="3" placeholder="Cole aqui o link ou o código que seu amigo mandou."></textarea>
+        <button id="btn-responder" class="b b-azul b-largo" type="button" style="margin-top:9px">Gerar minha resposta</button>
+      </div>
+
+      <div class="etapa" id="f2">
+        <div class="etapa-cab"><span class="bolha">2</span><b>Mandar de volta pra ele</b></div>
+        <textarea id="minha-resposta" rows="3" readonly aria-label="Sua resposta" placeholder="Sua resposta aparece aqui."></textarea>
+        <div style="display:flex;gap:9px;margin-top:9px">
+          <button id="btn-whats-resp" class="b b-azul" type="button" style="flex:1">
+            Mandar no WhatsApp
+          </button>
+          <button id="btn-copiar-resposta" class="b b-cinza" type="button">Copiar</button>
+        </div>
+        <p class="ajuda">Assim que ele colar isso, vocês conectam na hora.</p>
+      </div>
+    </div>
+    </details>
+
+    <p id="erro" class="erro" hidden></p>
+
+    <div class="fone">
+      <b>Use fone de ouvido.</b> Sem fone, o seu microfone capta o som da caixa e o outro escuta o próprio eco.
+    </div>
+
+    <div class="cartao-pe"></div>
+  </div>
+</section>
+
+<!-- ===================== CHAMADA ===================== -->
+<div id="chamada" class="chamada" hidden>
+  <header class="barra">
+    <div class="gente" id="gente"></div>
+    </div>
+    <div class="barra-dir">
+      <span class="pin" id="pin-fps" hidden><b id="fps-agora">—</b><span style="opacity:.6">fps</span></span>
+      <span class="pin" id="pin-quantos"><span id="quantos">só você</span></span>
+      <span class="pin"><span class="ponto" id="ponto"></span><span id="ping">—</span></span>
+      <button id="btn-painel" class="b b-cinza" type="button">Qualidade e ajustes</button>
+    </div>
+  </header>
+
+  <div id="palco" class="palco">
+    <div id="nada" class="nada">
+      <div class="nada-ico">🖥</div>
+      <h3>Ninguém está transmitindo</h3>
+      <p>Clique em <b>Compartilhar tela</b> aí embaixo para mandar o seu jogo em alta qualidade, com o som junto.</p>
+    </div>
+  </div>
+
+  <div id="controles" class="controles">
+    <button id="btn-mic" class="cbtn" type="button" title="Microfone (M)">🎙</button>
+    <button id="btn-surdo" class="cbtn" type="button" title="Silenciar tudo (D)">🎧</button>
+    <span class="divisor"></span>
+    <button id="btn-tela" class="cbtn destaque" type="button">🖥 Compartilhar tela</button>
+    <span class="divisor"></span>
+    <button id="btn-clipe" class="cbtn" type="button" title="Salvar os últimos segundos (C)">🎬</button>
+    <button id="btn-chat" class="cbtn" type="button" title="Chat (T)">💬<span id="chat-bolinha" class="bolinha-nova" hidden></span></button>
+    <button id="btn-config" class="cbtn" type="button" title="Ajustes">⚙</button>
+    <button id="btn-sair" class="cbtn" type="button" title="Encerrar" style="background:var(--vermelho);color:#fff">⏻</button>
+  </div>
+</div>
+
+<!-- ===================== PAINEL ===================== -->
+<aside id="painel" class="painel" inert>
+  <div class="painel-topo">
+    <h2>Qualidade e ajustes</h2>
+    <button id="fechar-painel" type="button">×</button>
+  </div>
+  <div class="painel-corpo">
+    <div class="secao">Como está a chamada</div>
+    <div id="numeros"></div>
+
+    <div class="secao">Microfone</div>
+    <label class="campo"><span>Aparelho</span><select id="sel-mic"></select></label>
+    <div class="medidor"><div id="medidor"></div></div>
+    <p class="ajuda" style="margin-top:0">Fale alguma coisa: a barra tem que mexer.</p>
+    <label class="chk" style="margin-top:14px">
+      <input id="in-ruido" type="checkbox" checked>
+      <span>Cortar ruído de fundo e eco</span>
+    </label>
+    <p class="ajuda" style="margin-top:0">Desmarque só se você tem microfone bom e está de fone — a voz fica bem mais encorpada.</p>
+
+    <div class="secao">Modo de fala</div>
+    <label class="campo">
+      <span>Como o microfone abre</span>
+      <select id="sel-fala">
+        <option value="voz">Sempre aberto</option>
+        <option value="ptt">Push-to-talk (segurar tecla)</option>
+      </select>
+    </label>
+    <div id="bloco-ptt" hidden>
+      <button id="btn-tecla" class="b b-cinza b-largo" type="button">clique e aperte a tecla</button>
+      <p class="ajuda" id="ajuda-ptt">
+        Funciona enquanto a janela do Frag estiver em foco. No app instalado
+        funciona com o jogo na frente também.
+      </p>
+    </div>
+
+    <div class="secao">Tela</div>
+    <label class="campo">
+      <span>Qualidade da transmissão</span>
+      <select id="sel-qualidade">
+        <option value="720-30-3">720p 30fps — leve</option>
+        <option value="1080-30-5">1080p 30fps</option>
+        <option value="1080-60-8" selected>1080p 60fps — recomendado</option>
+        <option value="1440-60-14">1440p 60fps — pesado</option>
+      </select>
+    </label>
+    <p class="ajuda" style="margin-top:0">
+      Aqui é conexão direta entre vocês dois: a qualidade depende do seu upload
+      e do download dele. 1080p60 pede uns 12 Mbps de subida.
+    </p>
+
+    <label class="chk" style="margin-top:14px">
+      <input id="in-auto" type="checkbox" checked>
+      <span>Ajustar sozinho quando a internet apertar</span>
+    </label>
+    <p class="ajuda" style="margin-top:0">Em vez de travar, a imagem baixa um pouco e volta sozinha. Deixe ligado.</p>
+
+    <div class="secao">Clipe e gravação</div>
+    <label class="chk">
+      <input id="in-clipe-sempre" type="checkbox">
+      <span>Deixar o clipe sempre pronto</span>
+    </label>
+    <p class="ajuda" style="margin-top:0">
+      <b style="color:var(--amarelo)">Custa processador.</b> Com isso ligado, o Frag comprime a
+      imagem o tempo todo em segundo plano para poder salvar o que já passou. Se o seu jogo
+      está perdendo FPS, deixe <b>desligado</b> — o botão 🎬 continua funcionando, só começa a
+      guardar na hora em que você aperta.
+    </p>
+    <label class="campo" style="margin-top:12px">
+      <span>O clipe guarda os últimos</span>
+      <select id="sel-clipe">
+        <option value="15">15 segundos</option>
+        <option value="30" selected>30 segundos</option>
+        <option value="60">60 segundos</option>
+        <option value="120">2 minutos</option>
+      </select>
+    </label>
+    <p class="ajuda" style="margin-top:0">
+      Fica guardado só na memória, andando pra frente o tempo todo. Quando você aperta
+      <b>C</b> (ou o botão 🎬), o que estiver guardado vira arquivo. Nada sai do seu PC.
+    </p>
+    <button id="btn-gravar" class="b b-cinza b-largo" type="button" style="margin-top:10px">⏺ Gravar a call inteira</button>
+    <p class="ajuda" style="margin-top:0" id="ajuda-gravar">Grava do começo ao fim, sem limite de tempo.</p>
+
+    <div class="secao" id="secao-pc" hidden>No computador</div>
+    <div id="bloco-pc" hidden>
+      <label class="chk">
+        <input id="in-sobrepor" type="checkbox" checked>
+        <span>Mostrar quem está falando por cima do jogo</span>
+      </label>
+      <p class="ajuda" style="margin-top:0">
+        Aparece um cantinho no alto da tela com os nomes; quem fala acende em verde.
+        Funciona com o jogo em <b>janela sem borda</b> — em tela cheia exclusiva o Windows não deixa nada por cima.
+      </p>
+      <button id="btn-tecla-mudo" class="b b-cinza b-largo" type="button" style="margin-top:10px">Tecla de mudo: nenhuma</button>
+      <p class="ajuda" style="margin-top:0">Liga e desliga o microfone de qualquer lugar, mesmo dentro do jogo.</p>
+      <label class="chk" style="margin-top:12px">
+        <input id="in-windows" type="checkbox">
+        <span>Abrir o Frag junto com o Windows</span>
+      </label>
+      <p class="ajuda" style="margin-top:0">Fechar a janela não encerra a call — o Frag fica do lado do relógio.</p>
+    </div>
+
+    <div class="secao">Rede</div>
+    <label class="campo">
+      <span>Compressão do vídeo</span>
+      <select id="sel-codec">
+        <option value="h264">H264 — usa a placa de vídeo (recomendado para jogo)</option>
+        <option value="auto">Automática (o navegador escolhe)</option>
+        <option value="vp9">VP9 — imagem mais limpa, come mais processador</option>
+        <option value="vp8">VP8 — a mais compatível</option>
+      </select>
+    </label>
+    <p class="ajuda" style="margin-top:0" id="ajuda-codec">
+      H264 é comprimido pelo chip de vídeo da placa; VP8 e VP9 são comprimidos pelo processador,
+      o mesmo que está rodando o jogo. Se o seu FPS cai quando você transmite, é quase sempre isso.
+    </p>
+
+    <label class="campo" style="margin-top:12px">
+      <span>Quando a internet ou o PC apertar, o que cede primeiro</span>
+      <select id="sel-prioridade">
+        <option value="fps">Manter os quadros — a imagem fica menor, o movimento continua liso</option>
+        <option value="nitidez">Manter a nitidez — a imagem fica cheia, o movimento engasga</option>
+      </select>
+    </label>
+    <p class="ajuda" style="margin-top:0">
+      Para jogo, "manter os quadros". Para mostrar texto ou desenho, "manter a nitidez".
+    </p>
+    <label class="campo" style="margin-top:12px">
+      <span>Endereço do Frag na internet</span>
+      <input id="in-site" type="text" placeholder="https://…" autocomplete="off">
+    </label>
+    <p class="ajuda" style="margin-top:0">
+      É o endereço que vai dentro do link que você manda pro seu amigo. Deixe vazio para usar o padrão.
+    </p>
+
+    <label class="campo" style="margin-top:12px">
+      <span>Retransmissor próprio (opcional)</span>
+      <textarea id="in-turn" rows="2" placeholder="turn:servidor:3478|usuario|senha" style="font-size:12px"></textarea>
+    </label>
+    <p class="ajuda" style="margin-top:0">
+      Só precisa se a conexão não fecha de jeito nenhum — acontece em algumas redes de celular e de prédio.
+      Uma linha por servidor. Vale para a próxima conexão.
+    </p>
+
+    <div class="secao">Volume geral</div>
+    <label class="campo">
+      <span>Todo mundo: <b id="lbl-vol" style="color:var(--azul)">100%</b></span>
+      <input id="vol" type="range" min="0" max="200" value="100">
+    </label>
+
+    <div class="secao">Volume de cada um</div>
+    <div id="volumes"></div>
+  </div>
+</aside>
+
+<!-- ===================== CHAT ===================== -->
+<aside id="chat" class="chat" inert>
+  <div class="painel-topo">
+    <h2>Chat</h2>
+    <button id="fechar-chat" type="button">×</button>
+  </div>
+  <div id="chat-linhas" class="chat-linhas"></div>
+  <form id="chat-form" class="chat-envio">
+    <input id="chat-txt" type="text" maxlength="500" placeholder="escreva e aperte Enter" autocomplete="off" aria-label="Mensagem do chat">
+    <button class="b b-azul" type="submit">Enviar</button>
+  </form>
+</aside>
+
+<!-- ===================== TESTE DE CONEXÃO ===================== -->
+<div id="teste" class="modal" hidden>
+  <div class="modal-cx">
+    <div class="painel-topo">
+      <h2>Testando sua conexão</h2>
+      <button id="fechar-teste" type="button">×</button>
+    </div>
+    <div id="teste-corpo" class="teste-corpo"></div>
+    <div class="modal-pe">
+      <button id="btn-teste-denovo" class="b b-cinza" type="button">Testar de novo</button>
+      <button id="btn-teste-ok" class="b b-azul" type="button">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div id="recados" class="recado"></div>
+
+<script>
+'use strict';
+
+/* =====================================================================
+ * COMO ISSO FUNCIONA
+ * ---------------------------------------------------------------------
+ * O navegador já sabe conversar direto com outro navegador (WebRTC).
+ * O que ele não sabe é ONDE o outro está. Normalmente um servidor faz a
+ * apresentação; aqui quem apresenta é você, mandando um convite.
+ *
+ * Depois disso o áudio e o vídeo vão direto de um PC pro outro. Os
+ * servidores STUN abaixo servem só para cada navegador descobrir o
+ * próprio IP público — nenhum áudio ou vídeo passa por eles.
+ * =================================================================== */
+const STUN = [
+  {urls:'stun:stun.l.google.com:19302'},
+  {urls:'stun:stun1.l.google.com:19302'},
+  {urls:'stun:stun.cloudflare.com:3478'},
+];
+
+/* ---------------------------------------------------------------------
+ * RETRANSMISSOR (TURN)
+ * ---------------------------------------------------------------------
+ * Em algumas redes — internet de celular, prédio, empresa, alguns
+ * provedores com CGNAT — os dois computadores não conseguem se achar
+ * direto de jeito nenhum. Aí só resta um retransmissor no meio.
+ *
+ * Estes abaixo são públicos e gratuitos, então podem estar fora do ar
+ * ou lotados. Se você conseguir um seu (Metered, Cloudflare, Twilio),
+ * cole em Ajustes > Rede: aí a conexão fecha em praticamente qualquer
+ * lugar. Sem TURN, quando as duas redes são fechadas, não conecta.
+ * ------------------------------------------------------------------ */
+const TURN_PADRAO = [
+  {urls:'turn:openrelay.metered.ca:80',            username:'openrelayproject', credential:'openrelayproject'},
+  {urls:'turn:openrelay.metered.ca:443',           username:'openrelayproject', credential:'openrelayproject'},
+  {urls:'turns:openrelay.metered.ca:443?transport=tcp', username:'openrelayproject', credential:'openrelayproject'},
+];
+
+function meuTurn(){
+  const t=(cfg.turn||'').trim();
+  if(!t) return TURN_PADRAO;
+  // formato: turn:host:porta|usuario|senha  (uma linha por servidor)
+  const fora=[];
+  t.split(/\n+/).forEach(l=>{
+    const [u,us,se]=l.split('|').map(x=>(x||'').trim());
+    if(/^turns?:/.test(u||'')) fora.push(us?{urls:u,username:us,credential:se||''}:{urls:u});
+  });
+  return fora.length?fora:TURN_PADRAO;
+}
+
+const RTC = ()=>({
+  iceServers: STUN.concat(meuTurn()),
+  bundlePolicy:'max-bundle',
+  iceCandidatePoolSize:2,
+});
+
+const PERFIS = {
+  '720-30-3':  {l:1280,a:720, fps:30,mbps:3},
+  '1080-30-5': {l:1920,a:1080,fps:30,mbps:5},
+  '1080-60-8': {l:1920,a:1080,fps:60,mbps:8},
+  '1440-60-14':{l:2560,a:1440,fps:60,mbps:14},
+};
+
+/* O que é SEU: microfone, tela, ajustes de momento. O que é de cada
+   pessoa da call mora no "par" dela, não aqui. */
+const est = {
+  streamMic:null, streamTela:null, pegandoTela:false,
+  ctx:null, analisador:null, fonteMic:null, loopNivel:null, loopNum:null,
+  micLimpar:null, micDev:null,
+  mudo:false, surdo:false, falandoAntes:false,
+  segurando:false, gravandoTecla:false, relogioTecla:null,
+};
+
+const $ = (id)=>document.getElementById(id);
+
+/* =====================================================================
+ * AJUSTES GUARDADOS
+ * ---------------------------------------------------------------------
+ * Ficam no próprio navegador/app. Se der erro (janela anônima, política
+ * do sistema), o app continua funcionando com os valores padrão — por
+ * isso tudo aqui está dentro de try.
+ * =================================================================== */
+const cfg = {
+  nome:'', mic:'padrao', limpar:true, qualidade:'1080-60-8',
+  fala:'voz', tecla:'KeyV', nomeTecla:'V', volume:100,
+  codec:'h264', auto:true, turn:'', site:'',
+  sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
+  clipe:30, clipeSempre:false, prioridade:'fps',
+};
+
+function lerAjustes(){
+  // Um valor estragado aqui (outra versão, extensão, edição à mão) fazia
+  // o app inteiro parar de carregar. Agora cada campo só entra se o tipo
+  // bater com o padrão; o que não bater fica no valor de fábrica.
+  let g={};
+  try{ g = JSON.parse(localStorage.getItem('frag') || '{}') || {}; }catch{ return; }
+  if(typeof g!=='object') return;
+  for(const k of Object.keys(cfg)){
+    const v=g[k];
+    if(v===undefined || v===null) continue;
+    if(typeof v !== typeof cfg[k]) continue;
+    cfg[k]=v;
+  }
+  if(typeof cfg.volume!=='number' || !isFinite(cfg.volume)) cfg.volume=100;
+  cfg.volume=Math.max(0,Math.min(200,cfg.volume));
+  if(!PERFIS[cfg.qualidade]) cfg.qualidade='1080-60-8';
+  if(cfg.fala!=='ptt') cfg.fala='voz';
+  cfg.nome=String(cfg.nome||'').slice(0,18);
+}
+function guardarAjustes(){
+  try{ localStorage.setItem('frag', JSON.stringify(cfg)); }catch{}
+}
+
+function recado(txt,tipo){
+  const caixa=$('recados');
+  while(caixa.children.length>3) caixa.firstChild.remove();
+  const d=document.createElement('div');
+  d.className='recado-item '+(tipo||''); d.textContent=txt;
+  caixa.appendChild(d);
+  setTimeout(()=>{ d.classList.add('saindo'); setTimeout(()=>d.remove(),260); },4200);
+}
+function erro(txt){ const e=$('erro'); e.textContent=txt; e.hidden=false; }
+
+/* =====================================================================
+ * O CONVITE CURTO
+ * ---------------------------------------------------------------------
+ * O SDP que o navegador gera tem ~5.200 caracteres. Só que quase tudo
+ * nele é MOLDE: as mesmas linhas, na mesma ordem, toda vez. De único
+ * mesmo existem uns 90 bytes — usuário e senha do ICE, a impressão
+ * digital do certificado, e o IP:porta de cada caminho de rede.
+ *
+ * Como os dois lados rodam este mesmo arquivo, o molde não precisa
+ * viajar: mandamos só os 90 bytes e remontamos o SDP inteiro do outro
+ * lado. É o que derruba o convite de 838 para ~120 caracteres.
+ * =================================================================== */
+
+const CODECS_VIDEO = ['VP8', 'H264', 'VP9'];
+
+function b64u(bytes){
+  let s='';
+  for(const b of bytes) s+=String.fromCharCode(b);
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function deB64u(txt){
+  let b=String(txt).trim().replace(/\s+/g,'').replace(/-/g,'+').replace(/_/g,'/');
+  while(b.length%4) b+='=';
+  return Uint8Array.from(atob(b), c=>c.charCodeAt(0));
+}
+
+/* ---------- o que é único no SDP vira ~90 bytes ---------- */
+function empacotar(sdp, papel){
+  const L = sdp.split(/\r\n|\n/).filter(Boolean);
+  const pega = (re)=>{ const l=L.find(x=>re.test(x)); return l?l.match(re)[1]:''; };
+
+  const ufrag = pega(/^a=ice-ufrag:(.+)$/);
+  const pwd   = pega(/^a=ice-pwd:(.+)$/);
+  const fpHex = pega(/^a=fingerprint:sha-256 (.+)$/);
+  if(!ufrag || !pwd || !fpHex) throw new Error('SDP_INCOMPLETO');
+
+  // Os IDs das extensões de cabeçalho variam a cada navegador/versão.
+  const idMid = Number((L.find(l=>/^a=extmap:\d+ urn:ietf:params:rtp-hdrext:sdes:mid/.test(l))
+                        ||'').match(/^a=extmap:(\d+)/)?.[1] || 0);
+  const idTcc = Number((L.find(l=>/^a=extmap:\d+ .*transport-wide-cc/.test(l))
+                        ||'').match(/^a=extmap:(\d+)/)?.[1] || 0);
+  if(!idMid) throw new Error('SDP_INCOMPLETO');
+
+  const ptA = Number(pega(/^a=rtpmap:(\d+) opus\/48000/i) || 111);
+  const linhaV = L.find(l=>/^a=rtpmap:\d+ (VP8|H264|VP9)\/90000/i.test(l)) || '';
+  const ptV = Number((linhaV.match(/^a=rtpmap:(\d+)/)||[,96])[1]);
+  const nomeV = ((linhaV.match(/(VP8|H264|VP9)/i)||[,'VP8'])[1]).toUpperCase();
+
+  // primeiro ssrc de cada seção de mídia
+  const porSecao = [];
+  let secao = -1;
+  for(const l of L){
+    if(l.startsWith('m=')) { secao++; porSecao[secao] = 0; }
+    const m = l.match(/^a=ssrc:(\d+) cname:/);
+    if(m && secao>=0 && !porSecao[secao]) porSecao[secao] = Number(m[1]);
+  }
+
+  // caminhos de rede: IPv4 por UDP, sem repetir, os públicos na frente
+  const cands = [];
+  const vistos = new Set();
+  for(const l of L){
+    if(!/^a=candidate:/.test(l)) continue;
+    const p = l.split(' ');
+    if(!/udp/i.test(p[2])) continue;
+    const ip = p[4], porta = Number(p[5]);
+    if(!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) continue;
+    const chave = ip+':'+porta;
+    if(vistos.has(chave)) continue;
+    vistos.add(chave);
+    // O retransmissor (relay) é o endereço que salva quando as duas redes
+    // são fechadas. Ele estava perdendo a vaga para endereços locais e
+    // sumindo do convite — ou seja, o TURN não valia de nada no modo
+    // manual. Agora ele vai na frente.
+    const tipo = p[7];
+    const nota = tipo==='relay' ? 2 : tipo==='srflx' ? 1 : 0;
+    cands.push({ publico: nota, ip, porta });
+  }
+  cands.sort((a,b)=>b.publico-a.publico);
+  const usar = cands.slice(0,5);
+
+  const bytes = [];
+  const codV = Math.max(0, CODECS_VIDEO.indexOf(nomeV));
+  bytes.push((papel==='resposta'?1:0) | (codV<<1), ptA, ptV, idMid, idTcc);
+  bytes.push(ufrag.length); for(const c of ufrag) bytes.push(c.charCodeAt(0)&255);
+  bytes.push(pwd.length);   for(const c of pwd)   bytes.push(c.charCodeAt(0)&255);
+  for(const h of fpHex.split(':')) bytes.push(parseInt(h,16)&255);
+  for(let i=0;i<3;i++){
+    const v = porSecao[i]||0;
+    bytes.push((v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255);
+  }
+  bytes.push(usar.length);
+  for(const c of usar){
+    bytes.push(c.publico);
+    for(const o of c.ip.split('.')) bytes.push(Number(o)&255);
+    bytes.push((c.porta>>8)&255, c.porta&255);
+  }
+  return b64u(new Uint8Array(bytes));
+}
+
+/* ---------- e os ~90 bytes viram o SDP inteiro de novo ---------- */
+function desempacotar(codigo){
+  const b = deB64u(codigo);
+  let i = 0;
+  const ler = ()=>{ if(i>=b.length) throw new Error('CURTO_DEMAIS'); return b[i++]; };
+
+  const flags = ler();
+  const papel = (flags & 1) ? 'resposta' : 'convite';
+  const codV  = CODECS_VIDEO[(flags>>1)&3] || 'VP8';
+  const ptA = ler(), ptV = ler();
+  const idMid = ler(), idTcc = ler();
+
+  let ufrag=''; for(let n=ler(); n>0; n--) ufrag+=String.fromCharCode(ler());
+  let pwd='';   for(let n=ler(); n>0; n--) pwd  +=String.fromCharCode(ler());
+
+  const fp=[]; for(let n=0;n<32;n++) fp.push(ler().toString(16).padStart(2,'0').toUpperCase());
+
+  const ssrcs=[];
+  for(let n=0;n<3;n++){ let v=0; for(let k=0;k<4;k++) v=v*256+ler(); ssrcs.push(v||1); }
+
+  const cands=[];
+  for(let n=ler(); n>0; n--){
+    const publico=ler();
+    const ip=[ler(),ler(),ler(),ler()].join('.');
+    const porta=(ler()<<8)|ler();
+    cands.push({publico,ip,porta});
+  }
+  if(!cands.length) throw new Error('SEM_CAMINHO');
+
+  const setup = papel==='resposta' ? 'active' : 'actpass';
+  const linhasCand = cands.map((c,n)=>
+    'a=candidate:'+(n+1)+' 1 udp '+(c.publico?1686052607:2122260223)+' '+c.ip+' '+c.porta+
+    ' typ '+(c.publico?'srflx raddr 0.0.0.0 rport 0':'host')+' generation 0');
+
+  const comum = (mid)=>[
+    'c=IN IP4 0.0.0.0',
+    'a=rtcp:9 IN IP4 0.0.0.0',
+    ...linhasCand,
+    'a=ice-ufrag:'+ufrag,
+    'a=ice-pwd:'+pwd,
+    'a=ice-options:trickle',
+    'a=fingerprint:sha-256 '+fp.join(':'),
+    'a=setup:'+setup,
+    'a=mid:'+mid,
+    // A extensão "mid" diz a qual faixa cada pacote pertence. O número
+    // dela precisa ser o MESMO que o navegador do outro lado usa —
+    // por isso ele viaja dentro do convite em vez de ser fixo aqui.
+    'a=extmap:'+idMid+' urn:ietf:params:rtp-hdrext:sdes:mid',
+    ...(idTcc ? ['a=extmap:'+idTcc+' http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01'] : []),
+    'a=sendrecv',
+    'a=rtcp-mux',
+  ];
+
+  // transport-cc é o que mede a banda disponível e deixa o vídeo subir
+  const fbTcc = (pt)=> idTcc ? ['a=rtcp-fb:'+pt+' transport-cc'] : [];
+
+  const OPUS = 'minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=128000;usedtx=0';
+  const secaoAudio = (mid,ssrc)=>[
+    'm=audio 9 UDP/TLS/RTP/SAVPF '+ptA,
+    ...comum(mid),
+    'a=rtpmap:'+ptA+' opus/48000/2',
+    ...fbTcc(ptA),
+    'a=fmtp:'+ptA+' '+OPUS,
+    'a=ssrc:'+ssrc+' cname:frag',
+  ];
+
+  const fmtpV = codV==='H264'
+    ? ['a=fmtp:'+ptV+' level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f'] : [];
+
+  const linhas = [
+    'v=0',
+    'o=- 4611731400430051336 2 IN IP4 127.0.0.1',
+    's=-',
+    't=0 0',
+    'a=group:BUNDLE 0 1 2 3',
+    'a=msid-semantic: WMS',
+    ...secaoAudio(0, ssrcs[0]),
+    'm=video 9 UDP/TLS/RTP/SAVPF '+ptV,
+    ...comum(1),
+    'a=rtpmap:'+ptV+' '+codV+'/90000',
+    // recuperação de quadro perdido: sem isto a tela congela em pedaços
+    'a=rtcp-fb:'+ptV+' nack',
+    'a=rtcp-fb:'+ptV+' nack pli',
+    'a=rtcp-fb:'+ptV+' ccm fir',
+    'a=rtcp-fb:'+ptV+' goog-remb',
+    ...fbTcc(ptV),
+    ...fmtpV,
+    'a=ssrc:'+ssrcs[1]+' cname:frag',
+    ...secaoAudio(2, ssrcs[2]),
+    'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+    'c=IN IP4 0.0.0.0',
+    ...linhasCand,
+    'a=ice-ufrag:'+ufrag,
+    'a=ice-pwd:'+pwd,
+    'a=ice-options:trickle',
+    'a=fingerprint:sha-256 '+fp.join(':'),
+    'a=setup:'+setup,
+    'a=mid:3',
+    'a=sctp-port:5000',
+    'a=max-message-size:262144',
+  ];
+
+  return { sdp: linhas.join('\r\n')+'\r\n', papel };
+}
+
+function extrairCodigo(bruto){
+  const t=String(bruto||'').trim();
+  let m=t.match(/[#?](?:c|r)=([A-Za-z0-9_-]+)/); if(m) return m[1];
+  m=t.match(/[A-Za-z0-9_-]{60,}/); return m?m[0]:t.replace(/\s+/g,'');
+}
+
+function esperarIce(pc){
+  if(pc.iceGatheringState==='complete') return Promise.resolve();
+  return new Promise(res=>{
+    const t=setTimeout(fim,4000);
+    function fim(){clearTimeout(t);pc.removeEventListener('icegatheringstatechange',ouvir);res();}
+    function ouvir(){if(pc.iceGatheringState==='complete') fim();}
+    pc.addEventListener('icegatheringstatechange',ouvir);
+  });
+}
+
+/* ---------------------------------------------------------------------
+ * Link quando a página tem endereço; código quando é arquivo no disco.
+ * ------------------------------------------------------------------ */
+const temEndereco=()=>location.protocol==='http:'||location.protocol==='https:';
+const montarLink=(letra,cod)=>temEndereco()
+  ? location.origin+location.pathname+location.search+'#'+letra+'='+cod : cod;
+const rotuloEnvio=()=>temEndereco()?'link':'código';
+
+/* =====================================================================
+ * SALA: O LINK QUE ENTRA SOZINHO
+ * ---------------------------------------------------------------------
+ * O WebRTC precisa de ida E volta: um lado faz a proposta, o outro
+ * responde. Sem ninguém no meio, essa volta tinha que ser você copiando
+ * e colando código. É por isso que era chato.
+ *
+ * A sala resolve isso com um quadro de recados público e gratuito
+ * (ntfy.sh). Nada de conta, nada de servidor seu. Os dois ficam
+ * escutando o MESMO assunto secreto e trocam por ali só a apresentação.
+ * Assim que ela termina, voz e tela vão DIRETO de um PC pro outro — o
+ * quadro de recados não vê nem um byte de mídia.
+ *
+ * E o que passa por ele vai cifrado (AES-GCM). A chave viaja depois do
+ * "#" do link, e navegador nenhum manda o que vem depois do "#" pro
+ * servidor. Ou seja: quem hospeda o quadro de recados vê tráfego, não
+ * vê conteúdo.
+ * =================================================================== */
+const SINAIS = window.__FRAG_SINAIS ||
+  ['https://ntfy.sh','https://ntfy.envs.net','https://ntfy.tedomum.net','https://ntfy.mzte.de'];
+/* Endereço do SEU Frag na internet. É o que vai dentro do link que você
+   manda pro amigo quando o Frag está rodando como aplicativo (aí não
+   existe endereço de página para usar). Dá para trocar em Ajustes > Rede. */
+const SITE = 'https://andreunicos.github.io/';
+
+const sala = {
+  ligada:false, dono:false, id:null, chaveTxt:null, chave:null,
+  eu:null, ele:null, fontes:[], bases:[], vistos:new Set(),
+  fila:[], seq:0, batendo:null, adeus:null,
+};
+
+function idAleatorio(n){
+  const a='abcdefghijkmnopqrstuvwxyz23456789';
+  const b=crypto.getRandomValues(new Uint8Array(n));
+  return Array.from(b, x=>a[x % a.length]).join('');
+}
+
+const assunto = ()=>'frag2-'+sala.id;
+
+/* ---------- comprimir + cifrar ---------- */
+async function gzipar(bytes){
+  if(typeof CompressionStream==='undefined') return {z:0,b:bytes};
+  try{
+    const fluxo=new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+    return {z:1, b:new Uint8Array(await new Response(fluxo).arrayBuffer())};
+  }catch{ return {z:0,b:bytes}; }
+}
+async function desgzipar(bytes){
+  const fluxo=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(fluxo).arrayBuffer());
+}
+
+async function cifrar(obj){
+  const cru=new TextEncoder().encode(JSON.stringify(obj));
+  const {z,b}=await gzipar(cru);
+  if(!sala.chave){                       // sem WebCrypto: segue sem cifra
+    const fora=new Uint8Array(1+b.length); fora[0]=z|0x80; fora.set(b,1);
+    return b64u(fora);
+  }
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},sala.chave,b));
+  const fora=new Uint8Array(1+12+ct.length);
+  fora[0]=z; fora.set(iv,1); fora.set(ct,13);
+  return b64u(fora);
+}
+async function decifrar(txt){
+  const tudo=deB64u(txt);
+  const marca=tudo[0];
+  let b;
+  if(marca & 0x80){
+    // Recado sem cifra. Se ESTA sala tem chave, isso não veio do seu
+    // amigo — veio de fora. Recusa. (Sem essa checagem, bastava saber o
+    // nome do assunto para se passar por ele.)
+    if(sala.chave) throw new Error('SEM_CIFRA');
+    b=tudo.slice(1);
+  }
+  else{
+    if(!sala.chave) throw new Error('SEM_CHAVE');
+    b=new Uint8Array(await crypto.subtle.decrypt(
+      {name:'AES-GCM', iv:tudo.slice(1,13)}, sala.chave, tudo.slice(13)));
+  }
+  if(marca & 1) b=await desgzipar(b);
+  return JSON.parse(new TextDecoder().decode(b));
+}
+
+/* ---------- falar e ouvir no quadro de recados ---------- */
+async function publicar(obj){
+  if(!sala.ligada) return;
+  obj.de=sala.eu; obj.n=++sala.seq;
+  let corpo;
+  try{ corpo=await cifrar(obj); }catch(e){ console.warn('cifrar',e); return; }
+  await Promise.all(sala.bases.map(b=>
+    fetch(b+'/'+assunto(), {method:'POST', body:corpo}).catch(()=>{})
+  ));
+}
+
+function escutar(base){
+  let fonte;
+  try{ fonte=new EventSource(base+'/'+assunto()+'/sse'); }catch{ return null; }
+  fonte.onmessage=async (ev)=>{
+    let d; try{ d=JSON.parse(ev.data); }catch{ return; }
+    if(d.event!=='message' || !d.message) return;
+    let m; try{ m=await decifrar(d.message); }catch{ return; }
+    if(!m || m.de===sala.eu) return;
+    const marca=m.de+':'+m.n;
+    if(sala.vistos.has(marca)) return;    // chegou pelos dois servidores
+    sala.vistos.add(marca);
+    if(sala.vistos.size>500){             // não deixa a lista crescer sem fim
+      const it=sala.vistos.values();
+      for(let i=0;i<200;i++) sala.vistos.delete(it.next().value);
+    }
+    try{ await tratarSinal(m); }catch(e){ console.warn('sinal',e); }
+  };
+  return fonte;
+}
+
+/* ---------- o combinado ---------- */
+async function testarBase(b){
+  try{
+    const c=new AbortController();
+    const t=setTimeout(()=>c.abort(),4500);
+    const r=await fetch(b+'/v1/health',{signal:c.signal});
+    clearTimeout(t);
+    return r.ok;
+  }catch{ return false; }
+}
+
+async function prepararSala(id, chaveTxt, dono){
+  sala.id=id; sala.dono=dono;
+  sala.eu = eu.id = eu.id || idAleatorio(8);
+  sala.chaveTxt = chaveTxt || b64u(crypto.getRandomValues(new Uint8Array(16)));
+  try{
+    sala.chave = await crypto.subtle.importKey(
+      'raw', deB64u(sala.chaveTxt), 'AES-GCM', false, ['encrypt','decrypt']);
+  }catch{ sala.chave=null; }
+
+  const vivas=[];
+  for(const b of SINAIS){ if(await testarBase(b)) vivas.push(b); }
+  if(!vivas.length) throw new Error('SEM_SINAL');
+
+  sala.bases=vivas;
+  sala.ligada=true;
+  sala.fontes=vivas.map(escutar).filter(Boolean);
+  prepararAdeus();
+  if(!sala.fontes.length){ sala.ligada=false; throw new Error('SEM_SINAL'); }
+  // dá um instante pro servidor registrar a escuta antes de alguém falar
+  await new Promise(r=>setTimeout(r,350));
+}
+
+/* ---------------------------------------------------------------------
+ * O ADEUS
+ * ---------------------------------------------------------------------
+ * Quando você fecha a aba, o navegador mata os pedidos que estão no ar —
+ * então um fetch de despedida simplesmente não sai. O sendBeacon sai:
+ * ele é feito para isso. Só que cifrar é uma operação demorada e não dá
+ * para fazer na hora do fechamento — por isso o adeus já vai cifrado e
+ * guardado desde que a sala abre.
+ * ------------------------------------------------------------------ */
+async function prepararAdeus(){
+  try{ sala.adeus = await cifrar({tipo:'tchau', de:eu.id, n:999999}); }catch{}
+}
+function darAdeus(){
+  if(!sala.ligada || !sala.adeus) return;
+  for(const b of sala.bases){
+    try{ navigator.sendBeacon(b+'/'+assunto(), new Blob([sala.adeus],{type:'text/plain'})); }
+    catch{}
+  }
+}
+
+function fecharSala(){
+  darAdeus();
+  clearInterval(sala.batendo);
+  sala.fontes.forEach(f=>{ try{ f.close(); }catch{} });
+  sala.fontes=[]; sala.ligada=false;
+}
+
+function dizerSala(txt){ const e=$('sala-txt'); if(e) e.textContent=txt; }
+
+function linkDaSala(){
+  const meu=(cfg.site||'').trim().replace(/#.*$/,'');
+  const base = meu || (temEndereco() ? location.origin+location.pathname : SITE);
+  const codigo = '#e='+sala.id+'~'+sala.chaveTxt;
+  // Sem endereço nenhum (arquivo aberto do disco, ou app sem site
+  // configurado), o link viraria "file:///..." — que não abre na casa de
+  // ninguém. Nesse caso mandamos o endereço próprio do app.
+  return base ? base+codigo : 'frag://'+codigo.slice(1);
+}
+
+function linkEhDoApp(){
+  return linkDaSala().startsWith('frag://');
+}
+
+async function criarSala(){
+  const b=$('btn-sala');
+  b.disabled=true; b.textContent='Criando a sala…'; $('erro').hidden=true;
+  try{
+    // se você recarregar a página, o link que já mandou continua valendo
+    let guardado=null;
+    try{ guardado=JSON.parse(sessionStorage.getItem('frag-sala')||'null'); }catch{}
+    await prepararSala(guardado&&guardado.id||idAleatorio(12), guardado&&guardado.k||null, true);
+    try{ sessionStorage.setItem('frag-sala', JSON.stringify({id:sala.id,k:sala.chaveTxt})); }catch{}
+    $('sala-link').value=linkDaSala();
+    $('sala-cx').hidden=false;
+    if(linkEhDoApp()){
+      const av=$('aviso-link');
+      if(av){
+        av.hidden=false;
+        av.innerHTML='Este link só abre em quem <b>já tem o Frag instalado</b>. '+
+          'Para mandar um link que qualquer amigo abre no navegador, coloque o endereço do seu '+
+          'site em <b>Ajustes › Rede</b>.';
+      }
+    }
+    b.hidden=true;
+    dizerSala('esperando seu amigo abrir o link…');
+    try{ await navigator.clipboard.writeText(linkDaSala()); recado('Link copiado — é só colar no WhatsApp.','ok'); }catch{}
+    try{ await ligarMicrofone(); }catch(e){ console.warn('mic cedo',e); }
+    ligarPresenca('esperando seu amigo abrir o link…');
+  }catch(e){
+    b.disabled=false; b.textContent='🔗 Criar sala e pegar o link';
+    caiuPraManual(e);
+  }
+}
+
+async function entrarNaSala(id, chaveTxt){
+  $('btn-sala').hidden=true;
+  $('sala-cx').hidden=false;
+  // some só com o que é de quem criou a sala — o texto de estado tem que
+  // ficar, é a única coisa que quem clicou no link tem para ler.
+  $('sala-link').hidden=true;
+  $('sala-envio').hidden=true;
+  $('sala-estado').hidden=false;
+  $('btn-sala-denovo').hidden=true;
+  dizerSala('entrando na sala…');
+  try{
+    await prepararSala(id, chaveTxt, false);
+    ligarPresenca('procurando quem já está na call…');
+  }catch(e){
+    pararEspera();
+    $('btn-sala-denovo').hidden=false;
+    $('btn-sala-denovo').onclick=()=>{ $('btn-sala-denovo').hidden=true; entrarNaSala(id,chaveTxt); };
+    caiuPraManual(e);
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * PRESENÇA
+ * ---------------------------------------------------------------------
+ * O "olá" não é dado uma vez só. Ele se repete: rápido no começo (para
+ * conectar logo) e devagar depois (para quem chegar mais tarde achar
+ * todo mundo, e para se recuperar de um recado que se perdeu no meio do
+ * caminho). Nunca desiste — antes ele desistia calado depois de 1 min.
+ * ------------------------------------------------------------------ */
+function ligarPresenca(primeiroTexto){
+  let voltas=0;
+  if(primeiroTexto) dizerSala(primeiroTexto);
+  const passo=()=>{
+    voltas++;
+    bater();
+    if(voltas===8 && !pares.size) dizerSala('ninguém aqui ainda — pode deixar esta aba aberta');
+    if(voltas===14){
+      clearInterval(sala.batendo);
+      sala.batendo=setInterval(passo,15000);   // devagar, mas nunca desiste
+    }
+  };
+  passo();
+  clearInterval(sala.batendo);
+  sala.batendo=setInterval(passo,1500);
+}
+
+function pararEspera(){
+  clearInterval(sala.batendo);
+  const g=$('sala-girando'); if(g) g.style.display='none';
+}
+
+function caiuPraManual(e){
+  console.warn('sala',e);
+  $('manual-bloco').open=true;
+  erro(String(e&&e.message)==='SEM_SINAL'
+    ? 'Não consegui falar com o quadro de recados que faz a apresentação (a rede daqui bloqueia). '+
+      'O modo manual abaixo funciona em qualquer lugar: gere o convite e mande pro seu amigo.'
+    : 'Deu problema na sala: '+(e&&e.message||e)+'. Use o modo manual abaixo.');
+}
+
+/* =====================================================================
+ * ÁUDIO EM ALTA QUALIDADE
+ * ---------------------------------------------------------------------
+ * O navegador manda voz em ~32 kbps por padrão. Mexendo no SDP subimos
+ * para 128 kbps estéreo — é o que separa "voz de rádio" de "voz na sua
+ * frente". O Discord grátis manda 64 kbps mono.
+ * =================================================================== */
+function melhorarAudio(sdp){
+  const m=sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/i);
+  if(!m) return sdp;
+  const pt=m[1];
+  const extras='stereo=1;sprop-stereo=1;maxaveragebitrate=128000;maxplaybackrate=48000;useinbandfec=1;usedtx=0';
+  const re=new RegExp('a=fmtp:'+pt+' ([^\\r\\n]*)');
+  if(re.test(sdp)){
+    return sdp.replace(re,(l,params)=>{
+      const limpos=params.split(';').filter(p=>!/^(stereo|sprop-stereo|maxaveragebitrate|usedtx|useinbandfec|maxplaybackrate)=/.test(p));
+      return 'a=fmtp:'+pt+' '+limpos.concat(extras.split(';')).join(';');
+    });
+  }
+  return sdp.replace(m[0],m[0]+'\r\na=fmtp:'+pt+' '+extras);
+}
+
+/* =====================================================================
+ * MICROFONE
+ * =================================================================== */
+async function ligarMicrofone(forcar){
+  const limpar=$('in-ruido').checked;
+  const dev=$('sel-mic').value;
+
+  // Já tem um microfone vivo com os mesmos ajustes? Usa esse mesmo.
+  // A MESMA faixa pode alimentar várias conexões ao mesmo tempo —
+  // e é isso que faz a call de três funcionar.
+  const viva = est.streamMic && est.streamMic.getAudioTracks()[0];
+  if(!forcar && viva && viva.readyState==='live' && est.micLimpar===limpar && est.micDev===dev)
+    return viva;
+
+  const antigo=est.streamMic;
+  // Pega o novo ANTES de largar o antigo. Se o novo falhar (aparelho
+  // ocupado, tirado da tomada), você continua sendo ouvido.
+  const novo=await navigator.mediaDevices.getUserMedia({audio:{
+    echoCancellation:limpar,noiseSuppression:limpar,autoGainControl:limpar,
+    channelCount:2,sampleRate:48000,
+    ...(dev&&dev!=='padrao'?{deviceId:{exact:dev}}:{}),
+  }});
+  antigo && antigo.getTracks().forEach(t=>t.stop());
+  est.streamMic=novo; est.micLimpar=limpar; est.micDev=dev;
+  try{
+    est.ctx=est.ctx||new AudioContext();
+    if(est.ctx.state==='suspended') await est.ctx.resume();
+    try{ est.fonteMic && est.fonteMic.disconnect(); }catch{}
+    est.analisador=est.ctx.createAnalyser();
+    est.analisador.fftSize=1024; est.analisador.smoothingTimeConstant=.25;
+    est.fonteMic=est.ctx.createMediaStreamSource(est.streamMic);
+    est.fonteMic.connect(est.analisador);
+    iniciarMedidor();
+  }catch(e){console.warn('medidor',e);}
+  // em push-to-talk o microfone só abre quando a tecla for segurada
+  if(cfg.fala==='ptt') est.streamMic.getAudioTracks().forEach(t=>{ t.enabled=false; });
+
+  return est.streamMic.getAudioTracks()[0];
+}
+function nivel(){
+  if(!est.analisador) return 0;
+  const a=new Uint8Array(est.analisador.fftSize);
+  est.analisador.getByteTimeDomainData(a);
+  let s=0; for(let i=0;i<a.length;i++){const v=(a[i]-128)/128;s+=v*v;}
+  return Math.min(100,Math.round(Math.sqrt(Math.sqrt(s/a.length))*145));
+}
+function iniciarMedidor(){
+  clearInterval(est.loopNivel);
+  est.loopNivel=setInterval(()=>{
+    const n=nivel();
+    if($('painel').classList.contains('aberto')) $('medidor').style.width=n+'%';
+    const falando = !est.mudo && n>12 && (cfg.fala!=='ptt' || est.segurando);
+    const av=$('av-eu'); if(av) av.classList.toggle('fala',falando);
+    if(falando!==est.falandoAntes){
+      est.falandoAntes=falando;
+      enviarTodos({t:'fala',v:falando});
+      mandarParaSobreposicao();
+    }
+  },60);
+}
+
+/* =====================================================================
+ * A CHAMADA COM VÁRIAS PESSOAS
+ * ---------------------------------------------------------------------
+ * Não existe servidor no meio. Cada pessoa conversa DIRETO com cada uma
+ * das outras — isso se chama malha. Com 4 na call, o seu computador
+ * mantém 3 conversas ao mesmo tempo.
+ *
+ * O preço é a sua internet de SUBIDA: mandar a tela para 3 amigos custa
+ * 3 vezes. Por isso o Frag divide a banda escolhida pelo número de
+ * pessoas que estão recebendo, e avisa quando não cabe.
+ *
+ * Quem faz a proposta para quem? Quem tem o apelido interno "menor" na
+ * ordem alfabética. É uma regra boba, mas é igual dos dois lados — então
+ * nunca acontece dos dois proporem ao mesmo tempo e se atropelarem.
+ * =================================================================== */
+const LIMITE = 6;
+const pares = new Map();
+const eu = { id:null, nome:'' };
+
+function novoPar(id){
+  const p = {
+    id, nome:'', pc:null, canal:null,
+    senderMic:null, senderVideo:null, senderTelaAudio:null,
+    audio:null, fluxo:null, temTela:false, volume:100,
+    mudo:false, falando:false, conectado:false,
+    fazendoOferta:false, ignorandoOferta:false, fila:[],
+    religando:false, tentativasCanal:0, esperandoPong:null,
+    anteriorV:null, ping:0, perda:0, relogioMorte:null, impolido:undefined,
+  };
+  pares.set(id,p);
+  return p;
+}
+
+const impolido = (par)=> par.impolido!==undefined ? par.impolido : (eu.id < par.id);
+const canalDe   = (par)=> par.canal && par.canal.readyState==='open';
+const vivos     = ()=> [...pares.values()].filter(p=>p.conectado);
+const naChamada = ()=> vivos().length>0;
+
+function enviar(par, o){
+  try{ canalDe(par) && par.canal.send(JSON.stringify(o)); }catch{}
+}
+function enviarTodos(o){ pares.forEach(p=>enviar(p,o)); }
+
+/* ---------------------------------------------------------------------
+ * Uma conexão com UMA pessoa
+ * ------------------------------------------------------------------ */
+function criarPar(id){
+  const par = pares.get(id) || novoPar(id);
+  if(par.pc) return par;
+  const pc = new RTCPeerConnection(RTC());
+  par.pc = pc;
+
+  pc.ontrack = (ev)=>{
+    const faixa = ev.track;
+    if(faixa.kind==='audio'){
+      if(!par.audio){
+        par.audio = new Audio();
+        par.audio.autoplay = true;
+        par.audio.srcObject = new MediaStream();
+        document.body.appendChild(par.audio);
+      }
+      par.audio.srcObject.addTrack(faixa);
+      par.audio.play().catch(()=>{});
+      aplicarVolume();
+    }else{
+      // menos atraso: o navegador guarda quadros para amortecer solavancos;
+      // num jogo, atraso incomoda mais do que um solavanco eventual.
+      try{ ev.receiver.playoutDelayHint=0; }catch{}
+      try{ ev.receiver.jitterBufferTarget=0; }catch{}
+      // A vaga de vídeo nasce vazia e "muda". Ela só ganha imagem quando
+      // a pessoa começa a transmitir — e o aviso disso é o 'unmute'.
+      par.fluxo = ev.streams[0] || new MediaStream([faixa]);
+      const aparecer = ()=>{ par.temTela=true; mostrarTela(par); };
+      const sumir    = ()=>{ par.temTela=false; tirarQuadro('p-'+par.id); pintarGente(); };
+      faixa.addEventListener('unmute',aparecer);
+      faixa.addEventListener('mute',sumir);
+      faixa.addEventListener('ended',sumir);
+      if(!faixa.muted) aparecer();
+    }
+  };
+
+  pc.onconnectionstatechange = ()=>{
+    const s = pc.connectionState;
+    if(s==='connected'){
+      par.conectado = true;
+      clearTimeout(par.relogioMorte); par.relogioMorte=null;
+      mostrarReligando(par,false);
+      entrarNaChamada();
+      enviar(par,{t:'nome', v:eu.nome||'Sem nome'});
+      recado((par.nome||'Seu amigo')+' entrou na call','ok');
+    }
+    else if(s==='disconnected'){ pintarGente(); }
+    else if(s==='failed' || s==='closed'){
+      par.conectado=false;
+      mostrarReligando(par,false);
+      // dá um tempo para o religamento resolver; se não voltar, sai da lista
+      clearTimeout(par.relogioMorte);
+      par.relogioMorte = setTimeout(()=>{ if(!par.conectado) tirarPar(par.id,'a conexão caiu'); }, 20000);
+      pintarGente();
+    }
+  };
+
+  pc.onnegotiationneeded = async ()=>{
+    if(!canalDe(par) && !(sala.ligada && pc.remoteDescription)) return;
+    if(!impolido(par) && !canalDe(par)) return;
+    try{
+      par.fazendoOferta = true;
+      // setLocalDescription() sozinho monta um SDP limpo e joga fora o
+      // áudio em 128 kbps estéreo. Por isso a oferta é feita à mão.
+      const of = await pc.createOffer();
+      of.sdp = melhorarAudio(of.sdp);
+      await pc.setLocalDescription(of);
+      if(canalDe(par)) enviar(par,{t:'sdp', v:pc.localDescription});
+      else await publicar({tipo:'oferta', para:par.id, sdp:pc.localDescription.sdp});
+    }catch(e){ console.warn('renegociacao',e); }
+    finally{ par.fazendoOferta=false; }
+  };
+
+  pc.onicecandidate = ({candidate})=>{
+    if(!candidate) return;
+    // "trickle ICE": não espera terminar de procurar para começar a
+    // tentar — conecta bem mais rápido e acha caminho em mais redes.
+    if(canalDe(par)) enviar(par,{t:'ice', v:candidate});
+    else if(sala.ligada) publicar({tipo:'gelo', para:par.id, cand:candidate.toJSON()});
+  };
+
+  pc.oniceconnectionstatechange = async ()=>{
+    const e = pc.iceConnectionState;
+    if(e==='disconnected' || e==='failed'){
+      mostrarReligando(par,true);
+      try{
+        // Só um lado puxa o recomeço, senão os dois se atropelam. Se
+        // quem percebeu foi o outro, ele pede pelo quadro de recados.
+        if(!impolido(par)){
+          if(!canalDe(par) && sala.ligada) await publicar({tipo:'refaz', para:par.id});
+          return;
+        }
+        if(canalDe(par)){ pc.restartIce(); return; }
+        if(sala.ligada) await ofertar(par,true);
+      }catch(err){ console.warn('religar',err); }
+    }
+    if(e==='connected' || e==='completed') mostrarReligando(par,false);
+  };
+
+  abrirCanal(par);
+  return par;
+}
+
+/* ---------------------------------------------------------------------
+ * O CANAL DE DADOS — e o que fazer quando ele morre
+ * ---------------------------------------------------------------------
+ * Por aqui vão o chat, os nomes, o aviso de quem está falando e as
+ * renegociações. Ele é "negociado" com número fixo dos dois lados, então
+ * dá para reabrir sem combinar nada: se cair, os dois tentam de novo
+ * sozinhos e o número volta a bater.
+ * ------------------------------------------------------------------ */
+function abrirCanal(par){
+  const pc = par.pc;
+  let canal;
+  try{ canal = pc.createDataChannel('frag',{negotiated:true, id:0}); }
+  catch(e){ console.warn('canal',e); return; }
+
+  canal.onopen = ()=>{
+    par.tentativasCanal = 0;
+    enviar(par,{t:'nome', v:eu.nome||'Sem nome'});
+    enviar(par,{t:'mudo', v:est.mudo});
+  };
+  canal.onmessage = (ev)=>{
+    let d; try{ d=JSON.parse(ev.data); }catch{ return; }
+    if(d.t==='mudo'){ par.mudo=!!d.v; pintarGente(); }
+    else if(d.t==='fala'){ par.falando=!!d.v; pintarGente(); }
+    else if(d.t==='nome'){ definirNome(par, d.v); }
+    else if(d.t==='msg') receberMensagem(par, d.v);
+    else if(d.t==='sdp') receberSdp(par, d.v);
+    else if(d.t==='ice') receberIce(par, d.v);
+    else if(d.t==='ping') enviar(par,{t:'pong', v:d.v});
+    else if(d.t==='pong') par.esperandoPong && par.esperandoPong(d.v);
+  };
+  canal.onclose = ()=>{
+    if(pares.get(par.id)!==par) return;
+    if(pc.connectionState==='closed' || pc.connectionState==='failed') return;
+    if(++par.tentativasCanal>5) return;
+    setTimeout(()=>{
+      if(pares.get(par.id)===par && (!par.canal || par.canal.readyState==='closed')) abrirCanal(par);
+    },900);
+  };
+  par.canal = canal;
+}
+
+/* ---------------------------------------------------------------------
+ * AS VAGAS DE MÍDIA — e aqui morava um bug feio.
+ * ---------------------------------------------------------------------
+ * Quem PROPÕE cria as vagas (transceivers) antes da proposta, então elas
+ * entram na negociação normalmente.
+ *
+ * Quem RESPONDE já recebeu as vagas dentro da proposta. Se ele criar
+ * vagas NOVAS, elas ficam de fora da resposta — e tudo que ele mandar
+ * por elas some no caminho. A correção: quem responde REAPROVEITA as
+ * vagas que vieram na proposta.
+ * ------------------------------------------------------------------ */
+async function prepararMidia(par){
+  const mic = await ligarMicrofone();
+  const ts = par.pc.getTransceivers();
+
+  if(!ts.length){
+    par.senderMic      = par.pc.addTransceiver(mic,{direction:'sendrecv',streams:[est.streamMic]}).sender;
+    par.senderVideo    = par.pc.addTransceiver('video',{direction:'sendrecv'}).sender;
+    par.senderTelaAudio= par.pc.addTransceiver('audio',{direction:'sendrecv'}).sender;
+  }else{
+    const audios = ts.filter(t=>t.receiver.track.kind==='audio');
+    const videos = ts.filter(t=>t.receiver.track.kind==='video');
+    if(!audios.length) throw new Error('CONVITE_ANTIGO');
+    audios[0].direction='sendrecv';
+    await audios[0].sender.replaceTrack(mic);
+    par.senderMic = audios[0].sender;
+    if(videos[0]){ videos[0].direction='sendrecv'; par.senderVideo=videos[0].sender; }
+    if(audios[1]){ audios[1].direction='sendrecv'; par.senderTelaAudio=audios[1].sender; }
+  }
+
+  await bitrateAudio(par.senderMic,128000);
+  await prioridadeAlta(par.senderMic);
+
+  // se você já está transmitindo, quem chega depois entra vendo
+  if(est.streamTela){
+    const v = est.streamTela.getVideoTracks()[0];
+    const a = est.streamTela.getAudioTracks()[0];
+    try{ if(v && par.senderVideo) await par.senderVideo.replaceTrack(v); }catch{}
+    try{ if(a && par.senderTelaAudio) await par.senderTelaAudio.replaceTrack(a); }catch{}
+    await aplicarPerfilVideo(par);
+  }
+}
+
+async function ofertar(par, reiniciarIce){
+  const of = await par.pc.createOffer(reiniciarIce?{iceRestart:true}:undefined);
+  of.sdp = melhorarAudio(of.sdp);
+  await par.pc.setLocalDescription(of);
+  await publicar({tipo:'oferta', para:par.id, sdp:par.pc.localDescription.sdp});
+}
+
+async function escoarGelo(par){
+  const fila = par.fila.splice(0);
+  for(const c of fila){ try{ await par.pc.addIceCandidate(c); }catch{} }
+}
+
+async function receberSdp(par, desc){
+  const pc = par.pc; if(!pc) return;
+  const colisao = desc.type==='offer' && (par.fazendoOferta || pc.signalingState!=='stable');
+  par.ignorandoOferta = impolido(par) && colisao;
+  if(par.ignorandoOferta) return;
+  try{
+    await pc.setRemoteDescription(desc);
+    if(desc.type==='offer'){
+      const r = await pc.createAnswer();
+      r.sdp = melhorarAudio(r.sdp);
+      await pc.setLocalDescription(r);
+      enviar(par,{t:'sdp', v:pc.localDescription});
+    }
+  }catch(e){ console.warn('sdp',e); }
+}
+
+async function receberIce(par, c){
+  try{ await par.pc.addIceCandidate(c); }
+  catch(e){ if(!par.ignorandoOferta) console.warn('ice',e); }
+}
+
+/* Dá um toque em alguém e espera resposta: serve para saber se a pessoa
+   ainda está lá de verdade — o estado da conexão demora a mudar quando
+   alguém simplesmente fecha a janela. */
+function parResponde(par, prazo){
+  if(!par || !par.conectado || !canalDe(par)) return Promise.resolve(false);
+  return new Promise(res=>{
+    const marca = Math.random().toString(36).slice(2,9);
+    let pronto = false;
+    par.esperandoPong = (v)=>{ if(v===marca && !pronto){ pronto=true; res(true); } };
+    enviar(par,{t:'ping', v:marca});
+    setTimeout(()=>{ if(!pronto){ pronto=true; par.esperandoPong=null; res(false); } }, prazo);
+  });
+}
+
+function tirarPar(id, motivo){
+  const par = pares.get(id);
+  if(!par) return;
+  clearTimeout(par.relogioMorte);
+  try{ par.pc && par.pc.close(); }catch{}
+  try{ par.audio && par.audio.remove(); }catch{}
+  tirarQuadro('p-'+id);
+  pares.delete(id);
+  if(par.nome) recado((par.nome)+' saiu'+(motivo?' — '+motivo:''),'');
+  pintarGente();
+  reequilibrarVideo();
+  if(!pares.size && !sala.ligada) pararNumeros();
+}
+
+function definirNome(par, nome){
+  par.nome = String(nome||'').trim().slice(0,18) || 'Sem nome';
+  pintarGente();
+  const q = $('q-p-'+par.id);
+  if(q){ const t=q.querySelector('.quadro-tag span:last-child'); if(t) t.textContent='tela de '+par.nome; }
+}
+/* =====================================================================
+ * O COMBINADO NA SALA — agora com todo mundo
+ * ---------------------------------------------------------------------
+ * Todo mundo é igual aqui: não existe dono. Quem chega dá um "olá" no
+ * quadro de recados; quem já está dentro responde com um "olá" dirigido,
+ * para o novato saber quem tem na sala. A partir daí cada dupla se
+ * apresenta sozinha, e quem tem o apelido interno menor faz a proposta.
+ * =================================================================== */
+async function tratarSinal(m){
+  if(!m || !m.tipo) return;
+  if(m.de===eu.id) return;
+  if(m.para && m.para!==eu.id) return;
+
+  if(m.tipo==='ola')          await aoOla(m);
+  else if(m.tipo==='oferta')  await aoOferta(m);
+  else if(m.tipo==='resposta')await aoResposta(m);
+  else if(m.tipo==='gelo')    await aoGelo(m);
+  else if(m.tipo==='refaz')   await aoRefaz(m);
+  else if(m.tipo==='tchau')   tirarPar(m.de,'saiu da call');
+  else if(m.tipo==='cheio'){
+    dizerSala('a call já está com '+LIMITE+' pessoas — é o limite de uma conexão direta.');
+    recado('A call já está cheia ('+LIMITE+' pessoas).','mal');
+  }
+}
+
+async function aoOla(m){
+  let par = pares.get(m.de);
+  if(!par){
+    if(pares.size >= LIMITE-1){ await publicar({tipo:'cheio', para:m.de}); return; }
+    par = novoPar(m.de);
+  }
+  if(m.nome) definirNome(par, m.nome);
+  // um "olá" solto merece resposta dirigida: é assim que o novato
+  // descobre quem já está na sala
+  if(!m.para) await publicar({tipo:'ola', para:m.de, nome:eu.nome});
+  pararEspera();
+  dizerSala('achei '+(par.nome||'alguém')+' — conectando…');
+  pintarGente();
+
+  if(impolido(par) && !par.pc){
+    try{
+      criarPar(par.id);
+      await prepararMidia(par);
+      preferirCodec(par.pc);
+      await ofertar(par);
+    }catch(e){ falhouPar(par,e); }
+  }
+}
+
+async function aoOferta(m){
+  let par = pares.get(m.de);
+  if(!par){
+    if(pares.size >= LIMITE-1){ await publicar({tipo:'cheio', para:m.de}); return; }
+    par = novoPar(m.de);
+  }
+  const novo = !par.pc;
+  if(novo) criarPar(par.id);
+  try{
+    const colisao = par.fazendoOferta || par.pc.signalingState!=='stable';
+    par.ignorandoOferta = impolido(par) && colisao;
+    if(par.ignorandoOferta) return;
+    await par.pc.setRemoteDescription({type:'offer', sdp:m.sdp});
+    if(novo){ await prepararMidia(par); preferirCodec(par.pc); }
+    const r = await par.pc.createAnswer();
+    r.sdp = melhorarAudio(r.sdp);
+    await par.pc.setLocalDescription(r);
+    await publicar({tipo:'resposta', para:par.id, sdp:par.pc.localDescription.sdp});
+    await escoarGelo(par);
+    dizerSala('conectando…');
+  }catch(e){ falhouPar(par,e,novo); }
+}
+
+/* O outro lado percebeu que caiu e não tem como falar comigo pelo canal
+   interno. Ele pede por aqui, e quem refaz a proposta sou eu. */
+async function aoRefaz(m){
+  const par=pares.get(m.de);
+  if(!par || !par.pc || !impolido(par)) return;
+  try{ await ofertar(par,true); }catch(e){ console.warn('refaz',e); }
+}
+
+async function aoResposta(m){
+  const par = pares.get(m.de);
+  if(!par || !par.pc) return;
+  if(par.pc.signalingState!=='have-local-offer') return;
+  try{
+    await par.pc.setRemoteDescription({type:'answer', sdp:m.sdp});
+    await escoarGelo(par);
+  }catch(e){ console.warn('resposta',e); }
+}
+
+async function aoGelo(m){
+  const par = pares.get(m.de);
+  if(!par) return;
+  if(!par.pc || !par.pc.remoteDescription){
+    if(par.fila.length<150) par.fila.push(m.cand);
+    return;
+  }
+  try{ await par.pc.addIceCandidate(m.cand); }catch{}
+}
+
+function falhouPar(par, e, apagar){
+  console.warn('par',e);
+  const msg = traduzir(e);
+  dizerSala('deu problema: '+msg);
+  erro(msg);
+  if(apagar!==false){
+    try{ par.pc && par.pc.close(); }catch{}
+    par.pc=null; par.canal=null; par.fila.length=0;
+    par.senderMic=par.senderVideo=par.senderTelaAudio=null;
+  }
+  $('btn-sala-denovo').hidden=false;
+  $('btn-sala-denovo').onclick=()=>{ $('btn-sala-denovo').hidden=true; publicar({tipo:'ola', nome:eu.nome}); };
+}
+
+/* Batidas de presença: quem chega depois acha quem já estava, e quem
+   ficou órfão de um recado perdido se recupera sozinho. */
+function bater(){
+  if(!sala.ligada) return;
+  publicar({tipo:'ola', nome:eu.nome});
+}
+
+/* =====================================================================
+ * QUEM ESTÁ NA CALL
+ * =================================================================== */
+function iniciais(n){ return (String(n||'?').trim()[0]||'?').toUpperCase(); }
+
+function pintarGente(){
+  const caixa = $('gente');
+  if(!caixa) return;
+  const lista = [{ id:'eu', nome:(eu.nome||'Você'), eu:true }]
+    .concat([...pares.values()].map(p=>({ id:p.id, nome:p.nome||'Entrando…', par:p })));
+
+  caixa.innerHTML='';
+  for(const g of lista){
+    const f=document.createElement('div');
+    f.className='ficha'; f.id='ficha-'+g.id;
+
+    const av=document.createElement('div');
+    av.className='av'; av.id = g.eu?'av-eu':('av-'+g.id);
+    av.textContent=iniciais(g.nome);
+
+    const txt=document.createElement('div'); txt.className='ficha-txt';
+    const nome=document.createElement('div'); nome.className='ficha-nome'; nome.textContent=g.nome;
+    const sub=document.createElement('div'); sub.className='ficha-sub';
+    if(g.eu){ sub.id='sub-eu'; sub.textContent = est.mudo ? 'microfone desligado'
+              : (cfg.fala==='ptt' ? 'segure '+cfg.nomeTecla+' para falar' : 'microfone ligado'); }
+    else{
+      const p=g.par;
+      sub.textContent = !p.conectado ? 'conectando…'
+        : p.mudo ? 'microfone desligado'
+        : p.temTela ? 'transmitindo' : 'na call';
+      if(p.falando) av.classList.add('fala');
+      if(p.mudo) f.classList.add('mudo');
+      if(!p.conectado) f.classList.add('esperando');
+    }
+    if(g.eu && est.segurando) av.classList.add('fala');
+
+    txt.append(nome,sub);
+    f.append(av,txt);
+    caixa.appendChild(f);
+  }
+  const n=lista.length;
+  $('quantos').textContent = n===1 ? 'só você' : n+' na call';
+  caixa.classList.toggle('cheia', n>3);
+  mandarParaSobreposicao();
+  avisarBandeja();
+}
+
+function entrarNaChamada(){
+  if($('chamada').hidden===false) { pintarGente(); return; }
+  $('entrada').hidden=true; $('chamada').hidden=false;
+  pintarGente();
+  document.querySelectorAll('#chamada .ficha').forEach((f,i)=>{
+    f.style.animationDelay=(i*90)+'ms';
+    requestAnimationFrame(()=>f.classList.add('chegou'));
+  });
+  iniciarNumeros();
+  ligarSobreposicao(cfg.sobrepor!==false);
+  recado('Conectado!','ok');
+}
+
+function mostrarReligando(par, ligado){
+  par.religando = ligado;
+  const algum = [...pares.values()].some(p=>p.religando);
+  let el=$('religando');
+  if(algum){
+    if(el) return;
+    el=document.createElement('div');
+    el.id='religando'; el.className='religando';
+    el.innerHTML='<span class="girando"></span>Reconectando…';
+    document.body.appendChild(el);
+  }else if(el){ el.remove(); recado('Reconectado.','ok'); }
+  pintarGente();
+}
+
+/* =====================================================================
+ * QUADROS DE VÍDEO
+ * =================================================================== */
+function montarQuadro(id, titulo, aoVivo, aoParar){
+  let q=$('q-'+id);
+  if(q) return q;
+  q=document.createElement('div');
+  q.className='quadro'; q.id='q-'+id;
+
+  const v=document.createElement('video');
+  v.autoplay=true; v.playsInline=true; v.muted=true; v.id='v-'+id;
+
+  const tag=document.createElement('div');
+  tag.className='quadro-tag';
+  if(aoVivo){ const luz=document.createElement('span'); luz.className='luz'; tag.appendChild(luz); }
+  const rot=document.createElement('span'); rot.textContent=titulo; tag.appendChild(rot);
+
+  const acoes=document.createElement('div');
+  acoes.className='quadro-acoes';
+  const cheia=document.createElement('button');
+  cheia.type='button'; cheia.textContent='⛶ Tela cheia';
+  cheia.onclick=()=>{ document.fullscreenElement?document.exitFullscreen():q.requestFullscreen().catch(()=>{}); };
+  acoes.appendChild(cheia);
+  if(aoParar){
+    const parar=document.createElement('button');
+    parar.type='button'; parar.className='parar'; parar.textContent='⏹ Parar de transmitir';
+    parar.onclick=(e)=>{ e.stopPropagation(); aoParar(); };
+    acoes.appendChild(parar);
+  }
+
+  q.append(v,tag,acoes);
+  $('palco').appendChild(q);
+  return q;
+}
+function mostrarTela(par){
+  montarQuadro('p-'+par.id, 'tela de '+(par.nome||'seu amigo'), true);
+  $('v-p-'+par.id).srcObject = par.fluxo;
+  arrumarPalco(); pintarGente();
+}
+function quadroLocal(stream){
+  montarQuadro('eu','você está transmitindo',true,pararTela);
+  $('v-eu').srcObject=stream; arrumarPalco();
+}
+function tirarQuadro(id){
+  const q=$('q-'+id);
+  if(!q) return;
+  q.classList.add('saindo');
+  setTimeout(()=>{ q.remove(); arrumarPalco(); }, 240);
+}
+function arrumarPalco(){
+  setTimeout(cuidarDoBuffer,120);
+  const n=$('palco').querySelectorAll('.quadro:not(.saindo)').length;
+  $('nada').hidden = n>0;
+  const p=$('palco');
+  p.classList.toggle('dois', n===2);
+  p.classList.toggle('varios', n>2);
+}
+/* =====================================================================
+ * MICROFONE, MUDO E VOLUME
+ * =================================================================== */
+function alternarMudo(){
+  est.mudo=!est.mudo;
+  // Em push-to-talk, tirar o mudo NÃO pode abrir o microfone sozinho —
+  // senão você fica transmitindo tudo achando que está no push-to-talk.
+  const aberto = !est.mudo && (cfg.fala!=='ptt' || est.segurando);
+  est.streamMic&&est.streamMic.getAudioTracks().forEach(t=>{t.enabled=aberto;});
+  $('btn-mic').classList.toggle('on',est.mudo);
+  $('btn-mic').textContent=est.mudo?'🔇':'🎙';
+  if(est.mudo){ est.segurando=false; enviarTodos({t:'fala',v:false}); }
+  enviarTodos({t:'mudo',v:est.mudo});
+  pintarGente();
+}
+function alternarSurdo(){
+  est.surdo=!est.surdo; aplicarVolume();
+  $('btn-surdo').classList.toggle('on',est.surdo);
+  $('btn-surdo').textContent=est.surdo?'🔕':'🎧';
+  recado(est.surdo?'Você não está ouvindo ninguém':'Voltou a ouvir', est.surdo?'':'ok');
+}
+function aplicarVolume(){
+  pares.forEach(p=>{
+    if(!p.audio) return;
+    const v = est.surdo ? 0 : (cfg.volume/100) * ((p.volume==null?100:p.volume)/100);
+    p.audio.volume = Math.max(0, Math.min(1, v));
+  });
+}
+
+/* Uma lista com um controle de volume por pessoa, como no Discord. */
+function pintarVolumes(){
+  const caixa=$('volumes'); if(!caixa) return;
+  caixa.innerHTML='';
+  if(!pares.size){
+    const p=document.createElement('p'); p.className='ajuda'; p.style.margin='0';
+    p.textContent='Ninguém na call ainda.';
+    caixa.appendChild(p); return;
+  }
+  pares.forEach(par=>{
+    const l=document.createElement('label'); l.className='campo';
+    const s=document.createElement('span');
+    s.innerHTML='';
+    s.appendChild(document.createTextNode((par.nome||'Entrando…')+': '));
+    const b=document.createElement('b'); b.style.color='var(--azul)';
+    b.textContent=(par.volume==null?100:par.volume)+'%';
+    s.appendChild(b);
+    const r=document.createElement('input');
+    r.type='range'; r.min='0'; r.max='200'; r.value=String(par.volume==null?100:par.volume);
+    r.oninput=()=>{ par.volume=Number(r.value); b.textContent=r.value+'%'; aplicarVolume(); };
+    l.append(s,r);
+    caixa.appendChild(l);
+  });
+}
+
+/* =====================================================================
+ * COMPARTILHAR TELA PARA TODO MUNDO
+ * ---------------------------------------------------------------------
+ * A captura é UMA só. O que multiplica é o envio: cada pessoa recebe uma
+ * cópia comprimida por conta própria. Por isso a banda escolhida é
+ * dividida pelo número de gente — e por isso, com muita gente, o mais
+ * honesto é baixar a resolução em vez de fingir que cabe.
+ * ------------------------------------------------------------------ */
+function quantosRecebem(){ return Math.max(1, vivos().length); }
+
+/* ---------------------------------------------------------------------
+ * O QUE CEDE QUANDO APERTA
+ * ---------------------------------------------------------------------
+ * Não dá para ter tudo: se a internet ou o processador não dão conta,
+ * alguma coisa tem que ceder. As opções são resolução (imagem menor,
+ * esticada na tela do outro) ou quadros por segundo (movimento
+ * engasgado). Para jogo a resposta é sempre a mesma: cede resolução,
+ * segura os quadros. Um 900p a 60 é muito melhor de assistir do que um
+ * 1080p a 24.
+ *
+ * "maintain-framerate" diz isso ao navegador. E, no modo de segurar os
+ * quadros, o ajuste automático NUNCA mexe no maxFramerate — ele só
+ * encolhe a imagem e baixa a taxa.
+ * ------------------------------------------------------------------ */
+async function aplicarPerfilVideo(par){
+  if(!par.senderVideo) return;
+  const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  const n = quantosRecebem();
+  const seguraFps = cfg.prioridade!=='nitidez';
+  const teto = Math.round((p.mbps*1e6*auto.fator)/n);
+
+  let encolher = 1;
+  if(n>=4) encolher = 2;
+  else if(n===3) encolher = 1.5;
+  if(seguraFps){
+    // apertou? a imagem encolhe mais, e mais cedo — os quadros ficam
+    if(auto.fator<0.3)       encolher = Math.max(encolher, 2.5);
+    else if(auto.fator<0.5)  encolher = Math.max(encolher, 2);
+    else if(auto.fator<0.75) encolher = Math.max(encolher, 1.5);
+  }else{
+    if(auto.fator<0.35) encolher = Math.max(encolher,2);
+    else if(auto.fator<0.65) encolher = Math.max(encolher,1.5);
+  }
+
+  try{
+    const par2 = par.senderVideo.getParameters();
+    par2.encodings = par2.encodings&&par2.encodings.length ? par2.encodings : [{}];
+    const e = par2.encodings[0];
+    e.maxBitrate = teto;
+    e.maxFramerate = seguraFps ? p.fps : (auto.fator<0.45 ? Math.min(30,p.fps) : p.fps);
+    e.scaleResolutionDownBy = encolher;
+    e.networkPriority='high'; e.priority='high';
+    par2.degradationPreference = seguraFps ? 'maintain-framerate' : 'maintain-resolution';
+    await par.senderVideo.setParameters(par2);
+  }catch(e){ console.warn('perfil video',e); }
+}
+
+async function reequilibrarVideo(){
+  if(!est.streamTela) return;
+  for(const par of pares.values()) await aplicarPerfilVideo(par);
+}
+
+function mostrarAvisoTx(ligado){
+  let a=$('aviso-tx');
+  if(!ligado){ if(a) a.remove(); return; }
+  if(a) return;
+  a=document.createElement('div');
+  a.id='aviso-tx'; a.className='aviso-tx';
+  const luz=document.createElement('span'); luz.className='luz';
+  const txt=document.createElement('span'); txt.id='aviso-tx-txt';
+  txt.textContent='Você está transmitindo sua tela';
+  const bt=document.createElement('button'); bt.type='button'; bt.textContent='⏹ Parar';
+  bt.onclick=(e)=>{ e.stopPropagation(); pararTela(); };
+  a.append(luz,txt,bt);
+  a.onclick=()=>a.classList.toggle('escondido');
+  (document.fullscreenElement||$('chamada')).appendChild(a);
+}
+
+async function alternarTela(){
+  if(est.streamTela) return pararTela();
+  if(est.pegandoTela) return;             // dois cliques abriam duas capturas
+  if(!vivos().length) return recado('Ninguém conectado ainda.','mal');
+  est.pegandoTela=true; $('btn-tela').disabled=true;
+  try{ await pegarTela(); }
+  finally{ est.pegandoTela=false; $('btn-tela').disabled=false; }
+}
+
+async function pegarTela(){
+  const p=PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  let stream;
+  try{
+    stream=await navigator.mediaDevices.getDisplayMedia({
+      video:{
+        width:{ideal:p.l,max:p.l}, height:{ideal:p.a,max:p.a},
+        // sem "max" nos quadros: pedir 60 e deixar o navegador entregar
+        // o que conseguir é melhor do que impor um teto que ele arredonda
+        frameRate:{ideal:p.fps},
+        resizeMode:'none',           // o navegador não reescala no caminho
+      },
+      audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},
+    });
+  }catch(e){
+    if(e.name!=='NotAllowedError') recado('Não consegui capturar a tela: '+e.name,'mal');
+    return;
+  }
+
+  const v=stream.getVideoTracks()[0];
+  const aud=stream.getAudioTracks()[0];
+  v.contentHint='motion';   // prioridade é movimento fluido, não pixel perfeito
+
+  let foi=0;
+  for(const par of pares.values()){
+    if(!par.senderVideo) continue;
+    try{
+      await par.senderVideo.replaceTrack(v);
+      if(aud && par.senderTelaAudio){
+        await par.senderTelaAudio.replaceTrack(aud);
+        await bitrateAudio(par.senderTelaAudio,128000);
+      }
+      foi++;
+    }catch(e){ console.warn('tela para '+par.id,e); }
+  }
+  if(!foi){
+    stream.getTracks().forEach(t=>t.stop());
+    recado('Não consegui mandar a tela pra ninguém.','mal');
+    return;
+  }
+
+  est.streamTela=stream;
+  auto.fator=1; auto.ruim=0; auto.bom=0; auto.aquece=0; auto.motivo='';
+  await reequilibrarVideo();
+
+  v.addEventListener('ended',pararTela);
+  quadroLocal(stream);
+  mostrarAvisoTx(true);
+  acordarControles();
+  $('btn-tela').textContent='⏹ Parar de transmitir';
+  $('btn-tela').classList.add('parando');
+  const n=quantosRecebem();
+  recado('Transmitindo em '+p.a+'p a '+p.fps+' fps'+(aud?' com som':'')+
+         (n>1?' para '+n+' pessoas':''),'ok');
+  if(n>=3) recado('Com '+n+' recebendo, a resolução baixa um pouco pra caber na sua subida.','');
+}
+
+async function pararTela(){
+  const indo=est.streamTela;
+  if(!indo) return;
+  est.streamTela=null;
+  indo.getTracks().forEach(t=>t.stop());
+  for(const par of pares.values()){
+    try{ if(par.senderVideo && !est.streamTela) await par.senderVideo.replaceTrack(null); }catch{}
+    try{ if(par.senderTelaAudio && !est.streamTela) await par.senderTelaAudio.replaceTrack(null); }catch{}
+  }
+  if(est.streamTela) return;              // já começou outra transmissão
+  tirarQuadro('eu');
+  mostrarAvisoTx(false);
+  acordarControles();
+  $('btn-tela').textContent='🖥 Compartilhar tela';
+  $('btn-tela').classList.remove('parando');
+  recado('Você parou de transmitir.','ok');
+}
+
+/* =====================================================================
+ * QUALIDADE AUTOMÁTICA
+ * ---------------------------------------------------------------------
+ * Internet não é constante. Quando ela aperta, o normal é a imagem
+ * travar e o som picotar — porque o navegador continua tentando mandar
+ * mais do que cabe. Aqui a gente olha, uma vez por segundo, quanto
+ * pacote está se perdendo e quanta banda ainda tem. Com várias pessoas,
+ * quem manda no ajuste é a PIOR das conexões: não adianta mandar bonito
+ * para dois e picotado para o terceiro.
+ * =================================================================== */
+const auto = { fator:1, ruim:0, bom:0, aquece:0, motivo:'' };
+
+async function ajustarQualidade(piorPerda, apertado){
+  if(!cfg.auto || !est.streamTela) return;
+  if(auto.aquece++ < 8) return;           // os primeiros segundos não valem
+
+  if(piorPerda>4 || (apertado && piorPerda>2)){ auto.ruim++; auto.bom=0; }
+  else if(piorPerda<0.7 && !apertado){ auto.bom++; auto.ruim=0; }
+
+  let mexeu=false;
+  if(auto.ruim>=3){ auto.fator=Math.max(0.25, auto.fator*0.7); auto.ruim=0; mexeu=true; }
+  else if(auto.bom>=15 && auto.fator<1){ auto.fator=Math.min(1, auto.fator*1.3); auto.bom=0; mexeu=true; }
+  if(!mexeu) return;
+
+  auto.motivo = auto.fator>=0.99 ? '' : Math.round(auto.fator*100)+'% da qualidade escolhida';
+  await reequilibrarVideo();
+}
+/* =====================================================================
+ * NÚMEROS DA CHAMADA
+ * =================================================================== */
+function iniciarNumeros(){ clearInterval(est.loopNum); est.loopNum=setInterval(atualizarNumeros,1000); }
+function pararNumeros(){ clearInterval(est.loopNum); est.loopNum=null; }
+
+async function atualizarNumeros(){
+  const gente=[...pares.values()].filter(p=>p.pc);
+  if(!gente.length) return;
+
+  let piorPing=0, piorPerda=0, apertado=false;
+  const porPessoa=[];
+
+  for(const par of gente){
+    const rel=await par.pc.getStats().catch(()=>null);
+    if(!rel) continue;
+    let sv=null,ev=null,pardeIce=null,eco=null,fonte=null; const cs=new Map();
+    rel.forEach(s=>{ if(s.type==='codec') cs.set(s.id,s.mimeType); });
+    rel.forEach(s=>{
+      if(s.type==='media-source'&&s.kind==='video') fonte=s;
+      if(s.type==='outbound-rtp'&&s.kind==='video'&&s.bytesSent) sv=s;
+      if(s.type==='inbound-rtp'&&s.kind==='video'&&s.bytesReceived) ev=s;
+      if(s.type==='remote-inbound-rtp'&&s.kind==='video') eco=s;
+      if(s.type==='candidate-pair'&&s.state==='succeeded'&&s.nominated) pardeIce=s;
+    });
+    const ms = pardeIce ? Math.round((pardeIce.currentRoundTripTime||0)*1000) : 0;
+    par.ping = ms;
+    if(ms>piorPing) piorPing=ms;
+    const perda = eco&&eco.fractionLost!=null ? eco.fractionLost*100 : 0;
+    par.perda = perda;
+    if(perda>piorPerda) piorPerda=perda;
+    if(sv&&sv.qualityLimitationReason==='bandwidth') apertado=true;
+    if(sv&&sv.qualityLimitationReason==='cpu') par.cpuApertado=(par.cpuApertado||0)+1;
+    else if(sv) par.cpuApertado=0;
+
+    let kbps=0, fpsEnviado=0, fpsComprimido=0;
+    if(sv){
+      const a=par.anteriorV;
+      const dt = a ? (sv.timestamp-a.timestamp)/1000 : 0;
+      if(dt>0){
+        kbps = Math.round((sv.bytesSent-a.bytesSent)*8/dt/1000);
+        fpsComprimido = Math.round(((sv.framesEncoded||0)-(a.framesEncoded||0))/dt);
+      }
+      fpsEnviado = Math.round(sv.framesPerSecond||0);
+      par.anteriorV=sv;
+    } else par.anteriorV=null;
+
+    let caminho='';
+    if(pardeIce){
+      const acha=(id)=>{ let t=''; rel.forEach(x=>{ if(x.id===id) t=x.candidateType||''; }); return t; };
+      caminho = (acha(pardeIce.localCandidateId)==='relay'||acha(pardeIce.remoteCandidateId)==='relay')
+        ? 'por retransmissor' : 'direto';
+    }
+    porPessoa.push({ par, ms, perda, kbps, sv, ev, caminho, fpsEnviado, fpsComprimido, fonte,
+                     codecEnv:(cs.get(sv&&sv.codecId)||'').split('/')[1]||'',
+                     codecRec:(cs.get(ev&&ev.codecId)||'').split('/')[1]||'' });
+  }
+
+  $('ping').textContent = piorPing ? piorPing+' ms' : '—';
+  $('ponto').className = 'ponto '+(piorPing<60?'bom':piorPing<130?'medio':'ruim');
+  ajustarQualidade(piorPerda, apertado);
+
+  // FPS sempre à vista enquanto você transmite: é o número que importa
+  const alvoFps = (PERFIS[cfg.qualidade]||PERFIS['1080-60-8']).fps;
+  const enviando = porPessoa.filter(x=>x.sv);
+  $('pin-fps').hidden = !est.streamTela || !enviando.length;
+  if(enviando.length){
+    const f = Math.min(...enviando.map(x=>x.fpsEnviado||0));
+    $('fps-agora').textContent = f||'—';
+    $('fps-agora').className = f>=alvoFps*0.85 ? 'bom' : f>=alvoFps*0.5 ? 'medio' : 'ruim';
+  }
+  cuidarDoAvisoDeCpu(porPessoa);
+
+  if(!$('painel').classList.contains('aberto')) return;
+
+  const h=[];
+  const linha=(r,v,c)=>h.push('<div class="num"><span>'+r+'</span><b class="'+(c||'')+'">'+v+'</b></div>');
+
+  if(est.streamTela){
+    h.push('<div class="secao" style="margin-top:0">Você transmitindo</div>');
+    const p=PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+    const total=porPessoa.reduce((a,b)=>a+b.kbps,0);
+    const um=porPessoa.find(x=>x.sv);
+
+    linha('Para quantos', quantosRecebem());
+    linha('Você pediu', p.a+'p a '+p.fps+' fps');
+
+    // Três medidas diferentes, e é a comparação entre elas que diz onde
+    // o quadro se perdeu: o Windows entregou? o compressor deu conta?
+    // chegou a sair pela rede?
+    const f=um&&um.fonte;
+    if(f) linha('A tela entrega',
+      (f.width||'—')+'×'+(f.height||'—')+' a '+Math.round(f.framesPerSecond||0)+' fps',
+      (f.framesPerSecond>=p.fps*0.85)?'bom':'medio');
+    if(um){
+      linha('Sai como',(um.sv.frameWidth||'—')+'×'+(um.sv.frameHeight||'—'));
+      if(um.fpsComprimido) linha('O compressor dá conta de', um.fpsComprimido+' fps',
+        um.fpsComprimido>=p.fps*0.85?'bom':um.fpsComprimido>=p.fps*0.5?'medio':'ruim');
+      linha('Chega no seu amigo a', um.fpsEnviado+' fps', um.fpsEnviado>=p.fps*0.85?'bom':um.fpsEnviado>=p.fps*0.5?'medio':'ruim');
+      if(um.codecEnv){
+        const pedido=(cfg.codec||'auto');
+        const bateu = pedido==='auto' || um.codecEnv.toLowerCase()===pedido;
+        linha('Codec', um.codecEnv + (bateu?'':' (pedi '+pedido.toUpperCase()+', mas não tem aqui)'),
+              bateu?'':'medio');
+      }
+
+      // A informação mais importante de todas: quem está comprimindo.
+      if(um.sv.encoderImplementation){
+        const naPlaca = um.sv.powerEfficientEncoder===true ||
+          /external|mediafoundation|vaapi|videotoolbox|nvenc|amf|qsv/i.test(um.sv.encoderImplementation);
+        linha('Quem comprime', naPlaca ? 'a placa de vídeo' : 'o processador (rouba FPS do jogo)',
+              naPlaca?'bom':'ruim');
+        linha('Compressor', um.sv.encoderImplementation);
+      }
+
+      // Onde o tempo foi embora, em porcentagem do tempo transmitindo
+      const d=um.sv.qualityLimitationDurations;
+      if(d){
+        const soma=(d.cpu||0)+(d.bandwidth||0)+(d.other||0)+(d.none||0);
+        if(soma>0.5){
+          const pct=(x)=>Math.round(((x||0)/soma)*100);
+          linha('Tempo liso', pct(d.none)+'%', pct(d.none)>80?'bom':'medio');
+          if(pct(d.cpu)>2) linha('Travou por processador', pct(d.cpu)+'%', pct(d.cpu)>15?'ruim':'medio');
+          if(pct(d.bandwidth)>2) linha('Travou por internet', pct(d.bandwidth)+'%', pct(d.bandwidth)>15?'ruim':'medio');
+        }
+      }
+      if(um.sv.qualityLimitationResolutionChanges>0)
+        linha('Mudou de tamanho', um.sv.qualityLimitationResolutionChanges+'×',
+              um.sv.qualityLimitationResolutionChanges>6?'medio':'');
+    }
+    linha('Banda total de subida', total+' kbps');
+    if(auto.motivo) linha('Ajuste automático', auto.motivo,'medio');
+    if(cfg.clipeSempre) linha('Clipe sempre pronto','ligado (usa processador)','medio');
+  }
+
+  for(const x of porPessoa){
+    h.push('<div class="secao">'+escapar(x.par.nome||'Entrando…')+'</div>');
+    linha('Ping', x.ms+' ms', x.ms<60?'bom':x.ms<130?'medio':'ruim');
+    if(x.caminho) linha('Caminho', x.caminho, x.caminho==='direto'?'bom':'medio');
+    if(est.streamTela) linha('Mandando pra ele', x.kbps+' kbps');
+    if(x.perda) linha('Perda no caminho', x.perda.toFixed(1)+'%', x.perda>3?'ruim':x.perda>1?'medio':'bom');
+    if(x.ev){
+      linha('Recebendo',(x.ev.frameWidth||'—')+'×'+(x.ev.frameHeight||'—')+
+            ' · '+Math.round(x.ev.framesPerSecond||0)+' fps');
+      const perd=x.ev.packetsLost||0, tot=perd+(x.ev.packetsReceived||0);
+      const pc=tot?perd/tot*100:0;
+      if(pc) linha('Perda no que chega', pc.toFixed(1)+'%', pc>3?'ruim':pc>1?'medio':'bom');
+    }
+  }
+
+  if(!h.length) h.push('<p class="ajuda" style="margin:0">Ninguém está transmitindo tela ainda.</p>');
+  $('numeros').innerHTML=h.join('');
+}
+
+/* ---------------------------------------------------------------------
+ * "SEU PROCESSADOR NÃO ESTÁ DANDO CONTA"
+ * ---------------------------------------------------------------------
+ * O navegador conta quanto tempo ele passou segurando a qualidade por
+ * falta de processador. Se isso acontece por vários segundos seguidos e
+ * a compressão está sendo feita em software, existe um conserto de um
+ * clique — e é melhor oferecer do que deixar a pessoa achando que o
+ * programa é ruim.
+ * ------------------------------------------------------------------ */
+function cuidarDoAvisoDeCpu(porPessoa){
+  if(!est.streamTela) return;
+  const um = porPessoa.find(x=>x.sv);
+  if(!um) return;
+  const impl = um.sv.encoderImplementation||'';
+  const naPlaca = um.sv.powerEfficientEncoder===true ||
+    /external|mediafoundation|vaapi|videotoolbox|nvenc|amf|qsv/i.test(impl);
+  const sofrendo = (um.par.cpuApertado||0) >= 6;
+
+  if(!sofrendo || est.avisouCpu) return;
+  est.avisouCpu = true;
+
+  if(!naPlaca && cfg.codec!=='h264'){
+    recado('Seu processador está segurando a transmissão. Dá para resolver em um clique.','mal');
+    oferecerConserto(
+      'A compressão está sendo feita pelo processador — o mesmo que roda o jogo. '+
+      'A placa de vídeo faz isso quase de graça, com H264.',
+      'Usar a placa de vídeo agora',
+      async ()=>{ cfg.codec='h264'; $('sel-codec').value='h264'; guardarAjustes(); await trocarCodecAgora(); });
+  }else if(!naPlaca){
+    recado('Seu processador está segurando a transmissão.','mal');
+    oferecerConserto(
+      'Já estou pedindo H264, mas esta máquina está comprimindo por software mesmo assim '+
+      '('+impl+'). Baixar a resolução resolve na hora.',
+      'Baixar para 1080p 30fps',
+      async ()=>{ cfg.qualidade='1080-30-5'; $('sel-qualidade').value='1080-30-5'; guardarAjustes(); await reequilibrarVideo(); });
+  }else{
+    recado('A placa está no limite. Baixar a resolução resolve.','mal');
+    oferecerConserto('Mesmo na placa de vídeo, este tamanho está pesado.',
+      'Baixar para 1080p 30fps',
+      async ()=>{ cfg.qualidade='1080-30-5'; $('sel-qualidade').value='1080-30-5'; guardarAjustes(); await reequilibrarVideo(); });
+  }
+}
+
+function oferecerConserto(texto, rotulo, acao){
+  const alvo=$('numeros');
+  if(!alvo) return;
+  let cx=$('conserto');
+  if(!cx){
+    cx=document.createElement('div'); cx.id='conserto'; cx.className='conserto';
+    alvo.parentNode.insertBefore(cx, alvo);
+  }
+  cx.innerHTML='';
+  const p=document.createElement('p'); p.textContent=texto;
+  const b=document.createElement('button'); b.type='button'; b.className='b b-azul b-largo';
+  b.textContent=rotulo;
+  b.onclick=async()=>{ b.disabled=true; b.textContent='Ajustando…'; await acao();
+    cx.remove(); est.avisouCpu=false; recado('Pronto. Veja se o FPS subiu.','ok'); };
+  cx.append(p,b);
+  guardarGaveta($('painel'),true);
+}
+
+/* Trocar o codec no meio da call: precisa combinar de novo com cada um. */
+async function trocarCodecAgora(){
+  for(const par of pares.values()){
+    if(!par.pc) continue;
+    preferirCodec(par.pc);
+    try{
+      if(canalDe(par)){
+        const of=await par.pc.createOffer();
+        of.sdp=melhorarAudio(of.sdp);
+        await par.pc.setLocalDescription(of);
+        enviar(par,{t:'sdp', v:par.pc.localDescription});
+      }else if(sala.ligada && impolido(par)){
+        await ofertar(par);
+      }
+    }catch(e){ console.warn('trocar codec',e); }
+  }
+  await reequilibrarVideo();
+}
+
+function escapar(t){
+  return String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* =====================================================================
+ * CHAT
+ * =================================================================== */
+function abrirChat(){
+  guardarGaveta($('chat'), true);
+  $('chat-bolinha').hidden=true;
+  setTimeout(()=>$('chat-txt').focus(),80);
+}
+function escreverNoChat(quem, texto, souEu){
+  const linhas=$('chat-linhas');
+  const vazio=linhas.querySelector('.chat-vazio'); if(vazio) vazio.remove();
+  while(linhas.children.length>200) linhas.firstChild.remove();
+  const d=document.createElement('div');
+  d.className='fala nova '+(souEu?'eu':'ele');
+  setTimeout(()=>d.classList.remove('nova'),400);
+  const q=document.createElement('span'); q.className='quem'; q.textContent=quem;
+  d.appendChild(q); d.appendChild(document.createTextNode(texto));
+  linhas.appendChild(d);
+  linhas.scrollTop=linhas.scrollHeight;
+}
+function receberMensagem(par, texto){
+  // freio: no máximo 12 mensagens a cada 5 s por pessoa
+  const agora=Date.now();
+  if(agora-(par.janelaChat||0)>5000){ par.janelaChat=agora; par.contaChat=0; }
+  if(++par.contaChat>12) return;
+
+  const t=String(texto||'').slice(0,500);
+  escreverNoChat(par.nome||'Seu amigo', t, false);
+  if(!$('chat').classList.contains('aberto')){
+    $('chat-bolinha').hidden=false;
+    if(par.contaChat<=3) recado((par.nome||'Seu amigo')+': '+t.slice(0,40)+(t.length>40?'…':''));
+  }
+}
+
+/* =====================================================================
+ * PUSH-TO-TALK
+ * =================================================================== */
+function aplicarModoFala(){
+  const ptt = cfg.fala==='ptt';
+  $('bloco-ptt').hidden = !ptt;
+  if(est.streamMic){
+    const aberto = !est.mudo && (!ptt || est.segurando);
+    est.streamMic.getAudioTracks().forEach(t=>{ t.enabled=aberto; });
+  }
+  pintarGente();
+}
+function segurarFala(ligado){
+  if(cfg.fala!=='ptt' || est.mudo) return;
+  if(est.segurando===ligado) return;
+  est.segurando=ligado;
+  if(est.streamMic) est.streamMic.getAudioTracks().forEach(t=>{ t.enabled=ligado; });
+  enviarTodos({t:'fala',v:ligado});
+  const av=$('av-eu'); if(av) av.classList.toggle('fala',ligado);
+  const sub=$('sub-eu');
+  if(sub) sub.textContent = ligado ? 'falando' : 'segure '+cfg.nomeTecla+' para falar';
+}
+
+/* ---------------------------------------------------------------------
+ * ESCOLHA DO CODEC DE VÍDEO
+ * ---------------------------------------------------------------------
+ * H264 quase sempre usa o chip de vídeo da placa para comprimir. Isso
+ * quase não consome processador — que é exatamente o que você quer com
+ * um jogo rodando ao lado. VP9/AV1 comprimem melhor (imagem mais limpa
+ * na mesma banda) mas costumam comer processador.
+ * ------------------------------------------------------------------ */
+function temCodec(qual){
+  try{
+    const caps=RTCRtpSender.getCapabilities('video');
+    return !!(caps&&caps.codecs&&caps.codecs.some(c=>c.mimeType.toLowerCase()==='video/'+qual));
+  }catch{ return false; }
+}
+
+function preferirCodec(pc){
+  const alvo=cfg.codec||'auto';
+  if(alvo==='auto') return;
+  const nome={h264:'video/h264', vp9:'video/vp9', vp8:'video/vp8', av1:'video/av1'}[alvo];
+  if(!nome) return;
+  try{
+    const caps=RTCRtpSender.getCapabilities('video');
+    if(!caps||!caps.codecs) return;
+    const bons=caps.codecs.filter(c=>c.mimeType.toLowerCase()===nome);
+    if(!bons.length){
+      if(alvo==='h264' && !est.avisouSemH264){
+        est.avisouSemH264=true;
+        console.warn('sem H264 neste navegador');
+      }
+      return;
+    }
+    const resto=caps.codecs.filter(c=>c.mimeType.toLowerCase()!==nome);
+    pc.getTransceivers().forEach(t=>{
+      const k=(t.receiver&&t.receiver.track&&t.receiver.track.kind)||'';
+      if(k!=='video') return;
+      try{ t.setCodecPreferences(bons.concat(resto)); }catch{}
+    });
+  }catch(e){ console.warn('codec',e); }
+}
+
+/* Vídeo com prioridade alta na rede e sem enfileirar quadros à toa. */
+async function prioridadeAlta(sender){
+  if(!sender) return;
+  try{
+    const p=sender.getParameters();
+    p.encodings=p.encodings&&p.encodings.length?p.encodings:[{}];
+    p.encodings[0].networkPriority='high';
+    p.encodings[0].priority='high';
+    await sender.setParameters(p);
+  }catch{}
+}
+
+async function bitrateAudio(sender,bps){
+  if(!sender) return;
+  try{
+    const p=sender.getParameters();
+    p.encodings=p.encodings&&p.encodings.length?p.encodings:[{}];
+    p.encodings[0].maxBitrate=bps;
+    await sender.setParameters(p);
+  }catch(e){console.warn('bitrate audio',e);}
+}
+
+/* ---------- quem chama ---------- */
+/* ---------------------------------------------------------------------
+ * MODO MANUAL (dois, com código na mão)
+ * ---------------------------------------------------------------------
+ * Continua existindo para quando a sala não abre — rede que bloqueia,
+ * site sem permissão. Por dentro ele monta o mesmo "par" da sala; o que
+ * muda é só quem carrega o recado: você, no WhatsApp.
+ * ------------------------------------------------------------------ */
+const PAR_MANUAL='manual';
+
+async function gerarConvite(){
+  const b=$('btn-gerar'); b.disabled=true; b.textContent='Gerando…'; $('erro').hidden=true;
+  try{
+    eu.id = eu.id || idAleatorio(8);
+    const par = pares.get(PAR_MANUAL) || novoPar(PAR_MANUAL);
+    par.impolido = true;                       // quem convida é quem propõe
+    criarPar(PAR_MANUAL);
+    await prepararMidia(par);
+    preferirCodec(par.pc);
+    const of=await par.pc.createOffer();
+    of.sdp=melhorarAudio(of.sdp);
+    await par.pc.setLocalDescription(of);
+    await esperarIce(par.pc);
+    const cod=empacotar(par.pc.localDescription.sdp,'convite');
+    $('meu-codigo').value=montarLink('c',cod);
+    $('cx-meu').hidden=false;
+    $('cx-envio').hidden=false;
+    $('rot-e1').textContent=temEndereco()?'Mande este link pro seu amigo':'Mande este código pro seu amigo';
+    $('e1').classList.add('ok'); b.hidden=true;
+    $('resposta-dele').focus();
+  }catch(e){
+    console.error(e); erro(traduzir(e));
+    tirarPar(PAR_MANUAL);
+    b.disabled=false; b.textContent='Gerar convite';
+  }
+}
+
+async function conectar(){
+  const cod=$('resposta-dele').value.trim();
+  if(!cod) return erro('Cole a resposta que seu amigo mandou.');
+  if(cod===$('meu-codigo').value.trim())
+    return erro('Esse é o SEU convite, não a resposta dele. Não dá pra testar sozinho: '+
+      'mande o seu para um amigo, ele cola no Frag dele em "Me chamaram", e te devolve OUTRO. É esse outro que vem aqui.');
+  $('erro').hidden=true;
+  const b=$('btn-conectar'); b.disabled=true; b.textContent='Conectando…';
+  try{
+    const par=pares.get(PAR_MANUAL);
+    if(!par||!par.pc) throw new Error('SEM_CONVITE');
+    const {sdp,papel}=desempacotar(extrairCodigo(cod));
+    if(papel!=='resposta') throw new Error('TROCADO');
+    await par.pc.setRemoteDescription({type:'answer',sdp});
+    $('e2').classList.add('ok');
+  }catch(e){
+    console.error(e);
+    erro(String(e.message)==='TROCADO'
+      ? 'Isso é um convite, não uma resposta. Peça pro seu amigo mandar o que apareceu no passo 2 do Frag dele.'
+      : 'Essa resposta não serve. Peça pra ele copiar de novo, inteira.');
+    b.disabled=false; b.textContent='Conectar';
+  }
+}
+
+async function responder(){
+  const cod=$('codigo-dele').value.trim();
+  if(!cod) return erro('Cole o convite que seu amigo mandou.');
+  if(cod===$('minha-resposta').value.trim()) return erro('Essa é a sua própria resposta. Aqui vai o convite dele.');
+  $('erro').hidden=true;
+  const b=$('btn-responder'); b.disabled=true; b.textContent='Gerando…';
+  try{
+    eu.id = eu.id || idAleatorio(8);
+    const {sdp,papel}=desempacotar(extrairCodigo(cod));
+    if(papel!=='convite') throw new Error('E_RESPOSTA');
+    const par = pares.get(PAR_MANUAL) || novoPar(PAR_MANUAL);
+    par.impolido = false;                      // quem responde é o educado
+    criarPar(PAR_MANUAL);
+    await par.pc.setRemoteDescription({type:'offer',sdp});
+    await prepararMidia(par);
+    preferirCodec(par.pc);
+    const r=await par.pc.createAnswer();
+    r.sdp=melhorarAudio(r.sdp);
+    await par.pc.setLocalDescription(r);
+    await esperarIce(par.pc);
+    const codResp = empacotar(par.pc.localDescription.sdp,'resposta');
+    $('minha-resposta').value = montarLink('r', codResp);
+    try{ navigator.clipboard.writeText($('minha-resposta').value); }catch{}
+    $('btn-copiar-resposta').textContent='Copiar o '+rotuloEnvio()+' e mandar de volta';
+    $('f1').classList.add('ok'); b.hidden=true;
+  }catch(e){
+    console.error(e); erro(traduzir(e));
+    tirarPar(PAR_MANUAL);
+    b.disabled=false; b.textContent='Gerar minha resposta';
+  }
+}
+
+function traduzir(e){
+  const m=String(e&&e.name||'')+' '+String(e&&e.message||e);
+  if(/CONVITE_ANTIGO/.test(m)) return 'Esse convite foi feito por uma versão antiga do Frag. Peça um convite novo.';
+  if(/NotAllowedError|Permission/i.test(m)) return 'O navegador bloqueou o microfone. Clique no cadeado ao lado do endereço e permita.';
+  if(/NotFoundError/i.test(m)) return 'Nenhum microfone encontrado no computador.';
+  if(/NotReadableError/i.test(m)) return 'O microfone está sendo usado por outro programa.';
+  if(/E_RESPOSTA/.test(m)) return 'Isso é uma resposta, não um convite. Aqui vai o código que o seu amigo gerou primeiro.';
+  if(/SEM_CAMINHO/.test(m)) return 'O navegador não achou nenhum caminho de rede utilizável. '+
+    'Costuma ser rede só com IPv6 ou firewall fechado — tente pela sala (o link), ou coloque um retransmissor em Ajustes > Rede.';
+  if(/SEM_CIFRA/.test(m)) return 'Chegou um recado sem a cifra da sala. Ignorei por segurança — peça um link novo.';
+  if(/CURTO_DEMAIS|InvalidCharacter|atob/i.test(m)) return 'Esse código está incompleto. Copie de novo, do começo ao fim.';
+  if(/SDP_INCOMPLETO/.test(m)) return 'O navegador não gerou a conexão direito. Feche e abra o Frag de novo.';
+  return 'Deu erro: '+m;
+}
+
+/* =====================================================================
+ * RENEGOCIAÇÃO, NOME, CHAT
+ * =================================================================== */
+/* =====================================================================
+ * PUSH-TO-TALK
+ * ---------------------------------------------------------------------
+ * No navegador só dá para escutar a tecla enquanto a janela do Frag
+ * está em foco — com o jogo em tela cheia na frente, o navegador não
+ * recebe a tecla. No app instalado existe um gancho de sistema que
+ * resolve isso; a página detecta e usa quando está disponível.
+ * =================================================================== */
+
+
+/* =====================================================================
+ * ONDE ESTE FRAG ESTÁ RODANDO
+ * ---------------------------------------------------------------------
+ * Nem todo lugar deixa uma página fazer chamada de verdade. Páginas
+ * abertas dentro da moldura de outro site (visualizadores, pré-visualização
+ * de código, painéis embutidos) rodam numa caixa fechada: o navegador
+ * simplesmente NÃO entrega o RTCPeerConnection nem o microfone ali.
+ *
+ * Isso não tem conserto do lado de cá — nenhuma linha de código resolve.
+ * O que dá para fazer é reconhecer e dizer com todas as letras, em vez
+ * de mostrar "erro" e deixar a pessoa achando que o programa quebrou.
+ * ================================================================== */
+function ondeEstou(){
+  let dentroDeMoldura;
+  try{ dentroDeMoldura = window.top !== window.self; }catch{ dentroDeMoldura = true; }
+  const semChamada = !window.RTCPeerConnection || typeof RTCPeerConnection!=='function';
+  const semMicrofone = !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const semCifra = !(window.crypto && crypto.subtle);
+  return { dentroDeMoldura, semChamada, semMicrofone, semCifra,
+           caixaFechada: semChamada || (dentroDeMoldura && semMicrofone) };
+}
+
+function avisarCaixaFechada(){
+  const onde = ondeEstou();
+  if(!onde.caixaFechada) return false;
+
+  const cx = document.querySelector('.cartao-topo');
+  if(cx && !$('caixa-fechada')){
+    const d=document.createElement('div');
+    d.id='caixa-fechada'; d.className='caixa-fechada';
+    d.innerHTML =
+      '<b>Aqui o Frag não consegue fazer chamada.</b>' +
+      '<p>Esta página está aberta dentro da moldura de outro site, e o navegador ' +
+      'não libera voz nem tela nessa situação. Não é problema do Frag e não tem ' +
+      'ajuste que resolva.</p>' +
+      '<p><b>O que funciona:</b> o aplicativo <b>Frag Direto</b> no computador, ' +
+      'ou o arquivo <b>Frag Web</b> aberto direto no seu Chrome.</p>';
+    cx.appendChild(d);
+  }
+  // some com o que não vai funcionar mesmo
+  const b=$('btn-sala'); if(b) b.disabled=true;
+  const m=$('manual-bloco'); if(m) m.hidden=true;
+  return true;
+}
+
+/* =====================================================================
+ * TESTAR A CONEXÃO ANTES DE PRECISAR DELA
+ * ---------------------------------------------------------------------
+ * Quase todo "não funciona" vem de uma destas quatro coisas: microfone
+ * bloqueado, quadro de recados inalcançável, rede que esconde você
+ * atrás de um portão fechado, ou falta de retransmissor. Todas dá para
+ * descobrir em 10 segundos, sem precisar de ninguém do outro lado.
+ * =================================================================== */
+function itemTeste(chave, titulo, texto, estado){
+  let el=$('t-'+chave);
+  if(!el){
+    el=document.createElement('div');
+    el.className='item'; el.id='t-'+chave;
+    el.innerHTML='<div class="ico"></div><div><b></b><span></span></div>';
+    $('teste-corpo').appendChild(el);
+  }
+  const icones={esperando:'⏳', bem:'✅', meio:'⚠️', mal:'❌'};
+  el.className='item '+(estado||'esperando');
+  el.querySelector('.ico').textContent=icones[estado||'esperando'];
+  el.querySelector('b').textContent=titulo;
+  el.querySelector('span').textContent=texto;
+}
+
+/* Junta os endereços que o navegador consegue anunciar. É daqui que sai
+   a resposta de "essa rede deixa conexão direta?". */
+function colherCaminhos(prazo){
+  return new Promise((res)=>{
+    let pc;
+    const achados={host:0, srflx:0, relay:0, portas:new Set(), ips:new Set()};
+    try{ pc=new RTCPeerConnection(RTC()); }catch(e){ return res({erro:String(e), ...achados}); }
+    pc.createDataChannel('t');
+    pc.onicecandidate=(ev)=>{
+      if(!ev.candidate) return;
+      const c=ev.candidate;
+      const t=c.type||(String(c.candidate).match(/ typ (\w+)/)||[])[1];
+      if(t && achados[t]!==undefined) achados[t]++;
+      if(t==='srflx'){ achados.portas.add(c.port); achados.ips.add(c.address); }
+    };
+    pc.createOffer().then(o=>pc.setLocalDescription(o)).catch(()=>{});
+    setTimeout(()=>{ try{ pc.close(); }catch{} res(achados); }, prazo);
+  });
+}
+
+async function testarConexao(){
+  $('teste').hidden=false;
+  $('teste-corpo').innerHTML='';
+  $('btn-teste-denovo').disabled=true;
+
+  const onde = ondeEstou();
+
+  // Se estamos numa caixa fechada, o resto do teste só produz erro
+  // técnico sem sentido para quem lê. Melhor dizer a única coisa que
+  // importa e parar por aqui.
+  if(onde.caixaFechada){
+    itemTeste('caixa','Onde você abriu o Frag',
+      'Esta página está dentro da moldura de outro site, e o navegador não libera '+
+      'chamada de voz nem captura de tela aí. Todo o resto do teste falharia por causa disso.', 'mal');
+    itemTeste('saida1','O que fazer',
+      'Use o aplicativo Frag Direto no computador, ou abra o arquivo "Frag Web" direto no seu Chrome. '+
+      'Nos dois casos funciona normalmente.', 'meio');
+    itemTeste('saida2','Para o seu amigo entrar por um link',
+      'O link precisa apontar para um site de verdade, com endereço próprio. '+
+      'Uma página publicada dentro de outro serviço não serve — nem para você, nem para ele.', 'meio');
+    $('btn-teste-denovo').disabled=false;
+    return;
+  }
+
+  itemTeste('nav','Navegador','conferindo…');
+  itemTeste('mic','Microfone','pedindo permissão…');
+  itemTeste('sinal','Ponto de encontro do link','falando com os servidores…');
+  itemTeste('rede','Sua rede','descobrindo como você aparece na internet…');
+  itemTeste('turn','Retransmissor','vendo se tem plano B…');
+  itemTeste('tela','Transmitir a tela','conferindo…');
+
+  // --- navegador ---
+  const temTudo = !!(window.RTCPeerConnection && navigator.mediaDevices && window.crypto && crypto.subtle);
+  itemTeste('nav','Navegador', temTudo
+    ? 'Tem tudo o que o Frag precisa.'
+    : (onde.semCifra
+        ? 'Esta página está em http:// sem cadeado. Sem cadeado o navegador não empresta a cifra, '+
+          'e a sala fica sem proteção. Use https:// ou o app instalado.'
+        : 'Falta alguma coisa neste navegador. Use o Chrome ou o Edge atualizado.'),
+    temTudo?'bem':'mal');
+
+  // --- compressão por hardware ---
+  const h264 = temCodec('h264');
+  itemTeste('codec','Compressão do vídeo', h264
+    ? 'Seu navegador tem H264 — é o que deixa a placa de vídeo comprimir e poupa o processador para o jogo.'
+    : 'Este navegador não oferece H264. A compressão vai ser feita pelo processador (VP8/VP9), '+
+      'o que costuma custar FPS no jogo. No Chrome, no Edge ou no app instalado o H264 existe.',
+    h264?'bem':'meio');
+
+  // --- transmitir tela ---
+  const temTela = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+  itemTeste('tela','Transmitir a tela', temTela
+    ? 'Dá para transmitir a sua tela daqui.'
+    : 'Neste aparelho dá para falar e assistir, mas não para transmitir a sua própria tela. É limitação do navegador de celular.',
+    temTela?'bem':'meio');
+
+  // --- microfone ---
+  try{
+    const faixa = await ligarMicrofone();
+    const nome = faixa.label || 'microfone padrão';
+    // escuta 1,2 s para ver se entra som de verdade
+    let pico=0;
+    const ate=Date.now()+1200;
+    while(Date.now()<ate){ pico=Math.max(pico,nivel()); await new Promise(r=>setTimeout(r,60)); }
+    itemTeste('mic','Microfone', pico>6
+      ? 'Funcionando ('+nome+'). Ouvi você.'
+      : 'Ligado ('+nome+'), mas não ouvi nada. Fale alguma coisa e teste de novo, ou escolha outro aparelho em Ajustes.',
+      pico>6?'bem':'meio');
+  }catch(e){
+    itemTeste('mic','Microfone',
+    onde.dentroDeMoldura
+      ? 'O microfone não foi liberado. Páginas abertas dentro da moldura de outro site quase '+
+        'nunca conseguem microfone — abra o Frag pelo app ou pelo arquivo direto no navegador.'
+      : traduzir(e), 'mal');
+  }
+
+  // --- quadro de recados ---
+  const vivos=[];
+  await Promise.all(SINAIS.map(async b=>{ if(await testarBase(b)) vivos.push(b); }));
+  itemTeste('sinal','Ponto de encontro do link', vivos.length
+    ? vivos.length+' de '+SINAIS.length+' servidores respondendo. O link vai funcionar.'
+    : 'Nenhum respondeu. Aqui o link não vai funcionar — pode ser a rede desta casa, ou o site que hospeda o Frag bloqueando. O modo manual (o do código) continua valendo.',
+    vivos.length>1?'bem':vivos.length?'meio':'mal');
+
+  // --- rede ---
+  const c = await colherCaminhos(6500);
+  let estadoRede='bem', textoRede;
+  if(c.erro){ estadoRede='mal'; textoRede='O navegador nem conseguiu montar a conexão: '+c.erro; }
+  else if(!c.srflx){
+    estadoRede='mal';
+    textoRede='Não consegui descobrir o seu endereço público. Costuma ser firewall bloqueando, ou rede só com IPv6. '+
+              'Sem isso, só conecta com retransmissor.';
+  }else if(c.portas.size>1){
+    estadoRede='meio';
+    textoRede='A sua rede troca a porta a cada destino (o pessoal chama de NAT simétrico). '+
+              'Isso é comum em internet de celular e prédio: com outra pessoa na mesma situação, só conecta com retransmissor.';
+  }else{
+    textoRede='Você aparece na internet com um endereço estável. Conexão direta deve funcionar. '+
+              '('+c.host+' endereços locais, '+c.srflx+' públicos)';
+  }
+  itemTeste('rede','Sua rede', textoRede, estadoRede);
+
+  // --- retransmissor ---
+  const temTurnConfig = (cfg.turn||'').trim().length>0;
+  itemTeste('turn','Retransmissor', c.relay
+    ? 'Tem retransmissor funcionando. Mesmo nas redes mais fechadas, você conecta.'
+    : (temTurnConfig
+        ? 'O retransmissor que você colou em Ajustes não respondeu. Confira endereço, usuário e senha.'
+        : 'Nenhum retransmissor respondeu. Os públicos gratuitos vivem caindo. '+
+          'Se a conexão falhar com alguém, é aqui que resolve: cole um seu em Ajustes > Rede.'),
+    c.relay?'bem':(estadoRede==='bem'?'meio':'mal'));
+
+  // --- veredito ---
+  const ruins=[...$('teste-corpo').querySelectorAll('.item.mal')].length;
+  const meios=[...$('teste-corpo').querySelectorAll('.item.meio')].length;
+  itemTeste('fim', ruins?'Resumo: tem coisa para resolver' : meios?'Resumo: dá para usar, com ressalva' : 'Resumo: tudo certo',
+    ruins ? 'Olhe os itens em vermelho acima. Enquanto isso, o modo manual funciona em quase todo lugar.'
+    : meios ? 'Deve funcionar. Se falhar com alguém específico, quase sempre é falta de retransmissor.'
+    : 'Pode chamar seu amigo tranquilo.',
+    ruins?'mal':meios?'meio':'bem');
+
+  $('btn-teste-denovo').disabled=false;
+}
+
+
+/* =====================================================================
+ * CLIPE — os últimos segundos, sempre guardados
+ * ---------------------------------------------------------------------
+ * A ideia é a do "replay buffer": em vez de você lembrar de apertar
+ * gravar ANTES da jogada boa, o Frag está sempre gravando os últimos
+ * segundos por cima dos anteriores, na memória. Quando algo acontece,
+ * você aperta C e aquilo vira arquivo.
+ *
+ * Nada disso sai do seu computador: é a sua própria tela e o áudio que
+ * você já está ouvindo, gravados aí mesmo.
+ * =================================================================== */
+const clipe = { fluxo:null, gravadores:[], relogio:null, alvo:'', destino:null,
+                fontes:[], tudo:null, pedacosTudo:[] };
+
+/* Junta num único áudio: seu microfone, a voz de cada um e o som do
+   jogo que está sendo transmitido. */
+function misturarAudio(){
+  try{
+    est.ctx = est.ctx || new AudioContext();
+    if(est.ctx.state==='suspended') est.ctx.resume();
+    const destino = est.ctx.createMediaStreamDestination();
+    const juntar=(fluxo)=>{
+      if(!fluxo || !fluxo.getAudioTracks || !fluxo.getAudioTracks().length) return;
+      try{ const n=est.ctx.createMediaStreamSource(fluxo); n.connect(destino); clipe.fontes.push(n); }catch{}
+    };
+    juntar(est.streamMic);
+    if(est.streamTela) juntar(est.streamTela);
+    pares.forEach(p=>{ if(p.audio && p.audio.srcObject) juntar(p.audio.srcObject); });
+    return destino;
+  }catch(e){ console.warn('mistura',e); return null; }
+}
+
+function telaParaGravar(){
+  // prioridade: a primeira tela que está aparecendo no palco
+  const q = $('palco').querySelector('.quadro:not(.saindo)');
+  if(!q) return null;
+  const v = q.querySelector('video');
+  if(!v || !v.srcObject) return null;
+  const tag = q.querySelector('.quadro-tag span:last-child');
+  return { video:v, nome: tag ? tag.textContent : 'tela' };
+}
+
+function fluxoParaGravar(){
+  const alvo = telaParaGravar();
+  if(!alvo) return null;
+  let bruto;
+  try{ bruto = alvo.video.captureStream ? alvo.video.captureStream() : alvo.video.mozCaptureStream(); }
+  catch{ return null; }
+  const v = bruto.getVideoTracks()[0];
+  if(!v) return null;
+  const juntos = new MediaStream([v]);
+  clipe.destino = misturarAudio();
+  if(clipe.destino) clipe.destino.stream.getAudioTracks().forEach(t=>juntos.addTrack(t));
+  return { fluxo:juntos, nome:alvo.nome };
+}
+
+/* MP4 quando o navegador deixa: abre em qualquer lugar no Windows, sem
+   instalar nada. Se não deixar, WebM — que abre no navegador e no VLC. */
+function melhorFormato(){
+  const opcoes=[
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4;codecs=avc1,opus',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+  ];
+  for(const t of opcoes){ if(window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t; }
+  return '';
+}
+const extensaoDe = (tipo)=> /mp4/.test(tipo||'') ? '.mp4' : '.webm';
+
+/* ---------------------------------------------------------------------
+ * COMO OS ÚLTIMOS SEGUNDOS FICAM GUARDADOS
+ * ---------------------------------------------------------------------
+ * O jeito ingênuo é gravar em pedacinhos e jogar fora os antigos. Só que
+ * um arquivo de vídeo cortado no meio perde o índice: abre torto, não dá
+ * para arrastar a barrinha, e em MP4 nem abre.
+ *
+ * Então aqui rodam DOIS gravadores ao mesmo tempo, defasados. Cada um
+ * grava o dobro do tempo do clipe e é trocado por um novo. Quando você
+ * aperta C, o mais velho dos dois sempre tem pelo menos o tempo que você
+ * pediu — e ele é ENCERRADO na hora, virando um arquivo inteiro, com
+ * índice, duração certa e barrinha que funciona.
+ * ------------------------------------------------------------------ */
+function novoGravador(){
+  if(!clipe.fluxo) return null;
+  try{
+    const g = new MediaRecorder(clipe.fluxo, { mimeType: melhorFormato(), videoBitsPerSecond: 4000000 });
+    const item = { rec:g, inicio:Date.now(), pedacos:[] };
+    g.ondataavailable = (ev)=>{ if(ev.data && ev.data.size) item.pedacos.push(ev.data); };
+    g.start();
+    return item;
+  }catch(e){ console.warn('gravador',e); return null; }
+}
+
+function comecarBuffer(){
+  if(clipe.gravadores.length) return true;
+  const alvo = fluxoParaGravar();
+  if(!alvo) return false;
+  clipe.fluxo = alvo.fluxo; clipe.alvo = alvo.nome;
+  const g = novoGravador();
+  if(!g){ clipe.fluxo=null; return false; }
+  clipe.gravadores=[g];
+  clearInterval(clipe.relogio);
+  clipe.relogio = setInterval(girarGravadores, Math.max(5, Number(cfg.clipe)||30)*1000);
+  return true;
+}
+
+function girarGravadores(){
+  if(!clipe.fluxo) return;
+  const g = novoGravador();
+  if(g) clipe.gravadores.push(g);
+  while(clipe.gravadores.length>2){
+    const velho = clipe.gravadores.shift();
+    try{ velho.rec.state!=='inactive' && velho.rec.stop(); }catch{}
+    velho.pedacos.length=0;                 // esse já passou do tempo
+  }
+}
+
+function pararBuffer(){
+  clearInterval(clipe.relogio); clipe.relogio=null;
+  clipe.gravadores.forEach(g=>{ try{ g.rec.state!=='inactive' && g.rec.stop(); }catch{} });
+  clipe.gravadores=[];
+  clipe.fluxo=null;
+  clipe.fontes.forEach(n=>{ try{ n.disconnect(); }catch{} });
+  clipe.fontes=[];
+}
+
+/* ---------------------------------------------------------------------
+ * SALVAR O ARQUIVO
+ * ---------------------------------------------------------------------
+ * No app instalado e em qualquer site normal, um link de download
+ * resolve — o arquivo vai direto para a sua pasta de downloads, sem
+ * passar por lugar nenhum.
+ * ------------------------------------------------------------------ */
+function baixarPorLink(blob, nome){
+  try{
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=nome;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 30000);
+    return true;
+  }catch(e){ console.warn('baixar',e); return false; }
+}
+
+async function salvarArquivo(blob, nome){
+  return { ok: baixarPorLink(blob,nome),
+           recado:'Não consegui salvar o arquivo aqui. No app instalado funciona.' };
+}
+
+function nomeDeArquivo(prefixo, tipo){
+  const d=new Date(), z=(n)=>String(n).padStart(2,'0');
+  return prefixo+'-'+d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+'-'+
+         z(d.getHours())+z(d.getMinutes())+z(d.getSeconds())+extensaoDe(tipo);
+}
+
+function encerrar(item){
+  return new Promise(res=>{
+    if(!item || item.rec.state==='inactive') return res(null);
+    item.rec.onstop=()=>res(new Blob(item.pedacos,{type:item.rec.mimeType||'video/webm'}));
+    try{ item.rec.stop(); }catch{ res(null); }
+    setTimeout(()=>res(item.pedacos.length?new Blob(item.pedacos,{type:item.rec.mimeType||'video/webm'}):null), 4000);
+  });
+}
+
+let salvandoClipe=false;
+async function salvarClipe(){
+  if(salvandoClipe) return;
+  if(!clipe.gravadores.length){
+    if(!comecarBuffer()) return recado('Não tem nenhuma tela na chamada para clipar.','mal');
+    return recado(cfg.clipeSempre
+      ? 'Comecei a guardar agora — daqui a alguns segundos o clipe fica cheio.'
+      : 'Comecei a gravar agora. Aperte C de novo quando quiser fechar o clipe. '+
+        '(Para pegar o que JÁ passou, ligue "deixar o clipe sempre pronto" em Ajustes.)','');
+  }
+  const velho = clipe.gravadores[0];
+  const segundos = Math.round((Date.now()-velho.inicio)/1000);
+  if(segundos<3) return recado('Ainda não juntei segundos suficientes. Espere um pouco.','');
+
+  salvandoClipe=true;
+  $('btn-clipe').disabled=true;
+  try{
+    const blob = await encerrar(velho);
+    // o lugar dele volta na hora, para não ficar buraco na gravação
+    clipe.gravadores.shift();
+    const novo = novoGravador();
+    if(novo) clipe.gravadores.push(novo);
+
+    if(!blob || !blob.size) return recado('O clipe saiu vazio. Tente de novo em alguns segundos.','mal');
+    const r = await salvarArquivo(blob, nomeDeArquivo('frag-clipe', blob.type));
+    recado(r.ok ? 'Clipe salvo — '+segundos+'s ('+(blob.size/1048576).toFixed(1)+' MB)' : r.recado, r.ok?'ok':'mal');
+  } finally { salvandoClipe=false; $('btn-clipe').disabled=false; }
+}
+
+/* Gravação da call inteira, do começo ao fim. */
+function alternarGravacao(){
+  if(clipe.tudo){ try{ clipe.tudo.stop(); }catch{} return; }
+  // Enquanto grava a call inteira, o buffer do clipe sai de cena: dois
+  // gravadores disputando a mesma captura é o que fazia sair arquivo
+  // vazio — e de todo jeito não faz sentido guardar os dois.
+  pararBuffer();
+  const alvo=fluxoParaGravar();
+  if(!alvo) return recado('Não tem nenhuma tela na chamada para gravar.','mal');
+  try{
+    const rec=new MediaRecorder(alvo.fluxo,{ mimeType:melhorFormato(), videoBitsPerSecond:8000000 });
+    clipe.pedacosTudo=[];
+    rec.ondataavailable=(ev)=>{ if(ev.data&&ev.data.size) clipe.pedacosTudo.push(ev.data); };
+    rec.onstop=()=>{
+      const blob=new Blob(clipe.pedacosTudo,{type:rec.mimeType||'video/webm'});
+      clipe.pedacosTudo=[]; clipe.tudo=null;
+      $('btn-gravar').textContent='⏺ Gravar a call inteira';
+      $('btn-gravar').classList.remove('b-vermelho');
+      $('btn-clipe').classList.remove('gravando');
+      if(!blob.size){ recado('A gravação saiu vazia — tente de novo.','mal'); cuidarDoBuffer(); return; }
+      salvarArquivo(blob, nomeDeArquivo('frag-gravacao', blob.type)).then(r=>{
+        recado(r.ok ? 'Gravação salva ('+(blob.size/1048576).toFixed(1)+' MB)' : r.recado, r.ok?'ok':'mal');
+      });
+      cuidarDoBuffer();
+    };
+    // sem fatiar: um arquivo só, com índice e duração certos
+    rec.start();
+    clipe.tudo=rec;
+    $('btn-gravar').textContent='⏹ Parar e salvar';
+    $('btn-gravar').classList.add('b-vermelho');
+    $('btn-clipe').classList.add('gravando');
+    recado('Gravando a call.','ok');
+  }catch(e){ recado('Não consegui gravar: '+(e&&e.name||e),'mal'); }
+}
+
+/* O buffer acompanha o que está na tela: liga quando aparece a primeira
+   imagem e desliga quando não sobra nenhuma. */
+function cuidarDoBuffer(){
+  const tem = !!$('palco').querySelector('.quadro:not(.saindo)');
+  // Só fica guardando se você pediu. Guardar custa processador — dois
+  // gravadores comprimindo em paralelo — e num jogo isso aparece.
+  if(tem && cfg.clipeSempre && !clipe.gravadores.length) comecarBuffer();
+  if((!tem || !cfg.clipeSempre) && clipe.gravadores.length && !clipe.tudo) pararBuffer();
+  $('btn-clipe').disabled = !tem;
+  const b=$('btn-clipe');
+  if(b) b.title = cfg.clipeSempre
+    ? 'Salvar os últimos segundos (C)'
+    : 'Clipe (C) — ligue "deixar sempre pronto" em Ajustes para pegar o que já passou';
+}
+
+/* =====================================================================
+ * O QUE SÓ EXISTE NO APP INSTALADO
+ * ---------------------------------------------------------------------
+ * Sobreposição por cima do jogo, tecla de mudo que funciona de dentro
+ * do jogo, ícone do lado do relógio e abrir junto com o Windows. No
+ * navegador nada disso é possível, então a seção nem aparece.
+ * =================================================================== */
+function souApp(){ return !!(window.fragDesktop && window.fragDesktop.sobrepor); }
+
+function mandarParaSobreposicao(){
+  if(!souApp() || !cfg.sobrepor) return;
+  const gente = naChamada()
+    ? [{ nome: eu.nome||'Você', falando: est.falandoAntes||est.segurando, mudo: est.mudo }]
+        .concat([...pares.values()].filter(p=>p.conectado)
+          .map(p=>({ nome:p.nome||'…', falando:p.falando, mudo:p.mudo })))
+    : [];
+  try{ window.fragDesktop.sobreporGente(gente); }catch{}
+}
+
+function ligarSobreposicao(ligado){
+  if(!souApp()) return;
+  try{ window.fragDesktop.sobrepor(!!ligado); }catch{}
+  if(ligado) mandarParaSobreposicao();
+}
+
+function avisarBandeja(){
+  if(!souApp()) return;
+  try{ window.fragDesktop.bandeja({ mudo: est.mudo, naCall: naChamada() }); }catch{}
+}
+
+(function prepararApp(){
+  if(!souApp()) return;
+  const d = window.fragDesktop;
+  $('secao-pc').hidden=false;
+  $('bloco-pc').hidden=false;
+
+  $('in-sobrepor').checked = cfg.sobrepor!==false;
+  $('in-sobrepor').onchange = ()=>{
+    cfg.sobrepor=$('in-sobrepor').checked; guardarAjustes();
+    ligarSobreposicao(cfg.sobrepor && naChamada());
+  };
+
+  const rotuloMudo=()=> 'Tecla de mudo: '+(cfg.nomeTeclaMudo||'nenhuma');
+  $('btn-tecla-mudo').textContent = rotuloMudo();
+  $('btn-tecla-mudo').onclick = async ()=>{
+    $('btn-tecla-mudo').textContent='aperte uma tecla…';
+    try{ await d.gravarTeclaMudo(); }catch{}
+  };
+  d.aoGravarMudo((t)=>{
+    cfg.teclaMudo=String(t.codigo); cfg.nomeTeclaMudo=t.nome; guardarAjustes();
+    $('btn-tecla-mudo').textContent=rotuloMudo();
+    recado('Mudo global: '+t.nome,'ok');
+  });
+  if(cfg.teclaMudo){
+    try{ d.definirTeclaMudo({ tipo:/^Mouse/.test(cfg.nomeTeclaMudo)?'mouse':'teclado',
+                              codigo:Number(cfg.teclaMudo), nome:cfg.nomeTeclaMudo }); }catch{}
+  }
+
+  d.abrirComWindows().then(v=>{ cfg.comWindows=!!v; $('in-windows').checked=!!v; }).catch(()=>{});
+  $('in-windows').onchange = async ()=>{
+    try{ cfg.comWindows = await d.abrirComWindows($('in-windows').checked); }catch{}
+    guardarAjustes();
+  };
+
+  // a bandeja e a sobreposição pedem coisas de volta
+  d.aoPedirAcao((a)=>{
+    if(a==='mudo') alternarMudo();
+    else if(a==='parar-tela') pararTela();
+  });
+})();
+
+/* =====================================================================
+ * DISPOSITIVOS E CÓPIA
+ * =================================================================== */
+async function listarMics(){
+  try{
+    const ds=await navigator.mediaDevices.enumerateDevices();
+    const sel=$('sel-mic'), atual=sel.value;
+    sel.innerHTML='<option value="padrao">Padrão do Windows</option>';
+    ds.filter(d=>d.kind==='audioinput'&&d.deviceId&&d.deviceId!=='default').forEach(d=>{
+      const o=document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||'microfone';
+      sel.appendChild(o);
+    });
+    if(atual) sel.value=atual;
+  }catch{}
+}
+async function copiar(txt,btn,rot){
+  try{
+    await navigator.clipboard.writeText(txt);
+    btn.textContent='Copiado!'; btn.classList.add('b-verde','copiado');
+    setTimeout(()=>btn.classList.remove('copiado'),400);
+    setTimeout(()=>{btn.textContent=rot;btn.classList.remove('b-verde');},1800);
+  }catch{ recado('Não consegui copiar. Selecione e use Ctrl+C.','mal'); }
+}
+
+/* =====================================================================
+ * MANDAR NO WHATSAPP
+ * ---------------------------------------------------------------------
+ * wa.me abre o WhatsApp (app no celular, WhatsApp Web no PC) já com a
+ * mensagem escrita. Tira o passo de copiar, trocar de janela e colar.
+ * =================================================================== */
+function textoConvite(codigo, ehResposta){
+  const quem = cfg.nome ? cfg.nome + ' ' : '';
+  return ehResposta
+    ? 'Aceitei! ' + quem + 'Cola isso no teu Frag, no campo 2:\n\n' + codigo
+    : quem + 'te chamou no Frag pra jogar.\n\n' +
+      'Abre o Frag, clica em "Me chamaram" e cola isto:\n\n' + codigo;
+}
+
+function mandarNoWhats(codigo, ehResposta){
+  const url = 'https://wa.me/?text=' + encodeURIComponent(textoConvite(codigo, ehResposta));
+  try{
+    // no app instalado o link tem que sair para o navegador do sistema
+    window.open(url, '_blank', 'noopener');
+  }catch{
+    location.href = url;
+  }
+}
+
+/* =====================================================================
+ * LIGAÇÕES
+ * =================================================================== */
+$('papel-chamo').onclick=()=>{
+  $('papel-chamo').classList.add('on'); $('papel-entro').classList.remove('on');
+  $('fluxo-chamo').hidden=false; $('fluxo-entro').hidden=true; $('erro').hidden=true;
+};
+$('papel-entro').onclick=()=>{
+  $('papel-entro').classList.add('on'); $('papel-chamo').classList.remove('on');
+  $('fluxo-entro').hidden=false; $('fluxo-chamo').hidden=true; $('erro').hidden=true;
+  $('codigo-dele').focus();
+};
+$('btn-sala').onclick=criarSala;
+$('btn-teste').onclick=testarConexao;
+$('btn-teste-denovo').onclick=testarConexao;
+$('fechar-teste').onclick=$('btn-teste-ok').onclick=()=>{ $('teste').hidden=true; };
+$('btn-sala-copiar').onclick=()=>copiar($('sala-link').value,$('btn-sala-copiar'),'Copiar');
+$('btn-sala-whats').onclick=()=>{
+  const t='Entra na call comigo no Frag — é só clicar:\n\n'+$('sala-link').value;
+  window.open('https://wa.me/?text='+encodeURIComponent(t),'_blank','noopener');
+};
+$('btn-gerar').onclick=gerarConvite;
+$('btn-conectar').onclick=conectar;
+$('btn-responder').onclick=responder;
+$('btn-copiar-meu').onclick=()=>copiar($('meu-codigo').value,$('btn-copiar-meu'),'Copiar');
+$('btn-copiar-resposta').onclick=()=>copiar($('minha-resposta').value,$('btn-copiar-resposta'),'Copiar');
+$('btn-whats').onclick=()=>mandarNoWhats($('meu-codigo').value,false);
+$('btn-whats-resp').onclick=()=>mandarNoWhats($('minha-resposta').value,true);
+
+$('meu-nome').oninput=(e)=>{
+  cfg.nome=e.target.value.trim().slice(0,18);
+  eu.nome=cfg.nome;
+  guardarAjustes();
+  pintarGente();
+  enviarTodos({t:'nome', v:cfg.nome||'Sem nome'});
+};
+
+/* ---------- chat ---------- */
+function guardarGaveta(el, aberta){
+  el.classList.toggle('aberto', aberta);
+  if(aberta) el.removeAttribute('inert'); else el.setAttribute('inert','');
+}
+$('btn-chat').onclick=()=>{
+  const c=$('chat');
+  c.classList.contains('aberto') ? guardarGaveta(c,false) : abrirChat();
+};
+$('fechar-chat').onclick=()=>guardarGaveta($('chat'),false);
+$('chat-form').onsubmit=(ev)=>{
+  ev.preventDefault();
+  const t=$('chat-txt').value.trim();
+  if(!t) return;
+  if(!naChamada()) return recado('Sem conexão para mandar mensagem.','mal');
+  enviarTodos({t:'msg',v:t});
+  escreverNoChat(cfg.nome||'Você', t, true);
+  $('chat-txt').value='';
+};
+
+/* ---------- push-to-talk ---------- */
+$('sel-fala').onchange=(e)=>{
+  cfg.fala=e.target.value; guardarAjustes(); aplicarModoFala();
+  pintarGente();
+};
+function pararDeGravarTecla(){
+  if(!est.gravandoTecla) return;
+  est.gravandoTecla=false;
+  clearTimeout(est.relogioTecla);
+  $('btn-tecla').textContent = cfg.tecla ? 'Tecla: '+cfg.nomeTecla : 'clique e aperte a tecla';
+}
+$('btn-tecla').onclick=()=>{
+  est.gravandoTecla=true;
+  $('btn-tecla').textContent='aperte uma tecla… (Esc cancela)';
+  clearTimeout(est.relogioTecla);
+  est.relogioTecla=setTimeout(pararDeGravarTecla,7000);
+};
+
+document.addEventListener('keydown',(ev)=>{
+  if(est.gravandoTecla){
+    // se você clicou fora e foi escrever, a tecla não é para cá
+    if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return pararDeGravarTecla();
+    ev.preventDefault();
+    if(ev.code==='Escape') return pararDeGravarTecla();
+    clearTimeout(est.relogioTecla);
+    est.gravandoTecla=false;
+    cfg.tecla=ev.code;
+    cfg.nomeTecla=(ev.key.length===1?ev.key.toUpperCase():ev.key);
+    guardarAjustes();
+    $('btn-tecla').textContent='Tecla: '+cfg.nomeTecla;
+    pintarGente();
+    return;
+  }
+  if(window.__pttGlobal) return;   // no app, quem manda é o gancho do sistema
+  if(cfg.fala==='ptt' && ev.code===cfg.tecla && !ev.repeat){
+    if(/INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    segurarFala(true);
+  }
+});
+document.addEventListener('keyup',(ev)=>{
+  if(window.__pttGlobal) return;
+  if(cfg.fala==='ptt' && ev.code===cfg.tecla) segurarFala(false);
+});
+// perdeu o foco segurando a tecla: fecha o microfone para não vazar
+window.addEventListener('blur',()=>{ if(est.segurando) segurarFala(false); });
+
+$('btn-clipe').onclick=salvarClipe;
+$('btn-clipe').disabled=true;
+$('btn-gravar').onclick=alternarGravacao;
+$('sel-clipe').onchange=()=>{ cfg.clipe=Number($('sel-clipe').value); guardarAjustes(); };
+$('btn-mic').onclick=alternarMudo;
+$('btn-surdo').onclick=alternarSurdo;
+$('btn-tela').onclick=alternarTela;
+$('btn-sair').onclick=()=>{ if(confirm('Encerrar a chamada?')) location.reload(); };
+$('btn-painel').onclick=$('btn-config').onclick=async()=>{
+  await listarMics(); guardarGaveta($('painel'),true); pintarVolumes(); atualizarNumeros();
+};
+$('fechar-painel').onclick=()=>guardarGaveta($('painel'),false);
+
+$('vol').oninput=(e)=>{
+  $('lbl-vol').textContent=e.target.value+'%';
+  cfg.volume=Number(e.target.value); guardarAjustes();
+  aplicarVolume();
+};
+$('sel-qualidade').onchange=async(e)=>{
+  cfg.qualidade=e.target.value; guardarAjustes();
+  // vale já, sem precisar parar e recomeçar a transmissão
+  if(est.streamTela){
+    const p=PERFIS[cfg.qualidade];
+    try{
+      await est.streamTela.getVideoTracks()[0].applyConstraints({
+        width:{ideal:p.l,max:p.l}, height:{ideal:p.a,max:p.a}, frameRate:{ideal:p.fps},
+      });
+    }catch(err){ console.warn('reajustar captura',err); }
+    auto.fator=1; auto.aquece=0; auto.motivo='';
+    await reequilibrarVideo();
+    recado('Agora em '+p.a+'p a '+p.fps+' fps.','ok');
+  }
+};
+$('sel-mic').onchange=$('in-ruido').onchange=async()=>{
+  cfg.mic=$('sel-mic').value; cfg.limpar=$('in-ruido').checked; guardarAjustes();
+  if(!pares.size) return;
+  try{
+    const nova=await ligarMicrofone(true);
+    for(const par of pares.values()){
+      if(par.senderMic) await par.senderMic.replaceTrack(nova);
+    }
+    aplicarModoFala();
+    recado('Microfone atualizado.','ok');
+  }catch(e){ recado(traduzir(e),'mal'); }
+};
+
+document.addEventListener('keydown',(e)=>{
+  if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  if(e.key==='Escape'){ guardarGaveta($('painel'),false); guardarGaveta($('chat'),false); }
+  if($('chamada').hidden) return;
+  if(e.key==='m'||e.key==='M') alternarMudo();
+  if(e.key==='d'||e.key==='D') alternarSurdo();
+  if(e.key==='t'||e.key==='T'){ e.preventDefault(); abrirChat(); }
+  if(e.key==='c'||e.key==='C'){ e.preventDefault(); salvarClipe(); }
+});
+
+/* ---------------------------------------------------------------------
+ * Os controles só se escondem em TELA CHEIA — que é quando eles
+ * atrapalham mesmo. Na janela normal ficam sempre à mão: sumir com eles
+ * ali só faz a pessoa achar que o programa travou.
+ * ------------------------------------------------------------------ */
+let sumir;
+function acordarControles(){
+  $('controles').classList.remove('oculto');
+  clearTimeout(sumir);
+  if(!document.fullscreenElement) return;
+  sumir=setTimeout(()=>{
+    if(document.fullscreenElement && !$('chamada').hidden) $('controles').classList.add('oculto');
+  },3000);
+}
+document.addEventListener('mousemove',acordarControles);
+document.addEventListener('keydown',acordarControles);
+document.addEventListener('fullscreenchange',acordarControles);
+// em tela cheia só aparece o que está DENTRO do elemento em tela cheia:
+// então o aviso de "você está transmitindo" muda de casa junto.
+document.addEventListener('fullscreenchange',()=>{
+  // Em tela cheia o navegador só desenha o que está DENTRO do elemento em
+  // tela cheia. A barra de baixo e o aviso de transmissão ficavam de fora
+  // — ou seja, sumiam justo na hora em que você mais precisa deles.
+  const casa = document.fullscreenElement || $('chamada');
+  const a=$('aviso-tx'); if(a) casa.appendChild(a);
+  const c=$('controles');
+  if(c && c.parentNode!==casa) casa.appendChild(c);
+  const ch=$('chat'); if(ch) casa.appendChild(ch);
+  const pa=$('painel'); if(pa) casa.appendChild(pa);
+  const re=$('recados'); if(re) casa.appendChild(re);
+});
+$('controles').addEventListener('mouseenter',()=>clearTimeout(sumir));
+
+/* ---------------------------------------------------------------------
+ * Abriu por um link? Já entra no fluxo certo, sem clicar em nada.
+ * ------------------------------------------------------------------ */
+/* ---------------------------------------------------------------------
+ * COLAR SOZINHO (só no app instalado)
+ * ---------------------------------------------------------------------
+ * O WebRTC precisa de ida E volta — sem servidor não existe link que
+ * "entre sozinho". Mas o passo de colar dá para eliminar: o app olha o
+ * que está copiado quando ganha o foco e aplica se for um código do
+ * Frag. Copiar do WhatsApp e voltar pro Frag já basta.
+ *
+ * E se o sistema deixar clicar num link frag://, aí sim fecha sem
+ * nenhum passo: o clique cai na janela que já está aberta.
+ * ------------------------------------------------------------------ */
+function aplicarCodigoAutomatico(codigo, tipoDica){
+  if(!codigo) return false;
+
+  // link de sala: entra direto, é o caminho curto
+  const sl=String(codigo).match(/^([a-z0-9]{6,})~([A-Za-z0-9_-]{10,})$/);
+  if(tipoDica==='e' && sl){
+    if(sala.ligada || naChamada()) return false;
+    entrarNaSala(sl[1], sl[2]);
+    return true;
+  }
+
+  // já conectado? nada a fazer
+  if(naChamada()) return false;
+
+  const manual = pares.get(PAR_MANUAL);
+  const euEsperoResposta = !!(manual && manual.impolido && manual.pc);
+  const tipo = tipoDica || (euEsperoResposta ? 'r' : 'c');
+
+  if(tipo==='r' && euEsperoResposta){
+    if($('resposta-dele').value.trim()===codigo) return false;
+    $('resposta-dele').value=codigo;
+    recado('Resposta recebida — conectando…','ok');
+    $('btn-conectar').click();
+    return true;
+  }
+
+  if(tipo==='c' && !pares.size){
+    $('papel-entro').click();
+    if($('codigo-dele').value.trim()===codigo) return false;
+    $('codigo-dele').value=codigo;
+    recado('Convite recebido — gerando sua resposta…','ok');
+    $('btn-responder').click();
+    return true;
+  }
+  return false;
+}
+
+(function colarSozinho(){
+  const d = window.fragDesktop;
+  if(!d || !d.aoAcharCodigo) return;
+
+  d.aoAcharCodigo((codigo)=>aplicarCodigoAutomatico(codigo, null));
+  d.aoReceberLink(({tipo,codigo})=>aplicarCodigoAutomatico(codigo, tipo));
+
+  // deixa isso claro na tela de entrada
+  const aviso=document.createElement('p');
+  aviso.className='ajuda';
+  aviso.style.cssText='padding:0 30px;margin:10px 0 0';
+  aviso.innerHTML='<b style="color:var(--verde)">Dica:</b> copie o código do WhatsApp e volte pro Frag — '+
+                  'ele reconhece sozinho, você não precisa colar.';
+  const alvo=document.querySelector('.sala');
+  if(alvo) alvo.appendChild(aviso);
+})();
+
+/* ---------------------------------------------------------------------
+ * Push-to-talk global (só no app instalado)
+ * ------------------------------------------------------------------ */
+(async function pttGlobal(){
+  const d = window.fragDesktop;
+  if(!d || !d.pttDisponivel) return;
+
+  let temGancho = false;
+  try{ temGancho = await d.pttDisponivel(); }catch{}
+  if(!temGancho) return;
+
+  window.__pttGlobal = true;
+  $('ajuda-ptt').textContent =
+    'Funciona com o jogo em tela cheia na frente — o app escuta a tecla pelo sistema.';
+
+  d.aoMudarPTT((segurando)=>segurarFala(segurando));
+
+  d.aoGravarTecla((tecla)=>{
+    est.gravandoTecla=false;
+    cfg.tecla=tecla.codigo; cfg.nomeTecla=tecla.nome;
+    guardarAjustes();
+    $('btn-tecla').textContent='Tecla: '+tecla.nome;
+    pintarGente();
+    recado('Push-to-talk: '+tecla.nome,'ok');
+  });
+
+  // no app, gravar a tecla é o gancho do sistema que faz
+  $('btn-tecla').onclick=async()=>{
+    est.gravandoTecla=true;
+    $('btn-tecla').textContent='aperte uma tecla…';
+    try{ await d.gravarTeclaPTT(); }catch{}
+  };
+
+  if(cfg.tecla) { try{ d.definirTeclaPTT({codigo:cfg.tecla, nome:cfg.nomeTecla}); }catch{} }
+})();
+
+/* ---------------------------------------------------------------------
+ * Ao abrir: recupera o que ficou guardado da última vez.
+ * ------------------------------------------------------------------ */
+lerAjustes();
+eu.id = idAleatorio(8);
+eu.nome = cfg.nome||'';
+$('meu-nome').value=cfg.nome||'';
+$('sel-qualidade').value=cfg.qualidade;
+$('in-ruido').checked=cfg.limpar;
+$('sel-fala').value=cfg.fala;
+$('vol').value=cfg.volume; $('lbl-vol').textContent=cfg.volume+'%';
+$('sel-codec').value=cfg.codec||'auto';
+$('sel-clipe').value=String(cfg.clipe||30);
+$('sel-prioridade').value=cfg.prioridade||'fps';
+$('in-clipe-sempre').checked=!!cfg.clipeSempre;
+$('in-auto').checked=cfg.auto!==false;
+$('in-turn').value=cfg.turn||'';
+$('in-site').value=cfg.site||'';
+$('in-site').onchange=()=>{ cfg.site=$('in-site').value.trim(); guardarAjustes();
+  if(sala.ligada && sala.dono && $('sala-link')) $('sala-link').value=linkDaSala(); };
+$('sel-codec').onchange=async()=>{
+  cfg.codec=$('sel-codec').value; guardarAjustes();
+  if(naChamada()){ recado('Trocando a compressão…',''); await trocarCodecAgora(); }
+};
+$('sel-prioridade').onchange=async()=>{
+  cfg.prioridade=$('sel-prioridade').value; guardarAjustes();
+  await reequilibrarVideo();
+  recado(cfg.prioridade==='fps'?'Vou segurar os quadros por segundo.':'Vou segurar a nitidez.','ok');
+};
+$('in-clipe-sempre').onchange=()=>{
+  cfg.clipeSempre=$('in-clipe-sempre').checked; guardarAjustes();
+  cuidarDoBuffer();
+  if(cfg.clipeSempre) recado('Clipe sempre pronto — isso usa processador.','');
+  else recado('Clipe sempre pronto desligado. Seu jogo agradece.','ok');
+};
+$('in-auto').onchange=()=>{ cfg.auto=$('in-auto').checked; guardarAjustes(); };
+$('in-turn').onchange=()=>{ cfg.turn=$('in-turn').value; guardarAjustes(); };
+$('btn-tecla').textContent = cfg.tecla ? 'Tecla: '+cfg.nomeTecla : 'clique e aperte a tecla';
+$('bloco-ptt').hidden = cfg.fala!=='ptt';
+$('chat-linhas').innerHTML='<p class="chat-vazio">Nada por aqui ainda.<br>Aperte <b>T</b> a qualquer momento para abrir o chat.</p>';
+pintarGente();
+
+(function(){
+  const h=location.hash||'';
+
+  // link de sala: entra sozinho, sem clicar em nada
+  const e=h.match(/^#e=([a-z0-9]+)~([A-Za-z0-9_-]+)/);
+  if(e){
+    document.title='Frag — entrando na call…';
+    setTimeout(()=>entrarNaSala(e[1], e[2]), 60);
+    return;
+  }
+
+  const c=h.match(/^#c=([A-Za-z0-9_-]+)/);
+  if(c){
+    $('papel-entro').click();
+    $('codigo-dele').value=c[1];
+    setTimeout(()=>$('btn-responder').click(),250);
+    return;
+  }
+  const r=h.match(/^#r=([A-Za-z0-9_-]+)/);
+  if(r){
+    $('papel-chamo').click();
+    erro('Esta é a resposta do seu amigo, mas ela precisa ser colada na janela do Frag que você já deixou aberta — não numa aba nova. Volte pra aquela janela e cole no campo 2.');
+  }
+})();
+
+// fechar a aba avisa os outros na hora, em vez de virar um fantasma
+window.addEventListener('pagehide',()=>{ try{ darAdeus(); }catch{} });
+
+if(!avisarCaixaFechada() && !window.RTCPeerConnection)
+  erro('Seu navegador é antigo demais. Use o Chrome ou o Edge atualizado.');
+
+/* ---------------------------------------------------------------------
+ * Dá para transmitir a tela neste aparelho?
+ * ---------------------------------------------------------------------
+ * No Android a resposta é não: o Chrome de celular não implementa
+ * getDisplayMedia. Falar e assistir funcionam normalmente, então
+ * escondemos só o botão que não teria como funcionar — melhor do que
+ * deixar a pessoa clicando e tomando erro.
+ * ------------------------------------------------------------------ */
+const podeTransmitirTela = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+if(!podeTransmitirTela){
+  document.body.classList.add('sem-tela');
+  const n=$('nada');
+  n.querySelector('h3').textContent='Você está no celular';
+  n.querySelector('p').innerHTML =
+    'Aqui você <b>fala</b> e <b>assiste</b> a tela do seu amigo normalmente. '+
+    'Transmitir a sua própria tela só funciona no computador — o navegador do '+
+    'celular não tem essa função.';
+}
+</script>
+</body>
+</html>
