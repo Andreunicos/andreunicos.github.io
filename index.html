@@ -1656,7 +1656,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '2.5 — 27/08 06:25';
+const VERSAO = '2.6 — 27/08 06:45';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -1719,6 +1719,16 @@ function criarPar(id){
       const aparecer = ()=>{
         clearTimeout(par.relogioSumir); par.relogioSumir=null;
         par.temTela=true; mostrarTela(par);
+        // prova de vida: se em 4 s o vídeo continuar sem tamanho, não
+        // tinha imagem nenhuma — desfaz o quadro em vez de deixar uma
+        // mancha preta ocupando o palco.
+        clearTimeout(par.relogioVazio);
+        par.relogioVazio = setTimeout(()=>{
+          const v=$('v-p-'+par.id);
+          if(v && v.videoWidth===0){
+            par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
+          }
+        }, 4000);
       };
       // A imagem engasgar por um segundo é normal. Sumir com o quadro na
       // primeira falha faz a tela piscar à toa — então espera confirmar.
@@ -1737,10 +1747,12 @@ function criarPar(id){
       faixa.addEventListener('unmute',aparecer);
       faixa.addEventListener('mute',sumir);
       faixa.addEventListener('ended',()=>{
-        clearTimeout(par.relogioSumir);
+        clearTimeout(par.relogioSumir); clearTimeout(par.relogioVazio);
         par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
       });
-      if(!faixa.muted) aparecer();
+      // Aqui NÃO se desenha nada. A faixa existir não quer dizer que
+      // tem imagem — a vaga é reservada na conexão. Quem manda desenhar
+      // é o aviso de 'unmute' ou a contagem de quadros que chegam.
     }
   };
 
@@ -2205,6 +2217,7 @@ function mostrarTela(par){
   const v = $('v-p-'+par.id);
   if(v.srcObject !== par.fluxo) v.srcObject = par.fluxo;
   // alguns navegadores não começam a tocar sozinhos mesmo com autoplay
+  v.onresize = ()=>{ if(v.videoWidth>0) clearTimeout(par.relogioVazio); };
   const tocar = ()=>{ v.play().catch(()=>{}); };
   tocar(); setTimeout(tocar, 400); setTimeout(tocar, 1500);
   arrumarPalco(); pintarGente();
@@ -2587,10 +2600,13 @@ async function atualizarNumeros(){
       const agora   = ev.framesDecoded||0;
       const avancou = agora > antes;
       par.quadrosAntes = agora;
-      if(avancou && !par.temTela && par.fluxo){
-        par.temTela = true;
-        mostrarTela(par);
-        recado('A tela de '+(par.nome||'seu amigo')+' apareceu.','ok');
+      if(avancou){
+        clearTimeout(par.relogioVazio);   // tem imagem chegando de verdade
+        if(!par.temTela && par.fluxo){
+          par.temTela = true;
+          mostrarTela(par);
+          recado('A tela de '+(par.nome||'seu amigo')+' apareceu.','ok');
+        }
       }
     }
 
@@ -3711,7 +3727,9 @@ function redesenharTudo(){
   if(est.streamTela){ quadroLocal(est.streamTela); n++; }
   pares.forEach(par=>{
     clearTimeout(par.relogioSumir); par.relogioSumir=null;
-    if(par.fluxo && par.fluxo.getVideoTracks().length){
+    clearTimeout(par.relogioVazio);
+    // só redesenha quem está mesmo mandando imagem
+    if(par.fluxo && par.fluxo.getVideoTracks().length && (par.quadrosAntes||0)>0){
       par.temTela=true; mostrarTela(par); n++;
     }else par.temTela=false;
   });
