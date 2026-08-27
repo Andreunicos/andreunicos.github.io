@@ -408,12 +408,12 @@ body.sem-tela .divisor{display:none}
 @keyframes aurora{from{transform:translate3d(-3%,-2%,0) scale(1)}to{transform:translate3d(4%,3%,0) scale(1.14)}}
 
 /* ---- o cartão e o que tem dentro entram em sequência ---- */
-.cartao{animation:entra .5s cubic-bezier(.2,.7,.3,1) both}
+.cartao{animation:entra .5s cubic-bezier(.2,.7,.3,1);opacity:1}
 @keyframes entra{from{opacity:0;transform:translateY(15px) scale(.985)}}
-.cartao-topo{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) both;animation-delay:.06s}
-.campo-nome{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) both;animation-delay:.12s}
-.sala{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) both;animation-delay:.18s}
-.manual{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) both;animation-delay:.24s}
+.cartao-topo{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) backwards;animation-delay:.06s}
+.campo-nome{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) backwards;animation-delay:.12s}
+.sala{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) backwards;animation-delay:.18s}
+.manual{animation:sobeSuave .45s cubic-bezier(.2,.7,.3,1) backwards;animation-delay:.24s}
 @keyframes sobeSuave{from{opacity:0;transform:translateY(10px)}}
 
 /* ---- botões respondem ao toque ---- */
@@ -439,13 +439,13 @@ body.sem-tela .divisor{display:none}
 .manual>summary::before{display:inline-block;transition:transform .2s}
 
 /* ---- a caixa do link abrindo ---- */
-.sala-cx{animation:abre .34s cubic-bezier(.2,.7,.3,1) both;transform-origin:top}
+.sala-cx{animation:abre .34s cubic-bezier(.2,.7,.3,1);transform-origin:top}
 @keyframes abre{from{opacity:0;transform:translateY(-7px) scaleY(.94)}}
 
 /* ---- a chamada aparecendo ---- */
-.chamada:not([hidden]){animation:entraChamada .45s ease both}
+.chamada:not([hidden]){animation:entraChamada .45s ease}
 @keyframes entraChamada{from{opacity:0;transform:scale(.995)}}
-.ficha.chegou{animation:pop .55s cubic-bezier(.2,1.45,.4,1) both}
+.ficha.chegou{animation:pop .55s cubic-bezier(.2,1.45,.4,1) backwards}
 @keyframes pop{from{opacity:0;transform:scale(.88)}}
 
 /* ---- quem está falando ---- */
@@ -457,7 +457,7 @@ body.sem-tela .divisor{display:none}
 }
 
 /* ---- quadros de vídeo nascem e morrem, não piscam ---- */
-.quadro{animation:quadroEntra .4s cubic-bezier(.2,.7,.3,1) both}
+.quadro{animation:quadroEntra .4s cubic-bezier(.2,.7,.3,1);opacity:1}
 @keyframes quadroEntra{from{opacity:0;transform:scale(.97)}}
 .quadro.saindo{animation:quadroSai .24s ease forwards}
 @keyframes quadroSai{to{opacity:0;transform:scale(.97)}}
@@ -474,7 +474,7 @@ body.sem-tela .divisor{display:none}
 .controles{transition:opacity .25s,transform .25s}
 
 /* ---- o aviso de transmissão pisca como um farol ---- */
-.aviso-tx{animation:sobe .3s cubic-bezier(.2,.7,.3,1) both}
+.aviso-tx{animation:sobe .3s cubic-bezier(.2,.7,.3,1)}
 .aviso-tx .luz{animation:farol 1.9s ease-out infinite}
 @keyframes farol{
   0%{box-shadow:0 0 0 0 rgba(242,86,74,.55)}
@@ -484,14 +484,14 @@ body.sem-tela .divisor{display:none}
 .aviso-tx button:active{transform:scale(.95)}
 
 /* ---- recados entram e saem ---- */
-.recado-item{animation:sobe .26s cubic-bezier(.2,.7,.3,1) both}
+.recado-item{animation:sobe .26s cubic-bezier(.2,.7,.3,1)}
 .recado-item.saindo{animation:someRecado .26s ease forwards}
 @keyframes someRecado{to{opacity:0;transform:translateY(-9px) scale(.97)}}
 
 /* ---- chat ---- */
-.fala.nova{animation:chegaFala .3s cubic-bezier(.2,.7,.3,1) both}
+.fala.nova{animation:chegaFala .3s cubic-bezier(.2,.7,.3,1)}
 @keyframes chegaFala{from{opacity:0;transform:translateY(8px) scale(.98)}}
-.bolinha-nova{animation:pop .4s cubic-bezier(.2,1.6,.4,1) both}
+.bolinha-nova{animation:pop .4s cubic-bezier(.2,1.6,.4,1)}
 .chat,.painel{transition:transform .32s cubic-bezier(.2,.8,.25,1)}
 
 /* ---- detalhes pequenos que dão vida ---- */
@@ -539,12 +539,12 @@ body.sem-tela .divisor{display:none}
 .modal{
   position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:22px;
   background:rgba(6,7,10,.72);backdrop-filter:blur(6px);
-  animation:entraChamada .2s ease both;
+  animation:entraChamada .2s ease;
 }
 .modal-cx{
   width:min(540px,100%);max-height:86vh;display:flex;flex-direction:column;
   background:var(--sup);border:1px solid var(--linha);border-radius:20px;
-  box-shadow:var(--sombra);overflow:hidden;animation:entra .32s cubic-bezier(.2,.7,.3,1) both;
+  box-shadow:var(--sombra);overflow:hidden;animation:entra .32s cubic-bezier(.2,.7,.3,1);
 }
 .teste-corpo{padding:6px 22px 18px;overflow-y:auto}
 .modal-pe{display:flex;gap:9px;justify-content:flex-end;padding:14px 22px 20px;border-top:1px solid var(--linha)}
@@ -669,6 +669,7 @@ body.sem-tela .divisor{display:none}
     </div>
     <div class="barra-dir">
       <span class="pin" id="pin-fps" hidden><b id="fps-agora">—</b><span style="opacity:.6">fps</span></span>
+      <span class="pin" id="pin-versao" title="versão do Frag"></span>
       <span class="pin" id="pin-quantos"><span id="quantos">só você</span></span>
       <span class="pin"><span class="ponto" id="ponto"></span><span id="ping">—</span></span>
       <button id="btn-painel" class="b b-cinza" type="button">Qualidade e ajustes</button>
@@ -754,7 +755,12 @@ body.sem-tela .divisor{display:none}
     <p class="ajuda" style="margin-top:0">Em vez de travar, a imagem baixa um pouco e volta sozinha. Deixe ligado.</p>
 
     <div class="secao">Deu problema?</div>
-    <button id="btn-diag" class="b b-cinza b-largo" type="button">📋 Copiar diagnóstico</button>
+    <button id="btn-redesenhar" class="b b-cinza b-largo" type="button" style="margin-bottom:9px">🔄 Redesenhar as telas</button>
+    <p class="ajuda" style="margin-top:0">
+      Se você sabe que alguém está transmitindo mas o quadro não aparece, isto joga fora os
+      quadros e desenha tudo de novo do zero.
+    </p>
+    <button id="btn-diag" class="b b-cinza b-largo" type="button" style="margin-top:10px">📋 Copiar diagnóstico</button>
     <p class="ajuda" style="margin-top:0">
       Copia um relatório com o que está acontecendo agora: conexões, formatos, quadros, erros.
       Cole numa conversa com quem estiver te ajudando. Não vai nada pessoal, só números.
@@ -1647,6 +1653,11 @@ function iniciarMedidor(){
  * ordem alfabética. É uma regra boba, mas é igual dos dois lados — então
  * nunca acontece dos dois proporem ao mesmo tempo e se atropelarem.
  * =================================================================== */
+/* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
+   diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
+   perdi duas rodadas achando que era uma versão e era outra. */
+const VERSAO = '2.5 — 27/08 06:25';
+
 const LIMITE = 6;
 const pares = new Map();
 const eu = { id:null, nome:'' };
@@ -2158,6 +2169,7 @@ function montarQuadro(id, titulo, aoVivo, aoParar){
     clearTimeout(q.relogioDeSaida);
     q.relogioDeSaida = null;
     q.classList.remove('saindo');
+    q.style.opacity=''; q.style.transform='';
     return q;
   }
   q=document.createElement('div');
@@ -3540,6 +3552,7 @@ async function montarDiagnostico(){
   const onde=ondeEstou();
 
   dz('===== DIAGNÓSTICO DO FRAG =====');
+  dz('VERSÃO: '+VERSAO);
   dz('quando: '+new Date().toISOString());
   dz('endereço: '+location.href.replace(/#.*$/,'#…'));
   dz('navegador: '+navigator.userAgent);
@@ -3640,6 +3653,7 @@ async function montarDiagnostico(){
    estados — nada de conteúdo, nada pessoal. */
 async function resumoParaOAmigo(){
   const L=[];
+  L.push('VERSÃO dele: '+VERSAO);
   L.push('navegador: '+navigator.userAgent.replace(/^Mozilla\/5\.0 /,''));
   L.push('codec escolhido: '+cfg.codec+' | tem H264: '+temCodec('h264')+
          ' | tem VP9: '+temCodec('vp9')+' | tem VP8: '+temCodec('vp8'));
@@ -3684,6 +3698,25 @@ function pedirDiagnostico(par, prazo){
     enviar(par,{t:'diag?'});
     setTimeout(()=>{ if(!pronto){ pronto=true; par.aoChegarDiag=null; res(null); } }, prazo||3000);
   });
+}
+
+/* Escotilha de emergência: apaga todos os quadros e monta de novo a
+   partir do que está realmente chegando. Se a imagem existe, ela volta. */
+function redesenharTudo(){
+  document.querySelectorAll('#palco .quadro').forEach(q=>{
+    clearTimeout(q.relogioDeSaida); q.remove();
+  });
+  arrumarPalco();
+  let n=0;
+  if(est.streamTela){ quadroLocal(est.streamTela); n++; }
+  pares.forEach(par=>{
+    clearTimeout(par.relogioSumir); par.relogioSumir=null;
+    if(par.fluxo && par.fluxo.getVideoTracks().length){
+      par.temTela=true; mostrarTela(par); n++;
+    }else par.temTela=false;
+  });
+  pintarGente();
+  recado(n?('Redesenhei '+n+(n>1?' telas.':' tela.')):'Não tem nenhuma imagem chegando agora.', n?'ok':'');
 }
 
 async function copiarDiagnostico(){
@@ -3928,7 +3961,9 @@ document.addEventListener('keyup',(ev)=>{
 // perdeu o foco segurando a tecla: fecha o microfone para não vazar
 window.addEventListener('blur',()=>{ if(est.segurando) segurarFala(false); });
 
+$('btn-diag').onclick=redesenharTudo && copiarDiagnostico;
 $('btn-diag').onclick=copiarDiagnostico;
+$('btn-redesenhar').onclick=redesenharTudo;
 $('btn-clipe').onclick=salvarClipe;
 $('btn-clipe').disabled=true;
 $('btn-gravar').onclick=alternarGravacao;
@@ -4163,6 +4198,7 @@ $('btn-tecla').textContent = cfg.tecla ? 'Tecla: '+cfg.nomeTecla : 'clique e ape
 $('bloco-ptt').hidden = cfg.fala!=='ptt';
 $('chat-linhas').innerHTML='<p class="chat-vazio">Nada por aqui ainda.<br>Aperte <b>T</b> a qualquer momento para abrir o chat.</p>';
 pintarGente();
+$('pin-versao').textContent='v'+VERSAO.split(' ')[0];
 
 (function(){
   const h=location.hash||'';
