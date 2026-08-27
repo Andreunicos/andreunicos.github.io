@@ -1350,8 +1350,11 @@ const rotuloEnvio=()=>temEndereco()?'link':'código';
  * servidor. Ou seja: quem hospeda o quadro de recados vê tráfego, não
  * vê conteúdo.
  * =================================================================== */
+/* O tedomum saiu daqui: responde 404 no /v1/health e não manda cabeçalho
+   de CORS, então o navegador nem deixa falar com ele. Ficava só gastando
+   um pedido perdido em toda tentativa de abrir sala. */
 const SINAIS = window.__FRAG_SINAIS ||
-  ['https://ntfy.sh','https://ntfy.envs.net','https://ntfy.tedomum.net','https://ntfy.mzte.de'];
+  ['https://ntfy.sh','https://ntfy.envs.net','https://ntfy.mzte.de'];
 /* Endereço do SEU Frag na internet. É o que vai dentro do link que você
    manda pro amigo quando o Frag está rodando como aplicativo (aí não
    existe endereço de página para usar). Dá para trocar em Ajustes > Rede. */
@@ -1361,6 +1364,7 @@ const sala = {
   ligada:false, dono:false, id:null, chaveTxt:null, chave:null,
   eu:null, ele:null, fontes:[], bases:[], vistos:new Set(),
   fila:[], seq:0, batendo:null, adeus:null, banidos:new Set(),
+  cheios:{}, mudo:0, avisouCheio:false,
 };
 
 function idAleatorio(n){
@@ -1418,14 +1422,52 @@ async function decifrar(txt){
 }
 
 /* ---------- falar e ouvir no quadro de recados ---------- */
+/* ---------------------------------------------------------------------
+ * FALAR NO QUADRO DE RECADOS — e perceber quando ninguém está ouvindo
+ * ---------------------------------------------------------------------
+ * Estes servidores são públicos e gratuitos, então têm cota: passou do
+ * limite, eles respondem "429, excesso de pedidos" e jogam a mensagem
+ * fora. Antes o Frag engolia isso em silêncio — o "olá" simplesmente
+ * não saía, e a pessoa ficava olhando "esperando seu amigo abrir o
+ * link…" para sempre, esperando alguém que nunca ia ser avisado.
+ *
+ * Agora ele conta. Servidor que recusa três vezes seguidas sai da roda
+ * (continuar batendo nele não entrega nada e ainda segura o resto), e se
+ * NENHUM aceitar, você fica sabendo em vez de esperar à toa.
+ * ------------------------------------------------------------------ */
 async function publicar(obj){
   if(!sala.ligada) return;
   obj.de=sala.eu; obj.n=++sala.seq;
   let corpo;
   try{ corpo=await cifrar(obj); }catch(e){ console.warn('cifrar',e); return; }
-  await Promise.all(sala.bases.map(b=>
-    fetch(b+'/'+assunto(), {method:'POST', body:corpo}).catch(()=>{})
+  const respostas = await Promise.all(sala.bases.map(b=>
+    fetch(b+'/'+assunto(), {method:'POST', body:corpo})
+      .then(r=>{
+        if(r.status===429){ sala.cheios[b]=(sala.cheios[b]||0)+1; return false; }
+        sala.cheios[b]=0;
+        return r.ok;
+      })
+      .catch(()=>false)
   ));
+
+  const sobrando = sala.bases.filter(b=>(sala.cheios[b]||0) < 3);
+  if(sobrando.length && sobrando.length < sala.bases.length){
+    console.warn('sala: tirando servidor entupido da roda');
+    sala.bases = sobrando;
+  }
+
+  if(respostas.some(Boolean)){ sala.mudo=0; return; }
+  if(++sala.mudo >= 4 && !sala.avisouCheio) avisarQuadroEntupido();
+}
+
+function avisarQuadroEntupido(){
+  sala.avisouCheio = true;
+  dizerSala('os servidores de recado estão recusando mensagens agora');
+  recado('O ponto de encontro do link está lotado (cota do servidor grátis). '+
+         'Se o seu amigo não entrar em um minuto, use o modo manual.','mal');
+  erro('Os servidores públicos que fazem a apresentação estão recusando mensagens neste momento — '+
+       'é a cota deles, não é problema seu nem do seu amigo. Espere alguns minutos e gere um link novo, '+
+       'ou abra o "modo manual" na tela inicial, que funciona sem eles.');
 }
 
 function escutar(base){
@@ -1506,7 +1548,7 @@ function darAdeus(){
 
 function fecharSala(){
   darAdeus();
-  clearInterval(sala.batendo);
+  clearTimeout(sala.batendo);
   sala.fontes.forEach(f=>{ try{ f.close(); }catch{} });
   sala.fontes=[]; sala.ligada=false;
 }
@@ -1592,24 +1634,30 @@ async function entrarNaSala(id, chaveTxt){
  * caminho). Nunca desiste — antes ele desistia calado depois de 1 min.
  * ------------------------------------------------------------------ */
 function ligarPresenca(primeiroTexto){
+  clearTimeout(sala.batendo);
   let voltas=0;
   if(primeiroTexto) dizerSala(primeiroTexto);
   const passo=()=>{
     voltas++;
     bater();
-    if(voltas===8 && !pares.size) dizerSala('ninguém aqui ainda — pode deixar esta aba aberta');
-    if(voltas===14){
-      clearInterval(sala.batendo);
-      sala.batendo=setInterval(passo,15000);   // devagar, mas nunca desiste
-    }
+    if(voltas===6 && !pares.size) dizerSala('ninguém aqui ainda — pode deixar esta aba aberta');
+    // Vai afrouxando de propósito. De 1,5 em 1,5 segundo, sem parar, o
+    // Frag torrava a cota diária do servidor público em poucos minutos —
+    // e a partir dali o "olá" não saía mais, calado. Rápido só no começo,
+    // que é quando o amigo costuma chegar; depois, de vez em quando; e
+    // com alguém já na call, só de meio em meio minuto, para quem chegar
+    // atrasado ainda achar todo mundo.
+    const espera = naChamada() ? 30000
+                 : voltas < 5  ? 2000
+                 : voltas < 12 ? 6000
+                 :               20000;
+    sala.batendo = setTimeout(passo, espera);
   };
   passo();
-  clearInterval(sala.batendo);
-  sala.batendo=setInterval(passo,1500);
 }
 
 function pararEspera(){
-  clearInterval(sala.batendo);
+  clearTimeout(sala.batendo);
   const g=$('sala-girando'); if(g) g.style.display='none';
 }
 
@@ -1734,7 +1782,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '3.3 — 27/08 19:30';
+const VERSAO = '3.3 — 27/08 20:10';
 
 const LIMITE = 6;
 const pares = new Map();
