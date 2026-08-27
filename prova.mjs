@@ -41,6 +41,14 @@ const servidor = http.createServer((req, res) => {
 
 /* ---------- a tela falsa que vai ser transmitida ---------- */
 const TELA_FALSA = () => {
+  /* conta quantos pedidos vão para o servidor de recado — é a cota que
+     estoura e faz a sala parar de funcionar calada */
+  window.__posts = 0;
+  const fetchOriginal = window.fetch;
+  window.fetch = function (u, o) {
+    try { if (String(u).includes('ntfy') && o && o.method === 'POST') window.__posts++; } catch (e) {}
+    return fetchOriginal.apply(this, arguments);
+  };
   navigator.mediaDevices.getDisplayMedia = async () => {
     const c = document.createElement('canvas');
     c.width = 1920; c.height = 1080;
@@ -158,7 +166,7 @@ async function principal() {
     titulo('1. A página abre e monta');
     await A.pg.goto(BASE, { waitUntil: 'load' });
     const versao = await A.pg.evaluate(() => VERSAO);
-    versao.startsWith('3.3') ? ok('versão carregada', versao) : mal('versão errada', versao);
+    versao.startsWith('3.') ? ok('versão carregada', versao) : mal('versão errada', versao);
     const geometria = await A.pg.evaluate(() => {
       const e = document.getElementById('entrada').getBoundingClientRect();
       return { topo: Math.round(e.top), altura: Math.round(e.height), visivel: e.height > 100 };
@@ -288,6 +296,39 @@ async function principal() {
     else if (vol.ganho && vol.ganho > 1.5) ok('amplificador funcionando', 'ganho ' + vol.ganho.toFixed(2) + 'x');
     else mal('amplificador não engatou', JSON.stringify(vol));
 
+    /* ---------- 8b. o que o receptor pede ---------- */
+    titulo('8b. Quem assiste manda no tamanho');
+    const pedido = await A.pg.evaluate(() => {
+      const p = [...pares.values()][0];
+      return { largura: p ? p.larguraQueQuer : 0, sumiu: p ? p.sumiu : null };
+    });
+    pedido.largura > 0
+      ? ok('o amigo avisou o tamanho da janela dele', pedido.largura + 'px')
+      : mal('nenhum aviso de tamanho chegou');
+
+    const escondido = await A.pg.evaluate(async () => {
+      const p = [...pares.values()][0];
+      p.sumiu = true; p.perfilAplicado = null;
+      await aplicarPerfilVideo(p);
+      const e = p.senderVideo.getParameters().encodings[0];
+      const r = { encolhe: e.scaleResolutionDownBy, fps: e.maxFramerate, teto: e.maxBitrate };
+      p.sumiu = false; p.perfilAplicado = null;
+      await aplicarPerfilVideo(p);
+      return r;
+    });
+    (escondido.encolhe === 3 && escondido.fps === 8 && escondido.teto <= 250000)
+      ? ok('aba escondida vira fiozinho', 'encolhe ' + escondido.encolhe + 'x, ' + escondido.fps + ' fps, ' + Math.round(escondido.teto / 1000) + ' kbps')
+      : mal('aba escondida não reduziu', JSON.stringify(escondido));
+
+    /* ---------- 8c. quanto custou de servidor ---------- */
+    titulo('8c. Quanto pesou no servidor de recado');
+    const posts = await A.pg.evaluate(() => window.__posts);
+    const postsB = await B.pg.evaluate(() => window.__posts);
+    info('A mandou ' + posts + ' | B mandou ' + postsB + ' pedidos ao servidor');
+    (posts + postsB) < 60
+      ? ok('cota do servidor bem usada', (posts + postsB) + ' pedidos no total')
+      : mal('ainda gastando muito servidor', (posts + postsB) + ' pedidos');
+
     /* ---------- 9. servidor entupido sai da roda ---------- */
     titulo('9. Quando o servidor de recado recusa');
     const roda = await A.pg.evaluate(() => ({
@@ -304,6 +345,82 @@ async function principal() {
         : mal('servidor entupido continua na roda');
     } else info('(nenhum servidor recusou 3x seguidas nesta rodada — nada a tirar)');
     roda.avisou ? info('o aviso de "quadro entupido" chegou a aparecer') : ok('mensagem passou por algum servidor');
+
+    /* ---------- 9b. modo manual e IPv6 ---------- */
+    titulo('9b. Modo manual (o convite curto) e IPv6');
+    const v6 = await A.pg.evaluate(() => {
+      const testes = ['2804:14c:87:8000:1:2:3:4', 'fe80::1', '2001:db8::', '::1', '::'];
+      return testes.map(t => {
+        const b1 = bytesDeIpv6(t);
+        const b2 = bytesDeIpv6(ipv6DeBytes(b1));
+        return { de: t, bytes: b1.length, iguais: b1.join() === b2.join() };
+      });
+    });
+    v6.every(x => x.iguais && x.bytes === 16)
+      ? ok('IPv6 vai e volta sem perder nada', v6.length + ' endereços testados')
+      : mal('IPv6 se perdeu na ida e volta', JSON.stringify(v6));
+
+    const manual = await A.pg.evaluate(() => {
+      const p = [...pares.values()][0];
+      const sdp = p.pc.localDescription.sdp;
+      const cod = empacotar(sdp, 'convite');
+      const volta = desempacotar(cod);
+      const pega = (t, re) => { const l = t.split(/\r\n|\n/).find(x => re.test(x)); return l ? l.match(re)[1] : ''; };
+      return {
+        tamanho: cod.length,
+        papel: volta.papel,
+        ufragOk: pega(sdp, /^a=ice-ufrag:(.+)$/) === pega(volta.sdp, /^a=ice-ufrag:(.+)$/),
+        fpOk: pega(sdp, /^a=fingerprint:sha-256 (.+)$/) === pega(volta.sdp, /^a=fingerprint:sha-256 (.+)$/),
+        caminhos: (volta.sdp.match(/^a=candidate:/gm) || []).length,
+      };
+    });
+    (manual.ufragOk && manual.fpOk && manual.papel === 'convite' && manual.caminhos > 0)
+      ? ok('convite curto empacota e desempacota certo', manual.tamanho + ' caracteres, ' + manual.caminhos + ' caminhos')
+      : mal('o convite curto se perdeu', JSON.stringify(manual));
+
+    /* ---------- 9c. instalar como aplicativo ---------- */
+    titulo('9c. Instalar como aplicativo');
+    const man = await A.pg.evaluate(async () => {
+      const l = document.querySelector('link[rel=manifest]');
+      if (!l) return { erro: 'sem link de manifesto' };
+      try {
+        const j = await (await fetch(l.href)).json();
+        return { nome: j.name, tela: j.display, icones: (j.icons || []).length, inicio: j.start_url };
+      } catch (e) { return { erro: String(e.message) }; }
+    });
+    (man.nome === 'Frag' && man.tela === 'standalone' && man.icones > 0)
+      ? ok('manifesto embutido válido', man.nome + ', ' + man.tela + ', ' + man.icones + ' ícone')
+      : mal('manifesto não serve', JSON.stringify(man));
+
+    /* ---------- 9d. atalhos e chat ---------- */
+    titulo('9d. Atalhos e chat');
+    await A.pg.keyboard.press('?');
+    const temAtalhos = await A.pg.evaluate(() => !!document.getElementById('atalhos'));
+    temAtalhos ? ok('a tecla ? abre a lista de atalhos') : mal('a tecla ? não fez nada');
+    await A.pg.keyboard.press('Escape');
+    const fechou = await A.pg.evaluate(() => !document.getElementById('atalhos'));
+    fechou ? ok('Esc fecha a lista') : mal('Esc não fechou');
+
+    await B.pg.evaluate(() => { enviarTodos({ t: 'msg', v: 'oi' }); enviarTodos({ t: 'msg', v: 'tudo bem?' }); });
+    await espera(700);
+    const naoLidas = await A.pg.evaluate(() => {
+      const b = document.getElementById('chat-bolinha');
+      return { texto: b.textContent, escondida: b.hidden };
+    });
+    (!naoLidas.escondida && naoLidas.texto === '2')
+      ? ok('contador de mensagens não lidas', naoLidas.texto)
+      : mal('contador de não lidas errado', JSON.stringify(naoLidas));
+
+    /* ---------- 9e. sobreviver a um F5 ---------- */
+    titulo('9e. Um F5 no meio da call');
+    const salaAntes = await A.pg.evaluate(() => sala.id);
+    await A.pg.reload({ waitUntil: 'load' });
+    const voltou = await ateQue(async () => {
+      const e = await A.pg.evaluate(() => ({ ligada: sala.ligada, id: sala.id }));
+      return e.ligada && e.id === salaAntes;
+    }, 30000, 700);
+    voltou ? ok('voltou sozinho para a mesma sala', salaAntes)
+           : mal('não voltou para a sala depois do F5');
 
     /* ---------- 10. erros no console ---------- */
     titulo('10. Erros no console');

@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<meta name="theme-color" content="#0c0d10">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- O manifesto vai embutido aqui dentro, como endereço "data:". É o que
+     permite instalar o Frag como aplicativo (janela própria, sem abas nem
+     barra de endereço, ícone no menu Iniciar) sem quebrar a regra do
+     arquivo único: nenhum arquivo novo, nenhuma biblioteca de fora.
+     Sem "#" em lugar nenhum aqui dentro — num endereço "data:" o "#"
+     corta o resto fora, então as cores vão em rgb(). -->
+<link rel="manifest" href='data:application/manifest+json,{"name":"Frag","short_name":"Frag","description":"Voz%20e%20tela%20direto%20entre%20amigos","display":"standalone","orientation":"any","start_url":"./","background_color":"rgb(12,13,16)","theme_color":"rgb(91,124,250)","icons":[{"src":"data:image/svg%2Bxml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20512%20512%27%3E%3Crect%20width=%27512%27%20height=%27512%27%20rx=%27110%27%20fill=%27rgb(91,124,250)%27/%3E%3Cpath%20d=%27M300%2060%20170%20280h90l-40%20172%20170-240h-96z%27%20fill=%27rgb(255,255,255)%27/%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml","purpose":"any"}]}'>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='rgb(91,124,250)'/%3E%3Cpath d='M300 60 170 280h90l-40 172 170-240h-96z' fill='rgb(255,255,255)'/%3E%3C/svg%3E">
 <title>Frag</title>
 <style>
 /* =====================================================================
@@ -371,8 +381,9 @@ body.sem-tela .divisor{display:none}
 .chat-envio{display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--linha)}
 .chat-envio input{flex:1}
 .bolinha-nova{
-  position:absolute;top:6px;right:6px;width:9px;height:9px;border-radius:50%;
-  background:var(--vermelho);border:2px solid var(--fundo);
+  position:absolute;top:1px;right:1px;min-width:18px;height:18px;padding:0 4px;
+  border-radius:9px;background:var(--vermelho);border:2px solid var(--fundo);
+  color:#fff;font-size:10.5px;font-weight:700;line-height:14px;text-align:center;
 }
 .cbtn{position:relative}
 
@@ -1161,7 +1172,10 @@ function empacotar(sdp, papel){
     if(m && secao>=0 && !porSecao[secao]) porSecao[secao] = Number(m[1]);
   }
 
-  // caminhos de rede: IPv4 por UDP, sem repetir, os públicos na frente
+  // caminhos de rede por UDP, sem repetir, os públicos na frente.
+  // IPv6 entra aqui desde a 3.4: sem ele o modo manual — que é o plano B
+  // para quando a sala não abre — simplesmente não conectava em rede só
+  // com IPv6, que já é o padrão de várias operadoras de celular.
   const cands = [];
   const vistos = new Set();
   for(const l of L){
@@ -1169,7 +1183,8 @@ function empacotar(sdp, papel){
     const p = l.split(' ');
     if(!/udp/i.test(p[2])) continue;
     const ip = p[4], porta = Number(p[5]);
-    if(!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) continue;
+    const ehV6 = ip.includes(':');
+    if(ehV6 ? ip.includes('.') : !/^\d+\.\d+\.\d+\.\d+$/.test(ip)) continue;
     const chave = ip+':'+porta;
     if(vistos.has(chave)) continue;
     vistos.add(chave);
@@ -1196,11 +1211,36 @@ function empacotar(sdp, papel){
   }
   bytes.push(usar.length);
   for(const c of usar){
-    bytes.push(c.publico);
-    for(const o of c.ip.split('.')) bytes.push(Number(o)&255);
+    const v6 = c.ip.includes(':');
+    // os dois bits de baixo dizem o tipo do caminho; o terceiro diz se o
+    // endereço vem em 4 bytes (IPv4) ou 16 (IPv6)
+    bytes.push((c.publico & 3) | (v6 ? 4 : 0));
+    if(v6) for(const b of bytesDeIpv6(c.ip)) bytes.push(b);
+    else   for(const o of c.ip.split('.'))   bytes.push(Number(o)&255);
     bytes.push((c.porta>>8)&255, c.porta&255);
   }
   return b64u(new Uint8Array(bytes));
+}
+
+/* ---------- IPv6 em 16 bytes, e de volta ---------- */
+function bytesDeIpv6(txt){
+  const lados = String(txt).split('::');
+  const grupos = (t)=> t ? t.split(':').filter(Boolean).map(h=>parseInt(h,16)&0xffff) : [];
+  const a = grupos(lados[0]);
+  const b = lados.length>1 ? grupos(lados[1]) : [];
+  const meio = new Array(Math.max(0, 8-a.length-b.length)).fill(0);
+  const todos = a.concat(meio, b).slice(0,8);
+  while(todos.length<8) todos.push(0);
+  const fora=[];
+  for(const g of todos) fora.push((g>>8)&255, g&255);
+  return fora;
+}
+function ipv6DeBytes(b){
+  // forma longa, sem o "::" de encurtar: é mais comprida de ler mas é
+  // válida em qualquer lugar, e aqui ninguém lê isso com o olho
+  const g=[];
+  for(let i=0;i<16;i+=2) g.push((((b[i]<<8)|b[i+1])>>>0).toString(16));
+  return g.join(':');
 }
 
 /* ---------- e os ~90 bytes viram o SDP inteiro de novo ---------- */
@@ -1225,17 +1265,23 @@ function desempacotar(codigo){
 
   const cands=[];
   for(let n=ler(); n>0; n--){
-    const publico=ler();
-    const ip=[ler(),ler(),ler(),ler()].join('.');
+    const marca=ler();
+    const publico=marca & 3;
+    const v6=!!(marca & 4);
+    let ip;
+    if(v6){ const b=[]; for(let k=0;k<16;k++) b.push(ler()); ip=ipv6DeBytes(b); }
+    else  { ip=[ler(),ler(),ler(),ler()].join('.'); }
     const porta=(ler()<<8)|ler();
-    cands.push({publico,ip,porta});
+    cands.push({publico,ip,porta,v6});
   }
   if(!cands.length) throw new Error('SEM_CAMINHO');
 
   const setup = papel==='resposta' ? 'active' : 'actpass';
   const linhasCand = cands.map((c,n)=>
     'a=candidate:'+(n+1)+' 1 udp '+(c.publico?1686052607:2122260223)+' '+c.ip+' '+c.porta+
-    ' typ '+(c.publico?'srflx raddr 0.0.0.0 rport 0':'host')+' generation 0');
+    // o endereço de origem tem que ser da mesma família do candidato,
+    // senão o outro lado descarta a linha inteira
+    ' typ '+(c.publico?('srflx raddr '+(c.v6?'::':'0.0.0.0')+' rport 0'):'host')+' generation 0');
 
   const comum = (mid)=>[
     'c=IN IP4 0.0.0.0',
@@ -1519,6 +1565,7 @@ async function prepararSala(id, chaveTxt, dono){
 
   sala.bases=vivas;
   sala.ligada=true;
+  guardarSala();
   sala.fontes=vivas.map(escutar).filter(Boolean);
   prepararAdeus();
   if(!sala.fontes.length){ sala.ligada=false; throw new Error('SEM_SINAL'); }
@@ -1553,6 +1600,16 @@ function fecharSala(){
   sala.fontes=[]; sala.ligada=false;
 }
 
+/* Quem entrou pelo link volta sozinho depois de um F5, porque o endereço
+   da sala está na barra de endereço. Quem CRIOU a sala não tinha nada:
+   um F5 sem querer — ou a própria atualização automática da página — e a
+   call acabava sem aviso. Agora os dois voltam. */
+function guardarSala(){
+  try{ sessionStorage.setItem('frag-sala',
+    JSON.stringify({id:sala.id, k:sala.chaveTxt, dono:!!sala.dono, quando:Date.now()})); }catch{}
+}
+function esquecerSala(){ try{ sessionStorage.removeItem('frag-sala'); }catch{} }
+
 function dizerSala(txt){ const e=$('sala-txt'); if(e) e.textContent=txt; }
 
 function linkDaSala(){
@@ -1577,7 +1634,9 @@ async function criarSala(){
     let guardado=null;
     try{ guardado=JSON.parse(sessionStorage.getItem('frag-sala')||'null'); }catch{}
     await prepararSala(guardado&&guardado.id||idAleatorio(12), guardado&&guardado.k||null, true);
-    try{ sessionStorage.setItem('frag-sala', JSON.stringify({id:sala.id,k:sala.chaveTxt})); }catch{}
+    // quem guarda é o prepararSala, com o carimbo de hora junto. Guardar
+    // de novo aqui, sem o carimbo, fazia o "voltar depois do F5" achar
+    // que a sala era antiga e desistir caladinho.
     $('sala-link').value=linkDaSala();
     $('sala-cx').hidden=false;
     if(linkEhDoApp()){
@@ -1782,7 +1841,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '3.3 — 27/08 20:10';
+const VERSAO = '3.4 — 27/08 21:20';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -1797,6 +1856,13 @@ function novoPar(id){
     fazendoOferta:false, ignorandoOferta:false, fila:[],
     religando:false, tentativasCanal:0, esperandoPong:null,
     anteriorV:null, ping:0, perda:0, relogioMorte:null, impolido:undefined,
+    // sacola de caminhos de rede (para não virar uma mensagem cada)
+    sacolaGelo:null, relogioGelo:null,
+    // quem ESTA pessoa alcança — é o que permite usar um amigo em comum
+    // como carteiro em vez do servidor público
+    conhece:null,
+    // o que ela pede: o tamanho da janela dela, e se sumiu da vista
+    larguraQueQuer:0, sumiu:false, avisei:0,
   };
   pares.set(id,p);
   return p;
@@ -1892,6 +1958,7 @@ function criarPar(id){
       entrarNaChamada();
       enviar(par,{t:'nome', v:eu.nome||'Sem nome'});
       recado((par.nome||'Seu amigo')+' entrou na call','ok');
+      toque(true);
     }
     else if(s==='disconnected'){ pintarGente(); }
     else if(s==='failed' || s==='closed'){
@@ -1915,7 +1982,7 @@ function criarPar(id){
       of.sdp = melhorarAudio(of.sdp);
       await pc.setLocalDescription(of);
       if(canalDe(par)) enviar(par,{t:'sdp', v:pc.localDescription});
-      else await publicar({tipo:'oferta', para:par.id, sdp:pc.localDescription.sdp});
+      else await mandarSinal(par,{tipo:'oferta', para:par.id, sdp:pc.localDescription.sdp});
     }catch(e){ console.warn('renegociacao',e); }
     finally{ par.fazendoOferta=false; }
   };
@@ -1924,8 +1991,18 @@ function criarPar(id){
     if(!candidate) return;
     // "trickle ICE": não espera terminar de procurar para começar a
     // tentar — conecta bem mais rápido e acha caminho em mais redes.
-    if(canalDe(par)) enviar(par,{t:'ice', v:candidate});
-    else if(sala.ligada) publicar({tipo:'gelo', para:par.id, cand:candidate.toJSON()});
+    if(canalDe(par)) return enviar(par,{t:'ice', v:candidate});
+    if(!sala.ligada) return;
+    // ...mas trickle não quer dizer UMA MENSAGEM POR CAMINHO. Era isso
+    // que acontecia, e um PC comum acha uma dúzia deles: doze mensagens
+    // vezes três servidores = trinta e seis pedidos só para conectar uma
+    // dupla. Era o que torrava a cota do servidor público e fazia a sala
+    // parar de funcionar CALADA. Agora eles esperam 250 ms na sacola e
+    // viajam todos juntos, numa mensagem só.
+    (par.sacolaGelo || (par.sacolaGelo=[])).push(candidate.toJSON());
+    if(par.sacolaGelo.length>=12) return esvaziarSacola(par);
+    clearTimeout(par.relogioGelo);
+    par.relogioGelo = setTimeout(()=>esvaziarSacola(par), 250);
   };
 
   pc.oniceconnectionstatechange = async ()=>{
@@ -1936,7 +2013,7 @@ function criarPar(id){
         // Só um lado puxa o recomeço, senão os dois se atropelam. Se
         // quem percebeu foi o outro, ele pede pelo quadro de recados.
         if(!impolido(par)){
-          if(!canalDe(par) && sala.ligada) await publicar({tipo:'refaz', para:par.id});
+          if(!canalDe(par) && sala.ligada) await mandarSinal(par,{tipo:'refaz', para:par.id});
           return;
         }
         if(canalDe(par)){ pc.restartIce(); return; }
@@ -1969,6 +2046,10 @@ function abrirCanal(par){
     enviar(par,{t:'nome', v:eu.nome||'Sem nome'});
     enviar(par,{t:'mudo', v:est.mudo});
     enviar(par,{t:'perfil', v:cfg.qualidade});
+    enviar(par,{t:'sumi', v:document.hidden});
+    par.avisei=0; setTimeout(()=>avisarTamanho(par), 600);
+    // o que estava esperando na sacola pode ir agora, pelo canal
+    esvaziarSacola(par);
   };
   canal.onmessage = (ev)=>{
     let d; try{ d=JSON.parse(ev.data); }catch{ return; }
@@ -1979,6 +2060,9 @@ function abrirCanal(par){
     else if(d.t==='msg') receberMensagem(par, d.v);
     else if(d.t==='sdp') receberSdp(par, d.v);
     else if(d.t==='ice') receberIce(par, d.v);
+    else if(d.t==='ponte') aoPonte(d);
+    else if(d.t==='quero'){ par.larguraQueQuer=Math.max(240,Math.min(3840,Number(d.v)||0)); aplicarPerfilVideo(par); }
+    else if(d.t==='sumi'){ par.sumiu=!!d.v; aplicarPerfilVideo(par); }
     else if(d.t==='ping') enviar(par,{t:'pong', v:d.v});
     else if(d.t==='pong') par.esperandoPong && par.esperandoPong(d.v);
     else if(d.t==='diag?') responderDiagnostico(par);
@@ -2038,11 +2122,55 @@ async function prepararMidia(par){
   }
 }
 
+function esvaziarSacola(par){
+  clearTimeout(par.relogioGelo); par.relogioGelo=null;
+  const cands = (par.sacolaGelo||[]).splice(0);
+  if(!cands.length || !sala.ligada) return;
+  mandarSinal(par, {tipo:'gelos', para:par.id, cands});
+}
+
+/* ---------------------------------------------------------------------
+ * O CARTEIRO
+ * ---------------------------------------------------------------------
+ * Para falar com alguém que ainda não tem canal direto comigo, o único
+ * caminho era o quadro de recados público — que tem cota e é justamente
+ * o que costuma faltar na hora ruim.
+ *
+ * Mas numa call de três em diante quase sempre existe um amigo em comum
+ * já conectado nos dois. Ele leva o recado de graça, sem servidor
+ * nenhum. O quadro público vira o que ele devia ter sido desde o começo:
+ * o jeito de dar o primeiro oi, e só.
+ * ------------------------------------------------------------------ */
+async function mandarSinal(par, obj){
+  const ponte = [...pares.values()].find(p =>
+    p!==par && canalDe(p) && p.conhece && p.conhece.has(par.id));
+  if(ponte){ enviar(ponte,{t:'ponte', para:par.id, de:eu.id, carga:obj}); return 'ponte'; }
+  await publicar(obj);
+  return 'servidor';
+}
+
+async function aoPonte(d){
+  if(!d || !d.para || !d.carga) return;
+  if(d.para===eu.id){
+    try{ await tratarSinal(Object.assign({}, d.carga, {de:d.de, para:eu.id})); }
+    catch(e){ console.warn('ponte',e); }
+    return;
+  }
+  if((d.saltos|0) >= 2) return;          // nada de recado dando voltas na malha
+  const alvo = pares.get(d.para);
+  if(alvo && canalDe(alvo))
+    enviar(alvo, {t:'ponte', para:d.para, de:d.de, carga:d.carga, saltos:(d.saltos|0)+1});
+}
+
+function quemEuAlcanco(){
+  return [...pares.values()].filter(p=>p.conectado && canalDe(p)).map(p=>p.id);
+}
+
 async function ofertar(par, reiniciarIce){
   const of = await par.pc.createOffer(reiniciarIce?{iceRestart:true}:undefined);
   of.sdp = melhorarAudio(of.sdp);
   await par.pc.setLocalDescription(of);
-  await publicar({tipo:'oferta', para:par.id, sdp:par.pc.localDescription.sdp});
+  await mandarSinal(par,{tipo:'oferta', para:par.id, sdp:par.pc.localDescription.sdp});
 }
 
 async function escoarGelo(par){
@@ -2109,6 +2237,31 @@ function ajustarAmortecedor(par){
   try{ par.receptorVideo.playoutDelayHint=folga/1000; }catch{}
 }
 
+/* ---------------------------------------------------------------------
+ * QUEM ASSISTE É QUEM SABE DE QUE TAMANHO PRECISA
+ * ---------------------------------------------------------------------
+ * Mandar 1920 de largura para uma janela de 700 é gastar a MINHA subida
+ * e o MEU processador para o outro jogar metade fora no caminho. Então
+ * quem assiste avisa o tamanho de verdade da janela dele, e quem manda
+ * encolhe. Os dois lados ganham.
+ *
+ * O aviso vai em degraus, não em pixels: senão a cada esticadinha de
+ * janela viria uma renegociação de compressor, que custa um soluço na
+ * imagem — o remédio seria pior que a doença.
+ * ------------------------------------------------------------------ */
+function avisarTamanho(par){
+  if(!par || !canalDe(par)) return;
+  const v = $('v-p-'+par.id);
+  if(!v) return;
+  const l = Math.round(v.getBoundingClientRect().width * (window.devicePixelRatio||1));
+  if(l < 50) return;
+  const degrau = l<=700 ? 640 : l<=1000 ? 960 : l<=1400 ? 1280 : l<=1700 ? 1600 : 1920;
+  if(par.avisei===degrau) return;
+  par.avisei = degrau;
+  enviar(par,{t:'quero', v:degrau});
+}
+function avisarTamanhos(){ pares.forEach(avisarTamanho); }
+
 function tirarPar(id, motivo){
   const par = pares.get(id);
   if(!par) return;
@@ -2117,7 +2270,7 @@ function tirarPar(id, motivo){
   try{ par.audio && par.audio.remove(); }catch{}
   tirarQuadro('p-'+id);
   pares.delete(id);
-  if(par.nome) recado((par.nome)+' saiu'+(motivo?' — '+motivo:''),'');
+  if(par.nome){ recado((par.nome)+' saiu'+(motivo?' — '+motivo:''),''); toque(false); }
   pintarGente();
   reequilibrarVideo();
   if(!pares.size && !sala.ligada) pararNumeros();
@@ -2146,6 +2299,7 @@ async function tratarSinal(m){
   else if(m.tipo==='oferta')  await aoOferta(m);
   else if(m.tipo==='resposta')await aoResposta(m);
   else if(m.tipo==='gelo')    await aoGelo(m);
+  else if(m.tipo==='gelos')   for(const c of (m.cands||[]).slice(0,40)) await aoGelo({de:m.de, cand:c});
   else if(m.tipo==='refaz')   await aoRefaz(m);
   else if(m.tipo==='expulso'){
     // O botão só aparecia para quem criou a sala, mas quem RECEBIA a
@@ -2184,7 +2338,9 @@ async function aoOla(m){
   // um "olá" solto merece resposta dirigida: é assim que o novato
   // descobre quem já está na sala
   par.dono = !!m.dono;
-  if(!m.para) await publicar({tipo:'ola', para:m.de, nome:eu.nome, dono:sala.dono});
+  par.conhece = new Set(m.conhecidos||[]);
+  if(!m.para) await mandarSinal(par,{tipo:'ola', para:m.de, nome:eu.nome,
+                                     dono:sala.dono, conhecidos:quemEuAlcanco()});
   pararEspera();
   dizerSala('achei '+(par.nome||'alguém')+' — conectando…');
   pintarGente();
@@ -2216,7 +2372,7 @@ async function aoOferta(m){
     const r = await par.pc.createAnswer();
     r.sdp = melhorarAudio(r.sdp);
     await par.pc.setLocalDescription(r);
-    await publicar({tipo:'resposta', para:par.id, sdp:par.pc.localDescription.sdp});
+    await mandarSinal(par,{tipo:'resposta', para:par.id, sdp:par.pc.localDescription.sdp});
     await escoarGelo(par);
     dizerSala('conectando…');
   }catch(e){ falhouPar(par,e,novo); }
@@ -2268,12 +2424,33 @@ function falhouPar(par, e, apagar){
    ficou órfão de um recado perdido se recupera sozinho. */
 function bater(){
   if(!sala.ligada) return;
-  publicar({tipo:'ola', nome:eu.nome, dono:sala.dono});
+  publicar({tipo:'ola', nome:eu.nome, dono:sala.dono, conhecidos:quemEuAlcanco()});
 }
 
 /* =====================================================================
  * QUEM ESTÁ NA CALL
  * =================================================================== */
+/* Um toque curto quando alguém entra ou sai. Feito na hora com o próprio
+   navegador — nada de arquivo de som, que quebraria a regra do arquivo
+   único. Com o jogo em tela cheia, esse toque costuma ser a única forma
+   de saber que o amigo chegou. */
+function toque(subindo){
+  try{
+    est.ctx = est.ctx || new AudioContext();
+    if(est.ctx.state==='suspended') est.ctx.resume();
+    const t = est.ctx.currentTime;
+    const o = est.ctx.createOscillator(), g = est.ctx.createGain();
+    o.type='sine';
+    o.frequency.setValueAtTime(subindo?520:640, t);
+    o.frequency.exponentialRampToValueAtTime(subindo?780:390, t+0.13);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.09, t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+0.28);
+    o.connect(g); g.connect(est.ctx.destination);
+    o.start(t); o.stop(t+0.3);
+  }catch{}
+}
+
 function iniciais(n){ return (String(n||'?').trim()[0]||'?').toUpperCase(); }
 
 /* Só a bolinha verde, e só dela. Antes cada aviso de "fulano está
@@ -2509,6 +2686,12 @@ function montarQuadro(id, titulo, aoVivo, aoParar){
     acoes.appendChild(parar);
   }
 
+  // duplo clique no vídeo faz o que todo mundo já tenta fazer por instinto
+  q.ondblclick=(e)=>{
+    if(e.target.closest('.quadro-acoes')) return;
+    document.fullscreenElement ? document.exitFullscreen() : q.requestFullscreen().catch(()=>{});
+  };
+
   q.append(v,tag,acoes);
   $('palco').appendChild(q);
   return q;
@@ -2596,6 +2779,7 @@ function tirarQuadro(id){
 }
 function arrumarPalco(){
   setTimeout(cuidarDoBuffer,120);
+  setTimeout(avisarTamanhos,200);
   const n=$('palco').querySelectorAll('.quadro:not(.saindo)').length;
   $('nada').hidden = n>0;
   const p=$('palco');
@@ -2744,7 +2928,21 @@ async function aplicarPerfilVideo(par){
   if(n>=4) encolher = Math.max(encolher, 2);
   else if(n===3) encolher = Math.max(encolher, 1.5);
 
-  const fps = seguraFps ? p.fps : (a.fator<0.45 ? Math.min(30,p.fps) : p.fps);
+  // O amigo disse de que tamanho ele precisa: não adianta mandar mais.
+  if(par.larguraQueQuer > 0){
+    const precisa = p.l / par.larguraQueQuer;
+    const degrauCerto = DEGRAUS.find(d => d >= precisa) || DEGRAUS[DEGRAUS.length-1];
+    if(degrauCerto > 1) encolher = Math.max(encolher, degrauCerto);
+  }
+
+  let fps = seguraFps ? p.fps : (a.fator<0.45 ? Math.min(30,p.fps) : p.fps);
+
+  // Ele minimizou o navegador ou trocou de aba. Continuar mandando
+  // 1080p60 para uma janela que ninguém está olhando é queimar a sua
+  // internet e o seu processador à toa. Fica um fiozinho — cortar de vez
+  // custaria uma renegociação inteira na volta, e a volta é a hora em
+  // que a pessoa mais quer ver imagem.
+  if(par.sumiu){ encolher = 3; fps = 8; teto = Math.min(teto, 250000); }
   // Você pediu fluidez — então é fluidez que o navegador tem que segurar.
   // Aqui ia "balanced", um meio-termo que cedia quadros JUNTO com
   // resolução: era ele que produzia aquele 1080p a 24 que parece travado.
@@ -2752,6 +2950,7 @@ async function aplicarPerfilVideo(par){
   // continua liso. O medo de trocar de tamanho o tempo todo já está
   // resolvido pela escada de degraus com histerese ali embaixo.
   const degrada = seguraFps ? 'maintain-framerate' : 'maintain-resolution';
+  void 0;
   const camadas = cfg.camadas!==false ? 'L1T3' : null;
   const assinatura = [teto,fps,encolher,degrada,camadas].join('|');
   // mexer no compressor custa um soluço na imagem: se nada mudou, não mexe
@@ -3248,7 +3447,17 @@ async function atualizarNumeros(){
  * clique — e é melhor oferecer do que deixar a pessoa achando que o
  * programa é ruim.
  * ------------------------------------------------------------------ */
-function cuidarDoAvisoDeCpu(porPessoa){
+async function quadrosQueSairam(){
+  let n=0;
+  for(const par of pares.values()){
+    if(!par.pc) continue;
+    const rel = await par.pc.getStats().catch(()=>null);
+    rel && rel.forEach(x=>{ if(x.type==='outbound-rtp'&&x.kind==='video') n+=(x.framesSent||0); });
+  }
+  return n;
+}
+
+async function cuidarDoAvisoDeCpu(porPessoa){
   if(!est.streamTela) return;
   const um = porPessoa.find(x=>x.sv);
   if(!um) return;
@@ -3270,18 +3479,37 @@ function cuidarDoAvisoDeCpu(porPessoa){
   if(!sofrendo || est.avisouCpu) return;
   est.avisouCpu = true;
 
-  if(!naPlaca && cfg.codec!=='h264'){
-    recado('Seu processador está segurando a transmissão. Dá para resolver em um clique.','mal');
-    oferecerConserto(
-      'A compressão está sendo feita pelo processador — o mesmo que roda o jogo. '+
-      'A placa de vídeo faz isso quase de graça, com H264.',
-      'Usar a placa de vídeo agora',
-      async ()=>{ cfg.codec='h264'; $('sel-codec').value='h264'; guardarAjustes(); await trocarCodecAgora(); });
-  }else if(!naPlaca){
+  // ---- a placa de vídeo entra sozinha ----
+  // Isto abria o painel no meio da partida e pedia um clique. Mas a
+  // resposta é sempre a mesma: ninguém prefere que o jogo perca FPS. O
+  // que faltava para agir sozinho era rede de segurança — e agora tem:
+  // se em nove segundos o quadro parar de sair, desfaz e avisa. É o
+  // mesmo motivo pelo qual H264 fixo como padrão deu errado um dia; a
+  // diferença é que agora ele é testado no ar, não escolhido no escuro.
+  if(!naPlaca && cfg.codec!=='h264' && temCodec('h264')){
+    recado('Seu processador está segurando a transmissão. Passando para a placa de vídeo…','');
+    const antes = await quadrosQueSairam();
+    cfg.codec='h264'; $('sel-codec').value='h264'; guardarAjustes();
+    await trocarCodecAgora();
+    setTimeout(async ()=>{
+      if(!est.streamTela) return;
+      if((await quadrosQueSairam()) > antes + 30){
+        recado('Pronto — quem comprime agora é a placa de vídeo. O jogo agradece.','ok');
+        return;
+      }
+      cfg.codec='auto'; $('sel-codec').value='auto'; guardarAjustes();
+      await trocarCodecAgora();
+      recado('A placa não fechou acordo com o outro lado. Voltei para a compressão automática.','mal');
+    }, 9000);
+    return;
+  }
+
+  if(!naPlaca){
     recado('Seu processador está segurando a transmissão.','mal');
     oferecerConserto(
-      'Já estou pedindo H264, mas esta máquina está comprimindo por software mesmo assim '+
-      '('+impl+'). Baixar a resolução resolve na hora.',
+      (temCodec('h264') ? 'Já estou pedindo H264, mas esta máquina está comprimindo por software mesmo assim'
+                        : 'Este navegador não tem H264, então a compressão é feita por software')+
+      ' ('+impl+'). Baixar a resolução resolve na hora.',
       'Baixar para 1080p 30fps',
       async ()=>{ cfg.qualidade='1080-30-5'; $('sel-qualidade').value='1080-30-5'; guardarAjustes(); await reequilibrarVideo(); });
   }else{
@@ -3329,6 +3557,43 @@ async function trocarCodecAgora(){
   await reequilibrarVideo();
 }
 
+/* A lista de atalhos. Existia teclado escondido no Frag desde sempre e
+   nada na tela contava isso — atalho que ninguém descobre é atalho que
+   não existe. */
+function mostrarAtalhos(){
+  const jaTem = $('atalhos');
+  if(jaTem) return jaTem.remove();
+  const linhas = [
+    ['M','liga e desliga o seu microfone'],
+    ['D','silencia todo mundo de uma vez'],
+    ['T','abre o chat'],
+    ['C','salva o clipe dos últimos segundos'],
+    ['Esc','fecha o que estiver aberto'],
+    ['?','mostra esta lista'],
+    ['duplo clique','tela cheia no vídeo'],
+  ];
+  const d=document.createElement('div');
+  d.id='atalhos'; d.className='modal';
+  const cx=document.createElement('div'); cx.className='modal-cx';
+  const topo=document.createElement('div'); topo.className='painel-topo';
+  const h=document.createElement('h2'); h.textContent='Atalhos';
+  const x=document.createElement('button'); x.type='button'; x.textContent='×';
+  x.onclick=()=>d.remove();
+  topo.append(h,x);
+  const corpo=document.createElement('div'); corpo.className='teste-corpo';
+  for(const [tecla,oQue] of linhas){
+    const it=document.createElement('div'); it.className='item';
+    const ic=document.createElement('div'); ic.className='ico'; ic.textContent='⌨';
+    const txt=document.createElement('div');
+    const b=document.createElement('b'); b.textContent=tecla;
+    const sp=document.createElement('span'); sp.textContent=oQue;
+    txt.append(b,sp); it.append(ic,txt); corpo.appendChild(it);
+  }
+  cx.append(topo,corpo); d.appendChild(cx);
+  d.onclick=(e)=>{ if(e.target===d) d.remove(); };
+  document.body.appendChild(d);
+}
+
 function escapar(t){
   return String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -3338,6 +3603,8 @@ function escapar(t){
  * =================================================================== */
 function abrirChat(){
   guardarGaveta($('chat'), true);
+  est.naoLidas=0;
+  $('chat-bolinha').textContent='';
   $('chat-bolinha').hidden=true;
   setTimeout(()=>$('chat-txt').focus(),80);
 }
@@ -3362,7 +3629,10 @@ function receberMensagem(par, texto){
   const t=String(texto||'').slice(0,500);
   escreverNoChat(par.nome||'Seu amigo', t, false);
   if(!$('chat').classList.contains('aberto')){
-    $('chat-bolinha').hidden=false;
+    est.naoLidas=(est.naoLidas||0)+1;
+    const bol=$('chat-bolinha');
+    bol.hidden=false;
+    bol.textContent = est.naoLidas>9 ? '9+' : String(est.naoLidas);
     if(par.contaChat<=3) recado((par.nome||'Seu amigo')+': '+t.slice(0,40)+(t.length>40?'…':''));
   }
 }
@@ -4613,7 +4883,7 @@ $('sel-clipe').onchange=()=>{ cfg.clipe=Number($('sel-clipe').value); guardarAju
 $('btn-mic').onclick=alternarMudo;
 $('btn-surdo').onclick=alternarSurdo;
 $('btn-tela').onclick=alternarTela;
-$('btn-sair').onclick=()=>{ if(confirm('Encerrar a chamada?')) location.reload(); };
+$('btn-sair').onclick=()=>{ if(confirm('Encerrar a chamada?')){ esquecerSala(); location.reload(); } };
 $('btn-painel').onclick=$('btn-config').onclick=async()=>{
   await listarMics(); guardarGaveta($('painel'),true); pintarVolumes(); atualizarNumeros();
 };
@@ -4655,7 +4925,11 @@ $('sel-mic').onchange=$('in-ruido').onchange=async()=>{
 
 document.addEventListener('keydown',(e)=>{
   if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
-  if(e.key==='Escape'){ guardarGaveta($('painel'),false); guardarGaveta($('chat'),false); fecharMenuDaPessoa(); }
+  if(e.key==='Escape'){
+    guardarGaveta($('painel'),false); guardarGaveta($('chat'),false); fecharMenuDaPessoa();
+    const at=$('atalhos'); if(at) at.remove();
+  }
+  if(e.key==='?'){ e.preventDefault(); mostrarAtalhos(); return; }
   if($('chamada').hidden) return;
   if(e.key==='m'||e.key==='M') alternarMudo();
   if(e.key==='d'||e.key==='D') alternarSurdo();
@@ -4677,6 +4951,20 @@ function acordarControles(){
     if(document.fullscreenElement && !$('chamada').hidden) $('controles').classList.add('oculto');
   },3000);
 }
+/* A janela mudou de tamanho: quem manda a imagem precisa saber. */
+window.addEventListener('resize', ()=>{
+  clearTimeout(est.relogioTam);
+  est.relogioTam = setTimeout(avisarTamanhos, 300);
+});
+
+/* Trocou de aba ou minimizou. Avisa todo mundo para parar de gastar
+   internet mandando imagem para uma janela que ninguém está olhando. */
+document.addEventListener('visibilitychange', ()=>{
+  const sumi = document.hidden;
+  pares.forEach(p=>enviar(p,{t:'sumi', v:sumi}));
+  if(!sumi){ pares.forEach(p=>{ p.avisei=0; }); setTimeout(avisarTamanhos, 300); }
+});
+
 document.addEventListener('mousemove',acordarControles);
 document.addEventListener('keydown',acordarControles);
 document.addEventListener('fullscreenchange',acordarControles);
@@ -4693,6 +4981,10 @@ document.addEventListener('fullscreenchange',()=>{
   const ch=$('chat'); if(ch) casa.appendChild(ch);
   const pa=$('painel'); if(pa) casa.appendChild(pa);
   const re=$('recados'); if(re) casa.appendChild(re);
+  // o quadro mudou de tamanho: quem manda a imagem precisa saber, senão
+  // você entra em tela cheia e continua vendo a versão pequena esticada
+  pares.forEach(p=>{ p.avisei=0; });
+  setTimeout(avisarTamanhos, 250);
 });
 $('controles').addEventListener('mouseenter',()=>clearTimeout(sumir));
 
@@ -4876,6 +5168,23 @@ setTimeout(conferirAtualizacao, 4000);
     $('papel-chamo').click();
     erro('Esta é a resposta do seu amigo, mas ela precisa ser colada na janela do Frag que você já deixou aberta — não numa aba nova. Volte pra aquela janela e cole no campo 2.');
   }
+})();
+
+/* ---------------------------------------------------------------------
+ * VOLTAR PRA SALA DEPOIS DE UM F5
+ * ---------------------------------------------------------------------
+ * Só vale por cinco minutos: passou disso, quem abriu o Frag de novo
+ * provavelmente quer começar do zero, e arrastar a pessoa de volta para
+ * uma call que já acabou seria pior do que não fazer nada.
+ * ------------------------------------------------------------------ */
+(function voltarPraSala(){
+  if(location.hash) return;                 // veio por link: o link já resolve
+  let g=null;
+  try{ g=JSON.parse(sessionStorage.getItem('frag-sala')||'null'); }catch{}
+  if(!g || !g.id || !g.k) return;
+  if(Date.now()-(g.quando||0) > 5*60*1000){ esquecerSala(); return; }
+  recado('Voltando para a sala em que você estava…','');
+  setTimeout(()=>{ g.dono ? criarSala() : entrarNaSala(g.id, g.k); }, 80);
 })();
 
 // fechar a aba avisa os outros na hora, em vez de virar um fantasma
