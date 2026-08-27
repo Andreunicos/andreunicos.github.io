@@ -3495,6 +3495,38 @@ function cuidarDoBuffer(){
  * vídeo tem vaga? qual formato ficou combinado? saiu quadro daqui?
  * chegou quadro lá? e o que deu errado pelo caminho?
  * =================================================================== */
+function oQueEstaDesenhado(){
+  const L=[];
+  const palco=$('palco');
+  if(!palco) return ['(sem palco)'];
+  L.push('palco: '+palco.className+' | aviso "ninguém transmitindo" escondido: '+$('nada').hidden);
+  const quadros=palco.querySelectorAll('.quadro');
+  if(!quadros.length){ L.push('nenhum quadro no palco'); return L; }
+  quadros.forEach(q=>{
+    const r=q.getBoundingClientRect();
+    const e=getComputedStyle(q);
+    const v=q.querySelector('video');
+    const rv=v?v.getBoundingClientRect():null;
+    const partes=[
+      q.id,
+      Math.round(r.width)+'×'+Math.round(r.height)+' na tela',
+      'opacidade '+e.opacity,
+      'display '+e.display,
+      'saindo:'+q.classList.contains('saindo'),
+    ];
+    if(v){
+      partes.push('vídeo '+Math.round(rv.width)+'×'+Math.round(rv.height));
+      partes.push('imagem '+v.videoWidth+'×'+v.videoHeight);
+      partes.push(v.paused?'PAUSADO':'tocando');
+      partes.push('pronto:'+v.readyState);
+      const f=v.srcObject && v.srcObject.getVideoTracks && v.srcObject.getVideoTracks()[0];
+      partes.push('faixa:'+(f?(f.readyState+(f.muted?' MUDA':' ok')):'nenhuma'));
+    } else partes.push('SEM ELEMENTO DE VÍDEO');
+    L.push('  '+partes.join(' | '));
+  });
+  return L;
+}
+
 function soAsLinhasDeMidia(sdp){
   if(!sdp) return [];
   return sdp.split(/\r\n|\n/).filter(l=>
@@ -3582,6 +3614,9 @@ async function montarDiagnostico(){
     dz('');
   }
 
+  dz('--- o que está desenhado na minha tela ---');
+  oQueEstaDesenhado().forEach(dz);
+  dz('');
   dz('===== O LADO DE QUEM RECEBE =====');
   for(const par of pares.values()){
     const r = await pedirDiagnostico(par, 3500);
@@ -3608,8 +3643,9 @@ async function resumoParaOAmigo(){
   L.push('navegador: '+navigator.userAgent.replace(/^Mozilla\/5\.0 /,''));
   L.push('codec escolhido: '+cfg.codec+' | tem H264: '+temCodec('h264')+
          ' | tem VP9: '+temCodec('vp9')+' | tem VP8: '+temCodec('vp8'));
-  L.push('transmitindo: '+(est.streamTela?'sim':'não')+
-         ' | quadros na tela: '+document.querySelectorAll('#palco .quadro').length);
+  L.push('transmitindo: '+(est.streamTela?'sim':'não'));
+  L.push('o que está desenhado na tela dele:');
+  oQueEstaDesenhado().forEach(x=>L.push('  '+x));
   for(const par of pares.values()){
     if(!par.pc) continue;
     L.push('  com '+(par.nome||par.id)+': '+par.pc.connectionState+
