@@ -1705,11 +1705,30 @@ function criarPar(id){
       // a pessoa começa a transmitir — e o aviso disso é o 'unmute'.
       par.fluxo = ev.streams[0] || new MediaStream([faixa]);
       par.faixaVideo = faixa;
-      const aparecer = ()=>{ par.temTela=true; mostrarTela(par); };
-      const sumir    = ()=>{ par.temTela=false; tirarQuadro('p-'+par.id); pintarGente(); };
+      const aparecer = ()=>{
+        clearTimeout(par.relogioSumir); par.relogioSumir=null;
+        par.temTela=true; mostrarTela(par);
+      };
+      // A imagem engasgar por um segundo é normal. Sumir com o quadro na
+      // primeira falha faz a tela piscar à toa — então espera confirmar.
+      //
+      // E a confirmação é a contagem de quadros decodificados, não o
+      // estado "mudo" da faixa: esse estado demora a mudar (às vezes não
+      // muda) e me fez deixar quadro parado na tela.
+      const sumir = ()=>{
+        clearTimeout(par.relogioSumir);
+        const marca = par.quadrosAntes||0;
+        par.relogioSumir = setTimeout(()=>{
+          if((par.quadrosAntes||0) > marca) return;   // voltou a chegar imagem
+          par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
+        }, 2200);
+      };
       faixa.addEventListener('unmute',aparecer);
       faixa.addEventListener('mute',sumir);
-      faixa.addEventListener('ended',sumir);
+      faixa.addEventListener('ended',()=>{
+        clearTimeout(par.relogioSumir);
+        par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
+      });
       if(!faixa.muted) aparecer();
     }
   };
@@ -2134,7 +2153,13 @@ function mostrarReligando(par, ligado){
  * =================================================================== */
 function montarQuadro(id, titulo, aoVivo, aoParar){
   let q=$('q-'+id);
-  if(q) return q;
+  if(q){
+    // pode estar a caminho da saída: segura o relógio e traz de volta
+    clearTimeout(q.relogioDeSaida);
+    q.relogioDeSaida = null;
+    q.classList.remove('saindo');
+    return q;
+  }
   q=document.createElement('div');
   q.className='quadro'; q.id='q-'+id;
 
@@ -2180,7 +2205,8 @@ function tirarQuadro(id){
   const q=$('q-'+id);
   if(!q) return;
   q.classList.add('saindo');
-  setTimeout(()=>{ q.remove(); arrumarPalco(); }, 240);
+  clearTimeout(q.relogioDeSaida);
+  q.relogioDeSaida = setTimeout(()=>{ q.remove(); arrumarPalco(); }, 240);
 }
 function arrumarPalco(){
   setTimeout(cuidarDoBuffer,120);
@@ -2540,18 +2566,20 @@ async function atualizarNumeros(){
     if(sv&&sv.qualityLimitationReason==='cpu') par.cpuApertado=(par.cpuApertado||0)+1;
     else if(sv) par.cpuApertado=0;
 
-    // Segunda porta: chegou imagem mas não tem quadro na tela? Desenha.
-    if(ev && (ev.framesDecoded||0) > 0 && !par.temTela && par.fluxo){
-      par.temTela = true;
-      mostrarTela(par);
-      recado('A tela de '+(par.nome||'seu amigo')+' apareceu.','ok');
-    }
-    // e o contrário: parou de chegar imagem faz tempo? tira o quadro
+    // Segunda porta: está ENTRANDO imagem agora e não tem quadro na
+    // tela? Desenha. Tem que ser "avançou desde o último segundo" — o
+    // total acumulado nunca volta a zero, e olhar para ele fazia o
+    // quadro renascer para sempre depois de o amigo parar.
     if(ev){
-      const antes = par.quadrosAntes||0;
-      const agora = ev.framesDecoded||0;
-      par.paradoHa = (agora>antes) ? 0 : (par.paradoHa||0)+1;
+      const antes   = par.quadrosAntes||0;
+      const agora   = ev.framesDecoded||0;
+      const avancou = agora > antes;
       par.quadrosAntes = agora;
+      if(avancou && !par.temTela && par.fluxo){
+        par.temTela = true;
+        mostrarTela(par);
+        recado('A tela de '+(par.nome||'seu amigo')+' apareceu.','ok');
+      }
     }
 
     let kbps=0, fpsEnviado=0, fpsComprimido=0;
