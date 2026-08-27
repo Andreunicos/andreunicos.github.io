@@ -213,6 +213,14 @@ input[type=range]{width:100%;accent-color:var(--azul)}
   border-radius:var(--r2);overflow:hidden;min-height:0;
 }
 .quadro video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+.quadro canvas.pintura{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+body.desenho-canvas .quadro video{display:none}
+/* sem desfoque atrás: em driver ruim é ele que apaga o vídeo */
+body.desenho-canvas .quadro-tag,
+body.desenho-canvas .controles,
+body.desenho-canvas .aviso-tx{backdrop-filter:none}
+body.desenho-canvas .quadro-tag{background:rgba(8,9,12,.95)}
+body.desenho-canvas .controles{background:rgba(18,20,25,.98)}
 .quadro-tag{
   position:absolute;left:12px;top:12px;display:flex;align-items:center;gap:7px;
   padding:6px 13px;background:rgba(8,9,12,.78);backdrop-filter:blur(10px);
@@ -666,7 +674,6 @@ body.sem-tela .divisor{display:none}
 <div id="chamada" class="chamada" hidden>
   <header class="barra">
     <div class="gente" id="gente"></div>
-    </div>
     <div class="barra-dir">
       <span class="pin" id="pin-fps" hidden><b id="fps-agora">—</b><span style="opacity:.6">fps</span></span>
       <span class="pin" id="pin-versao" title="versão do Frag"></span>
@@ -755,6 +762,16 @@ body.sem-tela .divisor{display:none}
     <p class="ajuda" style="margin-top:0">Em vez de travar, a imagem baixa um pouco e volta sozinha. Deixe ligado.</p>
 
     <div class="secao">Deu problema?</div>
+    <label class="chk" style="margin-bottom:11px">
+      <input id="in-canvas" type="checkbox">
+      <span><b>A imagem não aparece?</b> Pintar o vídeo de outro jeito</span>
+    </label>
+    <p class="ajuda" style="margin-top:0">
+      Tem placa de vídeo que decodifica o vídeo e não desenha ele na tela — fica tudo preto
+      mesmo com a imagem chegando inteira. Isto pinta cada quadro por um caminho diferente e
+      desliga o desfoque das etiquetas, que é o que costuma brigar com o vídeo.
+      Gasta um pouco mais de processador; só ligue se precisar.
+    </p>
     <button id="btn-redesenhar" class="b b-cinza b-largo" type="button" style="margin-bottom:9px">🔄 Redesenhar as telas</button>
     <p class="ajuda" style="margin-top:0">
       Se você sabe que alguém está transmitindo mas o quadro não aparece, isto joga fora os
@@ -998,7 +1015,7 @@ const cfg = {
   fala:'voz', tecla:'KeyV', nomeTecla:'V', volume:100,
   codec:'auto', auto:true, turn:'', site:'', versaoAjustes:0,
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
-  clipe:30, clipeSempre:false, prioridade:'fps',
+  clipe:30, clipeSempre:false, prioridade:'fps', desenho:'normal',
 };
 
 function lerAjustes(){
@@ -1656,7 +1673,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '2.6 — 27/08 06:45';
+const VERSAO = '2.9 — 27/08 07:30';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2212,6 +2229,51 @@ function montarQuadro(id, titulo, aoVivo, aoParar){
   $('palco').appendChild(q);
   return q;
 }
+/* ---------------------------------------------------------------------
+ * PINTAR À MÃO
+ * ---------------------------------------------------------------------
+ * requestVideoFrameCallback avisa a cada quadro novo decodificado — é o
+ * jeito certo, sem desenhar à toa. Onde ele não existe, cai no
+ * requestAnimationFrame.
+ * ------------------------------------------------------------------ */
+function pintarNoCanvas(q){
+  const v=q.querySelector('video');
+  if(!v) return;
+  let c=q.querySelector('canvas.pintura');
+  if(!c){
+    c=document.createElement('canvas');
+    c.className='pintura';
+    v.parentNode.insertBefore(c, v.nextSibling);
+  }
+  if(q.pintando) return;
+  q.pintando=true;
+  const g=c.getContext('2d');
+  const passo=()=>{
+    if(!q.isConnected || cfg.desenho!=='canvas'){ q.pintando=false; return; }
+    if(v.videoWidth){
+      if(c.width!==v.videoWidth || c.height!==v.videoHeight){
+        c.width=v.videoWidth; c.height=v.videoHeight;
+      }
+      try{ g.drawImage(v,0,0,c.width,c.height); }catch{}
+    }
+    if(typeof v.requestVideoFrameCallback==='function') v.requestVideoFrameCallback(passo);
+    else requestAnimationFrame(passo);
+  };
+  passo();
+}
+
+function aplicarModoDesenho(){
+  const canvas = cfg.desenho==='canvas';
+  document.body.classList.toggle('desenho-canvas', canvas);
+  document.querySelectorAll('#palco .quadro').forEach(q=>{
+    if(canvas) pintarNoCanvas(q);
+    else{
+      q.pintando=false;
+      const c=q.querySelector('canvas.pintura'); if(c) c.remove();
+    }
+  });
+}
+
 function mostrarTela(par){
   montarQuadro('p-'+par.id, 'tela de '+(par.nome||'seu amigo'), true);
   const v = $('v-p-'+par.id);
@@ -2220,11 +2282,16 @@ function mostrarTela(par){
   v.onresize = ()=>{ if(v.videoWidth>0) clearTimeout(par.relogioVazio); };
   const tocar = ()=>{ v.play().catch(()=>{}); };
   tocar(); setTimeout(tocar, 400); setTimeout(tocar, 1500);
+  if(cfg.desenho==='canvas') pintarNoCanvas($('q-p-'+par.id));
   arrumarPalco(); pintarGente();
 }
 function quadroLocal(stream){
-  montarQuadro('eu','você está transmitindo',true,pararTela);
-  $('v-eu').srcObject=stream; arrumarPalco();
+  const q=montarQuadro('eu','você está transmitindo',true,pararTela);
+  const v=$('v-eu');
+  v.srcObject=stream;
+  v.play().catch(()=>{});
+  if(cfg.desenho==='canvas') pintarNoCanvas(q);
+  arrumarPalco();
 }
 function tirarQuadro(id){
   const q=$('q-'+id);
@@ -3523,6 +3590,38 @@ function cuidarDoBuffer(){
  * vídeo tem vaga? qual formato ficou combinado? saiu quadro daqui?
  * chegou quadro lá? e o que deu errado pelo caminho?
  * =================================================================== */
+/* ---------------------------------------------------------------------
+ * OLHAR PARA OS PIXELS
+ * ---------------------------------------------------------------------
+ * "O vídeo está tocando em 1920×1080" não quer dizer que tem IMAGEM ali.
+ * Captura de tela devolvendo quadros pretos é um problema real e comum
+ * no Windows — placa híbrida, HDR, conteúdo protegido. Do lado de fora
+ * é idêntico a um bug de desenho, e foi por isso que eu me perdi.
+ *
+ * Aqui a gente desenha um pedacinho do vídeo num quadro invisível e
+ * olha os pixels de verdade. Se der tudo zero, a imagem é preta na
+ * origem e não adianta mexer em tela nenhuma.
+ * ------------------------------------------------------------------ */
+function amostrarVideo(v){
+  try{
+    if(!v || !v.videoWidth) return 'sem imagem (0×0)';
+    const c=document.createElement('canvas');
+    c.width=32; c.height=18;
+    const g=c.getContext('2d',{willReadFrequently:true});
+    g.drawImage(v,0,0,32,18);
+    const d=g.getImageData(0,0,32,18).data;
+    let soma=0, min=255, max=0, vivos=0;
+    for(let i=0;i<d.length;i+=4){
+      const b=(d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114);
+      soma+=b; if(b<min)min=b; if(b>max)max=b; if(b>8)vivos++;
+    }
+    const n=d.length/4;
+    return 'brilho médio '+(soma/n).toFixed(1)+'/255 | mais escuro '+Math.round(min)+
+           ' | mais claro '+Math.round(max)+' | pixels com luz '+vivos+' de '+n+
+           (max<=8 ? '  <<< IMAGEM TOTALMENTE PRETA' : '');
+  }catch(e){ return 'não consegui olhar os pixels: '+(e&&e.name||e); }
+}
+
 function oQueEstaDesenhado(){
   const L=[];
   const palco=$('palco');
@@ -3547,6 +3646,9 @@ function oQueEstaDesenhado(){
       partes.push('imagem '+v.videoWidth+'×'+v.videoHeight);
       partes.push(v.paused?'PAUSADO':'tocando');
       partes.push('pronto:'+v.readyState);
+      partes.push('PIXELS: '+amostrarVideo(v));
+      const cv=q.querySelector('canvas.pintura');
+      if(cv) partes.push('canvas '+cv.width+'×'+cv.height+' (pintando:'+!!q.pintando+')');
       const f=v.srcObject && v.srcObject.getVideoTracks && v.srcObject.getVideoTracks()[0];
       partes.push('faixa:'+(f?(f.readyState+(f.muted?' MUDA':' ok')):'nenhuma'));
     } else partes.push('SEM ELEMENTO DE VÍDEO');
@@ -3575,6 +3677,7 @@ async function montarDiagnostico(){
   dz('dentro de moldura: '+onde.dentroDeMoldura+' | sem chamada: '+onde.semChamada+' | sem cifra: '+onde.semCifra);
   dz('');
   dz('--- ajustes ---');
+  dz('modo de desenho: '+cfg.desenho);
   dz('codec: '+cfg.codec+' | qualidade: '+cfg.qualidade+' | prioridade: '+cfg.prioridade+
      ' | automático: '+cfg.auto+' | clipe sempre: '+cfg.clipeSempre);
   dz('tem H264: '+temCodec('h264')+' | tem VP9: '+temCodec('vp9')+' | tem VP8: '+temCodec('vp8'));
@@ -3595,6 +3698,16 @@ async function montarDiagnostico(){
          (c.displaySurface?' ('+c.displaySurface+')':''));
     }
     dz('  som da tela: '+(a?'sim':'não'));
+    // olha a captura ANTES de qualquer envio: se já vem preta daqui, o
+    // problema é o Windows entregando tela preta, não o Frag.
+    try{
+      const teste=document.createElement('video');
+      teste.muted=true; teste.playsInline=true; teste.srcObject=est.streamTela;
+      await teste.play().catch(()=>{});
+      await new Promise(r=>setTimeout(r,350));
+      dz('  PIXELS DA CAPTURA CRUA: '+amostrarVideo(teste));
+      teste.srcObject=null;
+    }catch(e){ dz('  não consegui olhar a captura crua: '+e); }
     if(est.falhasDaTela && est.falhasDaTela.length) dz('  FALHAS AO ENVIAR: '+est.falhasDaTela.join(' · '));
   }else dz('capturando: não');
   dz('');
@@ -3982,6 +4095,12 @@ window.addEventListener('blur',()=>{ if(est.segurando) segurarFala(false); });
 $('btn-diag').onclick=redesenharTudo && copiarDiagnostico;
 $('btn-diag').onclick=copiarDiagnostico;
 $('btn-redesenhar').onclick=redesenharTudo;
+$('in-canvas').onchange=()=>{
+  cfg.desenho = $('in-canvas').checked ? 'canvas' : 'normal';
+  guardarAjustes();
+  aplicarModoDesenho();
+  recado(cfg.desenho==='canvas' ? 'Pintando o vídeo pelo outro caminho.' : 'Voltei ao desenho normal.','ok');
+};
 $('btn-clipe').onclick=salvarClipe;
 $('btn-clipe').disabled=true;
 $('btn-gravar').onclick=alternarGravacao;
@@ -4190,6 +4309,8 @@ $('sel-codec').value=cfg.codec||'auto';
 $('sel-clipe').value=String(cfg.clipe||30);
 $('sel-prioridade').value=cfg.prioridade||'fps';
 $('in-clipe-sempre').checked=!!cfg.clipeSempre;
+$('in-canvas').checked = cfg.desenho==='canvas';
+aplicarModoDesenho();
 $('in-auto').checked=cfg.auto!==false;
 $('in-turn').value=cfg.turn||'';
 $('in-site').value=cfg.site||'';
