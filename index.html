@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <title>Frag</title>
 <style>
 /* =====================================================================
@@ -388,7 +389,7 @@ body.sem-tela .divisor{display:none}
 }
 @keyframes gira{to{transform:rotate(360deg)}}
 
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* o bloco completo de "menos movimento" está no acabamento, lá embaixo */
 
 /* =====================================================================
  * ACABAMENTO — movimento com propósito
@@ -526,6 +527,33 @@ body.sem-tela .divisor{display:none}
   background:rgba(240,180,41,.09);border:1px solid rgba(240,180,41,.35);
 }
 .conserto p{margin:0 0 9px;font-size:12.5px;line-height:1.55;color:var(--txt2)}
+
+/* ---- menu de cada pessoa ---- */
+.ficha{cursor:pointer;transition:background .15s,transform .12s}
+.ficha:hover{background:var(--sup3)}
+.ficha:active{transform:scale(.98)}
+.ficha.eu{cursor:default}
+.ficha.eu:hover{background:none}
+.menu-pessoa{
+  position:fixed;z-index:130;width:250px;padding:13px;
+  background:var(--sup);border:1px solid var(--linha2);border-radius:15px;
+  box-shadow:var(--sombra);animation:entra .18s cubic-bezier(.2,.7,.3,1);
+}
+.menu-pessoa h4{margin:0 0 3px;font-size:14px}
+.menu-pessoa .sub{font-size:11.5px;color:var(--txt3);margin-bottom:11px}
+.menu-pessoa .linha-vol{display:flex;align-items:center;gap:9px;margin-bottom:11px}
+.menu-pessoa .linha-vol input{flex:1}
+.menu-pessoa .linha-vol b{font-size:11.5px;color:var(--azul);min-width:38px;text-align:right}
+.menu-pessoa button{
+  width:100%;display:flex;align-items:center;gap:9px;
+  padding:9px 11px;margin-top:5px;border:0;border-radius:10px;cursor:pointer;
+  background:var(--sup3);color:var(--txt);font:inherit;font-size:13px;text-align:left;
+  transition:background .14s;
+}
+.menu-pessoa button:hover{background:var(--linha)}
+.menu-pessoa button.perigo{color:#ff9d94}
+.menu-pessoa button.perigo:hover{background:rgba(242,86,74,.16)}
+.menu-pessoa .aviso{font-size:11px;color:var(--txt3);line-height:1.5;margin:9px 0 0}
 .caixa-fechada{
   margin-top:18px;padding:15px 17px;border-radius:14px;
   background:rgba(242,86,74,.09);border:1px solid rgba(242,86,74,.4);
@@ -837,12 +865,25 @@ body.sem-tela .divisor{display:none}
         <option value="h264">H264 — usa a placa de vídeo, poupa processador</option>
         <option value="vp9">VP9 — imagem mais limpa, come mais processador</option>
         <option value="vp8">VP8 — a mais compatível</option>
+        <option value="av1">AV1 — placa nova (RTX 40, RX 7000, Arc): mesma imagem com menos internet</option>
       </select>
     </label>
     <p class="ajuda" style="margin-top:0" id="ajuda-codec">
       H264 é comprimido pelo chip de vídeo da placa e poupa o processador para o jogo — vale tentar
       se o FPS cai quando você transmite. Se depois de trocar a imagem parar de aparecer do outro
       lado, volte para <b>Automática</b>: quer dizer que os dois navegadores não fecharam acordo.
+    </p>
+
+    <label class="campo" style="margin-top:12px">
+      <span>Imagem de quem você assiste</span>
+      <select id="sel-latencia">
+        <option value="estavel">Lisa — o Frag guarda uma folga conforme o ping</option>
+        <option value="minima">Sem atraso — responde na hora, mas engasga se a rede variar</option>
+      </select>
+    </label>
+    <p class="ajuda" style="margin-top:0">
+      Se a tela do seu amigo trava de tempos em tempos, deixe em <b>Lisa</b>. "Sem atraso" só
+      compensa em rede muito boa (ping abaixo de uns 40 ms).
     </p>
 
     <label class="campo" style="margin-top:12px">
@@ -868,8 +909,10 @@ body.sem-tela .divisor{display:none}
       <textarea id="in-turn" rows="2" placeholder="turn:servidor:3478|usuario|senha" style="font-size:12px"></textarea>
     </label>
     <p class="ajuda" style="margin-top:0">
-      Só precisa se a conexão não fecha de jeito nenhum — acontece em algumas redes de celular e de prédio.
-      Uma linha por servidor. Vale para a próxima conexão.
+      O Frag <b>não vem com nenhum</b>: os públicos gratuitos que existiam saíram do ar, e endereço
+      morto na lista só atrasa a conexão de todo mundo. Você só precisa disto se a conexão não fechar
+      de jeito nenhum com alguém — acontece em internet de celular, de prédio e de empresa. Uma conta
+      grátis na Metered dá 20 GB por mês e resolve. Uma linha por servidor. Vale para a próxima conexão.
     </p>
 
     <div class="secao">Volume geral</div>
@@ -955,16 +998,16 @@ const STUN = [
  * provedores com CGNAT — os dois computadores não conseguem se achar
  * direto de jeito nenhum. Aí só resta um retransmissor no meio.
  *
- * Estes abaixo são públicos e gratuitos, então podem estar fora do ar
- * ou lotados. Se você conseguir um seu (Metered, Cloudflare, Twilio),
- * cole em Ajustes > Rede: aí a conexão fecha em praticamente qualquer
- * lugar. Sem TURN, quando as duas redes são fechadas, não conecta.
+ * Aqui já morou uma lista de retransmissores públicos (o openrelay da
+ * Metered). O projeto foi desativado — e endereço morto na lista é PIOR
+ * do que lista vazia: o navegador tenta falar com ele, espera dar o
+ * tempo, e a conexão INTEIRA demora mais para fechar por causa disso.
+ *
+ * Então a lista nasce vazia, de propósito. Quem quiser plano B cola o
+ * seu em Ajustes > Rede. A conta grátis da Metered dá 20 GB por mês e
+ * resolve; o autoteste avisa quando ele faz falta de verdade.
  * ------------------------------------------------------------------ */
-const TURN_PADRAO = [
-  {urls:'turn:openrelay.metered.ca:80',            username:'openrelayproject', credential:'openrelayproject'},
-  {urls:'turn:openrelay.metered.ca:443',           username:'openrelayproject', credential:'openrelayproject'},
-  {urls:'turns:openrelay.metered.ca:443?transport=tcp', username:'openrelayproject', credential:'openrelayproject'},
-];
+const TURN_PADRAO = [];
 
 function meuTurn(){
   const t=(cfg.turn||'').trim();
@@ -1015,7 +1058,7 @@ const cfg = {
   fala:'voz', tecla:'KeyV', nomeTecla:'V', volume:100,
   codec:'auto', auto:true, turn:'', site:'', versaoAjustes:0,
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
-  clipe:30, clipeSempre:false, prioridade:'fps', desenho:'normal',
+  clipe:30, clipeSempre:false, prioridade:'fps', desenho:'normal', latencia:'estavel',
 };
 
 function lerAjustes(){
@@ -1317,7 +1360,7 @@ const SITE = 'https://andreunicos.github.io/';
 const sala = {
   ligada:false, dono:false, id:null, chaveTxt:null, chave:null,
   eu:null, ele:null, fontes:[], bases:[], vistos:new Set(),
-  fila:[], seq:0, batendo:null, adeus:null,
+  fila:[], seq:0, batendo:null, adeus:null, banidos:new Set(),
 };
 
 function idAleatorio(n){
@@ -1425,8 +1468,11 @@ async function prepararSala(id, chaveTxt, dono){
       'raw', deB64u(sala.chaveTxt), 'AES-GCM', false, ['encrypt','decrypt']);
   }catch{ sala.chave=null; }
 
-  const vivas=[];
-  for(const b of SINAIS){ if(await testarBase(b)) vivas.push(b); }
+  // Todos ao mesmo tempo. Um depois do outro, com 4,5 s de espera cada,
+  // dava até 18 segundos de "Criando a sala…" — o primeiro segundo que o
+  // seu amigo vê do Frag, gasto esperando servidor lento responder.
+  const vivas=(await Promise.all(
+    SINAIS.map(async b => (await testarBase(b)) ? b : null))).filter(Boolean);
   if(!vivas.length) throw new Error('SEM_SINAL');
 
   sala.bases=vivas;
@@ -1524,6 +1570,10 @@ async function entrarNaSala(id, chaveTxt){
   dizerSala('entrando na sala…');
   try{
     await prepararSala(id, chaveTxt, false);
+    // pede o microfone AGORA. Antes o pop-up de permissão só aparecia lá
+    // na frente, na hora de montar a conexão — bem no segundo em que a
+    // pessoa está achando que travou, e com cara de coisa que deu errado.
+    try{ await ligarMicrofone(); }catch(e){ console.warn('mic cedo',e); }
     ligarPresenca('procurando quem já está na call…');
   }catch(e){
     pararEspera();
@@ -1584,14 +1634,21 @@ function melhorarAudio(sdp){
   if(!m) return sdp;
   const pt=m[1];
   const extras='stereo=1;sprop-stereo=1;maxaveragebitrate=128000;maxplaybackrate=48000;useinbandfec=1;usedtx=0';
-  const re=new RegExp('a=fmtp:'+pt+' ([^\\r\\n]*)');
+  // O "g" no fim não é detalhe: o SDP tem UMA linha de fmtp por seção de
+  // mídia, e existem duas de áudio — a sua voz e o som do jogo. Sem ele
+  // só a primeira era corrigida, ou seja: a voz ia em 128 kbps estéreo e
+  // o som do jogo continuava no padrão magro do navegador.
+  const re=new RegExp('a=fmtp:'+pt+' ([^\\r\\n]*)','g');
   if(re.test(sdp)){
+    re.lastIndex=0;
     return sdp.replace(re,(l,params)=>{
       const limpos=params.split(';').filter(p=>!/^(stereo|sprop-stereo|maxaveragebitrate|usedtx|useinbandfec|maxplaybackrate)=/.test(p));
       return 'a=fmtp:'+pt+' '+limpos.concat(extras.split(';')).join(';');
     });
   }
-  return sdp.replace(m[0],m[0]+'\r\na=fmtp:'+pt+' '+extras);
+  // nenhuma linha de fmtp no SDP: cria uma depois de CADA opus
+  return sdp.replace(new RegExp('a=rtpmap:'+pt+' opus/48000/2','gi'),
+                     l=>l+'\r\na=fmtp:'+pt+' '+extras);
 }
 
 /* =====================================================================
@@ -1635,7 +1692,11 @@ async function ligarMicrofone(forcar){
 }
 function nivel(){
   if(!est.analisador) return 0;
-  const a=new Uint8Array(est.analisador.fftSize);
+  // o mesmo balde toda vez. Alocar 1 KB dezesseis vezes por segundo é
+  // lixo de graça pro coletor recolher — e ele recolhe justamente
+  // enquanto você joga, que é quando você menos quer uma pausa.
+  const a = (est.balde && est.balde.length===est.analisador.fftSize)
+    ? est.balde : (est.balde = new Uint8Array(est.analisador.fftSize));
   est.analisador.getByteTimeDomainData(a);
   let s=0; for(let i=0;i<a.length;i++){const v=(a[i]-128)/128;s+=v*v;}
   return Math.min(100,Math.round(Math.sqrt(Math.sqrt(s/a.length))*145));
@@ -1673,7 +1734,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '2.9 — 27/08 07:30';
+const VERSAO = '3.3 — 27/08 19:30';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -1727,13 +1788,14 @@ function criarPar(id){
     }else{
       // menos atraso: o navegador guarda quadros para amortecer solavancos;
       // num jogo, atraso incomoda mais do que um solavanco eventual.
-      try{ ev.receiver.playoutDelayHint=0; }catch{}
-      try{ ev.receiver.jitterBufferTarget=0; }catch{}
+      par.receptorVideo = ev.receiver;
+      ajustarAmortecedor(par);
       // A vaga de vídeo nasce vazia e "muda". Ela só ganha imagem quando
       // a pessoa começa a transmitir — e o aviso disso é o 'unmute'.
       par.fluxo = ev.streams[0] || new MediaStream([faixa]);
       par.faixaVideo = faixa;
       const aparecer = ()=>{
+        if(par.naoQueroVer) return;
         clearTimeout(par.relogioSumir); par.relogioSumir=null;
         par.temTela=true; mostrarTela(par);
         // prova de vida: se em 4 s o vídeo continuar sem tamanho, não
@@ -1858,12 +1920,14 @@ function abrirCanal(par){
     par.tentativasCanal = 0;
     enviar(par,{t:'nome', v:eu.nome||'Sem nome'});
     enviar(par,{t:'mudo', v:est.mudo});
+    enviar(par,{t:'perfil', v:cfg.qualidade});
   };
   canal.onmessage = (ev)=>{
     let d; try{ d=JSON.parse(ev.data); }catch{ return; }
     if(d.t==='mudo'){ par.mudo=!!d.v; pintarGente(); }
-    else if(d.t==='fala'){ par.falando=!!d.v; pintarGente(); }
+    else if(d.t==='fala'){ par.falando=!!d.v; marcarFala(par); }
     else if(d.t==='nome'){ definirNome(par, d.v); }
+    else if(d.t==='perfil'){ par.qualidadeDele = String(d.v||'').slice(0,20); pintarGente(); }
     else if(d.t==='msg') receberMensagem(par, d.v);
     else if(d.t==='sdp') receberSdp(par, d.v);
     else if(d.t==='ice') receberIce(par, d.v);
@@ -1973,6 +2037,30 @@ function parResponde(par, prazo){
   });
 }
 
+/* Quanto o navegador deve guardar antes de mostrar. Pouco = resposta
+   rápida; muito = imagem lisa. O certo depende do ping, então medimos. */
+function ajustarAmortecedor(par){
+  if(!par || !par.receptorVideo) return;
+  if(cfg.latencia==='minima'){
+    try{ par.receptorVideo.playoutDelayHint=0; }catch{}
+    try{ par.receptorVideo.jitterBufferTarget=0; }catch{}
+    par.folgaAplicada=0;
+    return;
+  }
+  const ping = par.ping||0;
+  // sem medida ainda: começa com uma folga conservadora
+  const folga = !ping ? 120
+    : ping<40  ? 40
+    : ping<90  ? 90
+    : ping<180 ? 160
+    : ping<300 ? 260
+    :            400;
+  if(par.folgaAplicada===folga) return;      // não remexer à toa
+  par.folgaAplicada=folga;
+  try{ par.receptorVideo.jitterBufferTarget=folga; }catch{}
+  try{ par.receptorVideo.playoutDelayHint=folga/1000; }catch{}
+}
+
 function tirarPar(id, motivo){
   const par = pares.get(id);
   if(!par) return;
@@ -2011,6 +2099,25 @@ async function tratarSinal(m){
   else if(m.tipo==='resposta')await aoResposta(m);
   else if(m.tipo==='gelo')    await aoGelo(m);
   else if(m.tipo==='refaz')   await aoRefaz(m);
+  else if(m.tipo==='expulso'){
+    // O botão só aparecia para quem criou a sala, mas quem RECEBIA a
+    // ordem não conferia nada: qualquer pessoa da call conseguia mandar
+    // um recado forjado e expulsar os outros. Agora só vale de quem se
+    // apresentou como dono. Não é cofre — todo mundo tem a mesma chave —
+    // mas é uma tranca, e a promessa da tela vira verdade.
+    const quemMandou = pares.get(m.de);
+    if(!quemMandou || !quemMandou.dono) return;
+    if(m.quem===eu.id){
+      // fui eu. sai limpo, sem ficar tentando voltar.
+      pares.forEach((_,id)=>tirarPar(id,''));
+      fecharSala();
+      erro('Você foi removido desta call por quem criou a sala.');
+      recado('Você foi removido da call.','mal');
+    }else if(pares.has(m.quem) || m.quem){
+      sala.banidos.add(m.quem);
+      tirarPar(m.quem, 'removido de quem criou a sala');
+    }
+  }
   else if(m.tipo==='tchau')   tirarPar(m.de,'saiu da call');
   else if(m.tipo==='cheio'){
     dizerSala('a call já está com '+LIMITE+' pessoas — é o limite de uma conexão direta.');
@@ -2019,6 +2126,7 @@ async function tratarSinal(m){
 }
 
 async function aoOla(m){
+  if(sala.banidos.has(m.de)) return;      // essa pessoa foi tirada da call
   let par = pares.get(m.de);
   if(!par){
     if(pares.size >= LIMITE-1){ await publicar({tipo:'cheio', para:m.de}); return; }
@@ -2027,7 +2135,8 @@ async function aoOla(m){
   if(m.nome) definirNome(par, m.nome);
   // um "olá" solto merece resposta dirigida: é assim que o novato
   // descobre quem já está na sala
-  if(!m.para) await publicar({tipo:'ola', para:m.de, nome:eu.nome});
+  par.dono = !!m.dono;
+  if(!m.para) await publicar({tipo:'ola', para:m.de, nome:eu.nome, dono:sala.dono});
   pararEspera();
   dizerSala('achei '+(par.nome||'alguém')+' — conectando…');
   pintarGente();
@@ -2104,20 +2213,30 @@ function falhouPar(par, e, apagar){
     par.senderMic=par.senderVideo=par.senderTelaAudio=null;
   }
   $('btn-sala-denovo').hidden=false;
-  $('btn-sala-denovo').onclick=()=>{ $('btn-sala-denovo').hidden=true; publicar({tipo:'ola', nome:eu.nome}); };
+  $('btn-sala-denovo').onclick=()=>{ $('btn-sala-denovo').hidden=true; publicar({tipo:'ola', nome:eu.nome, dono:sala.dono}); };
 }
 
 /* Batidas de presença: quem chega depois acha quem já estava, e quem
    ficou órfão de um recado perdido se recupera sozinho. */
 function bater(){
   if(!sala.ligada) return;
-  publicar({tipo:'ola', nome:eu.nome});
+  publicar({tipo:'ola', nome:eu.nome, dono:sala.dono});
 }
 
 /* =====================================================================
  * QUEM ESTÁ NA CALL
  * =================================================================== */
 function iniciais(n){ return (String(n||'?').trim()[0]||'?').toUpperCase(); }
+
+/* Só a bolinha verde, e só dela. Antes cada aviso de "fulano está
+   falando" reconstruía a barra inteira — todos os nomes, avatares e
+   botões — várias vezes por segundo, enquanto você joga. Trabalho jogado
+   fora no pior lugar possível. */
+function marcarFala(par){
+  const av=$('av-'+par.id);
+  if(!av) return pintarGente();
+  av.classList.toggle('fala', !!par.falando);
+}
 
 function pintarGente(){
   const caixa = $('gente');
@@ -2152,6 +2271,11 @@ function pintarGente(){
 
     txt.append(nome,sub);
     f.append(av,txt);
+    if(g.eu) f.classList.add('eu');
+    else{
+      f.title='clique para opções';
+      f.onclick=(ev)=>{ ev.stopPropagation(); abrirMenuDaPessoa(g.par, f); };
+    }
     caixa.appendChild(f);
   }
   const n=lista.length;
@@ -2159,6 +2283,118 @@ function pintarGente(){
   caixa.classList.toggle('cheia', n>3);
   mandarParaSobreposicao();
   avisarBandeja();
+}
+
+/* ---------------------------------------------------------------------
+ * MENU DE CADA PESSOA
+ * ---------------------------------------------------------------------
+ * Clicar na foto ou no nome abre o que dá para fazer com aquela pessoa:
+ * o volume só dela, silenciar, parar de assistir a tela dela — que além
+ * de sumir com o quadro AVISA o navegador para não receber mais aquele
+ * vídeo, economizando a sua internet de verdade — e tirar da call.
+ * ------------------------------------------------------------------ */
+function fecharMenuDaPessoa(){
+  const m=$('menu-pessoa'); if(m) m.remove();
+  document.removeEventListener('click', aoClicarFora, true);
+}
+function aoClicarFora(ev){
+  const m=$('menu-pessoa');
+  if(m && !m.contains(ev.target) && !ev.target.closest('.ficha')) fecharMenuDaPessoa();
+}
+
+function abrirMenuDaPessoa(par, ancora){
+  fecharMenuDaPessoa();
+  const m=document.createElement('div');
+  m.id='menu-pessoa'; m.className='menu-pessoa';
+
+  const h=document.createElement('h4'); h.textContent=par.nome||'Entrando…';
+  const sub=document.createElement('div'); sub.className='sub';
+  const nomeDoPerfil=(q)=>{
+    const x=PERFIS[q]; return x ? (x.a+'p a '+x.fps+' fps') : null;
+  };
+  sub.textContent = !par.conectado ? 'conectando…'
+    : (par.temTela?'transmitindo · ':'') + (par.ping?par.ping+' ms':'na call') +
+      (par.qualidadeDele && nomeDoPerfil(par.qualidadeDele) ? ' · escolheu '+nomeDoPerfil(par.qualidadeDele) : '');
+  m.append(h,sub);
+
+  // volume só dela
+  const lv=document.createElement('div'); lv.className='linha-vol';
+  const ic=document.createElement('span'); ic.textContent='🔊';
+  const r=document.createElement('input');
+  r.type='range'; r.min='0'; r.max='200'; r.value=String(par.volume==null?100:par.volume);
+  const b=document.createElement('b'); b.textContent=r.value+'%';
+  r.oninput=()=>{ par.volume=Number(r.value); b.textContent=r.value+'%'; aplicarVolume(); pintarVolumes(); };
+  lv.append(ic,r,b); m.appendChild(lv);
+
+  // silenciar
+  const bs=document.createElement('button');
+  const mudo=()=> (par.volume===0);
+  const pintarBs=()=>{ bs.textContent = mudo()?'🔊  Voltar a ouvir':'🔇  Silenciar esta pessoa'; };
+  pintarBs();
+  bs.onclick=()=>{
+    par.volume = mudo() ? 100 : 0;
+    r.value=String(par.volume); b.textContent=par.volume+'%';
+    aplicarVolume(); pintarVolumes(); pintarBs();
+  };
+  m.appendChild(bs);
+
+  // parar de assistir
+  const bt=document.createElement('button');
+  const pintarBt=()=>{ bt.textContent = par.naoQueroVer ? '👁  Voltar a assistir a tela' : '🙈  Parar de assistir a tela'; };
+  pintarBt();
+  bt.onclick=async()=>{
+    par.naoQueroVer = !par.naoQueroVer;
+    pintarBt();
+    if(par.naoQueroVer){
+      par.temTela=false;
+      clearTimeout(par.relogioSumir); clearTimeout(par.relogioVazio);
+      tirarQuadro('p-'+par.id);
+      recado('Você parou de assistir a tela de '+(par.nome||'seu amigo')+'.','');
+    }else recado('Voltando a assistir…','ok');
+    // pede ao navegador para parar/voltar a receber esse vídeo: economiza
+    // internet de verdade, não é só esconder o quadro
+    try{
+      const t = par.pc && par.pc.getTransceivers().find(
+        x=>x.receiver && x.receiver.track && x.receiver.track.kind==='video');
+      if(t) t.direction = par.naoQueroVer ? 'sendonly' : 'sendrecv';
+    }catch(e){ console.warn('parar de receber',e); }
+  };
+  m.appendChild(bt);
+
+  // expulsar
+  const bx=document.createElement('button');
+  bx.className='perigo';
+  bx.textContent = sala.dono ? '🚪  Tirar da call' : '🚫  Bloquear só pra mim';
+  bx.onclick=()=>{
+    fecharMenuDaPessoa();
+    const quem = par.nome||'esta pessoa';
+    const pergunta = sala.dono
+      ? 'Tirar '+quem+' da call? Ela sai pra todo mundo.'
+      : 'Bloquear '+quem+' só na SUA tela?\n\nVocê não criou a sala, então ela continua na call com os outros.';
+    if(!confirm(pergunta)) return;
+    expulsar(par.id, true);
+  };
+  m.appendChild(bx);
+
+  const av=document.createElement('p'); av.className='aviso';
+  av.textContent = sala.dono
+    ? 'Você criou a sala, então isso tira a pessoa da call de todo mundo.'
+    : 'Você não criou a sala, então não dá pra expulsar ninguém. Isso só some com a pessoa na SUA tela — ela continua na call com o resto do pessoal.';
+  m.appendChild(av);
+
+  document.body.appendChild(m);
+  const cx=ancora.getBoundingClientRect();
+  m.style.left = Math.max(10, Math.min(innerWidth-260, cx.left)) + 'px';
+  m.style.top  = Math.min(innerHeight-m.offsetHeight-10, cx.bottom+8) + 'px';
+  setTimeout(()=>document.addEventListener('click', aoClicarFora, true), 0);
+}
+
+function expulsar(id, avisarOsOutros){
+  sala.banidos.add(id);
+  if(avisarOsOutros && sala.dono && sala.ligada){
+    try{ publicar({tipo:'expulso', quem:id}); }catch{}
+  }
+  tirarPar(id, 'você tirou da call');
 }
 
 function entrarNaChamada(){
@@ -2293,9 +2529,19 @@ function quadroLocal(stream){
   if(cfg.desenho==='canvas') pintarNoCanvas(q);
   arrumarPalco();
 }
+function apagarImagem(q){
+  if(!q) return;
+  const v=q.querySelector('video');
+  if(v){ try{ v.pause(); }catch{} v.srcObject=null; try{ v.removeAttribute('src'); v.load(); }catch{} }
+  const c=q.querySelector('canvas.pintura');
+  if(c){ const g=c.getContext('2d'); g.fillStyle='#000'; g.fillRect(0,0,c.width,c.height); }
+  q.pintando=false;
+}
+
 function tirarQuadro(id){
   const q=$('q-'+id);
   if(!q) return;
+  apagarImagem(q);              // preto na hora, sem borrão do último quadro
   q.classList.add('saindo');
   clearTimeout(q.relogioDeSaida);
   q.relogioDeSaida = setTimeout(()=>{ q.remove(); arrumarPalco(); }, 240);
@@ -2329,11 +2575,57 @@ function alternarSurdo(){
   $('btn-surdo').textContent=est.surdo?'🔕':'🎧';
   recado(est.surdo?'Você não está ouvindo ninguém':'Voltou a ouvir', est.surdo?'':'ok');
 }
+/* ---------------------------------------------------------------------
+ * VOLUME — e por que a barra ia até 200% sem fazer nada
+ * ---------------------------------------------------------------------
+ * O volume de um elemento de áudio do navegador para em 1,0. Ou seja: a
+ * barra ia até 200%, você arrastava, e da metade pra frente não
+ * acontecia absolutamente nada. Para passar de 100% o som precisa ir por
+ * um amplificador de verdade (WebAudio).
+ *
+ * Ele só entra em cena quando alguém pede mais de 100%. Enquanto ninguém
+ * pede, o caminho é o mesmo de sempre — porque ouvir os amigos é a coisa
+ * mais importante do programa, e não vale arriscá-la por um recurso que
+ * quase ninguém usa.
+ * ------------------------------------------------------------------ */
+function ligarAmplificador(par){
+  if(par.ganho) return true;
+  try{
+    if(!est.ctx) est.ctx = new AudioContext();
+    if(est.ctx.state==='suspended') est.ctx.resume();
+    if(!par.audio || !par.audio.srcObject) return false;
+    par.fonteAudio = est.ctx.createMediaStreamSource(par.audio.srcObject);
+    par.ganho = est.ctx.createGain();
+    par.fonteAudio.connect(par.ganho);
+    par.ganho.connect(est.ctx.destination);
+    // o elemento continua tocando (é ele que faz o áudio fluir), mas
+    // calado: quem sai pelas caixas agora é o amplificador
+    par.audio.volume = 0;
+    return true;
+  }catch(e){
+    console.warn('amplificador',e);
+    try{ par.fonteAudio && par.fonteAudio.disconnect(); }catch{}
+    par.fonteAudio=null; par.ganho=null;
+    return false;
+  }
+}
+
 function aplicarVolume(){
   pares.forEach(p=>{
     if(!p.audio) return;
     const v = est.surdo ? 0 : (cfg.volume/100) * ((p.volume==null?100:p.volume)/100);
-    p.audio.volume = Math.max(0, Math.min(1, v));
+    if(v>1 && !p.ganho) ligarAmplificador(p);
+    if(p.ganho){
+      // O navegador põe o AudioContext para dormir sozinho de vez em
+      // quando. Se isso acontecer com o amplificador ligado, o som some
+      // — e some CALADO, que é o pior jeito de sumir. Então toda vez que
+      // o volume é mexido a gente confere se ele ainda está acordado.
+      try{ if(est.ctx && est.ctx.state==='suspended') est.ctx.resume(); }catch{}
+      p.audio.volume = 0;
+      try{ p.ganho.gain.value = Math.max(0, Math.min(3, v)); }catch{}
+    }else{
+      p.audio.volume = Math.max(0, Math.min(1, v));
+    }
   });
 }
 
@@ -2391,32 +2683,51 @@ async function aplicarPerfilVideo(par){
   const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
   const n = quantosRecebem();
   const seguraFps = cfg.prioridade!=='nitidez';
-  const teto = Math.round((p.mbps*1e6*auto.fator)/n);
+  const a = autoDe(par);
 
-  let encolher = 1;
-  if(n>=4) encolher = 2;
-  else if(n===3) encolher = 1.5;
-  if(seguraFps){
-    // apertou? a imagem encolhe mais, e mais cedo — os quadros ficam
-    if(auto.fator<0.3)       encolher = Math.max(encolher, 2.5);
-    else if(auto.fator<0.5)  encolher = Math.max(encolher, 2);
-    else if(auto.fator<0.75) encolher = Math.max(encolher, 1.5);
-  }else{
-    if(auto.fator<0.35) encolher = Math.max(encolher,2);
-    else if(auto.fator<0.65) encolher = Math.max(encolher,1.5);
-  }
+  // O teto de banda respeita o que a rede REALMENTE aguenta. Pedir 8 Mbps
+  // numa linha de 4 só produz perda, reenvio e engasgo. E a régua é a
+  // DESTA pessoa: a banda que sobra até ela, não a do coitado da call.
+  let teto = Math.round((p.mbps*1e6*a.fator)/n);
+  if(a.banda>300000) teto = Math.min(teto, Math.round(a.banda*0.85/n));
 
+  // o tamanho vem do degrau escolhido lá em cima, que muda pouco
+  let encolher = a.degrau||1;
+  if(n>=4) encolher = Math.max(encolher, 2);
+  else if(n===3) encolher = Math.max(encolher, 1.5);
+
+  const fps = seguraFps ? p.fps : (a.fator<0.45 ? Math.min(30,p.fps) : p.fps);
+  // Você pediu fluidez — então é fluidez que o navegador tem que segurar.
+  // Aqui ia "balanced", um meio-termo que cedia quadros JUNTO com
+  // resolução: era ele que produzia aquele 1080p a 24 que parece travado.
+  // Com "maintain-framerate" quem encolhe é a imagem e o movimento
+  // continua liso. O medo de trocar de tamanho o tempo todo já está
+  // resolvido pela escada de degraus com histerese ali embaixo.
+  const degrada = seguraFps ? 'maintain-framerate' : 'maintain-resolution';
+  const camadas = cfg.camadas!==false ? 'L1T3' : null;
+  const assinatura = [teto,fps,encolher,degrada,camadas].join('|');
+  // mexer no compressor custa um soluço na imagem: se nada mudou, não mexe
+  if(par.perfilAplicado===assinatura) return;
+  par.perfilAplicado=assinatura;
   try{
     const par2 = par.senderVideo.getParameters();
     par2.encodings = par2.encodings&&par2.encodings.length ? par2.encodings : [{}];
     const e = par2.encodings[0];
     e.maxBitrate = teto;
-    e.maxFramerate = seguraFps ? p.fps : (auto.fator<0.45 ? Math.min(30,p.fps) : p.fps);
+    e.maxFramerate = fps;
     e.scaleResolutionDownBy = encolher;
     e.networkPriority='high'; e.priority='high';
-    par2.degradationPreference = seguraFps ? 'maintain-framerate' : 'maintain-resolution';
-    await par.senderVideo.setParameters(par2);
-  }catch(e){ console.warn('perfil video',e); }
+    if(camadas) e.scalabilityMode = camadas;
+    par2.degradationPreference = degrada;
+    try{
+      await par.senderVideo.setParameters(par2);
+    }catch(err){
+      // navegador sem camadas temporais: tenta de novo sem elas
+      delete e.scalabilityMode;
+      await par.senderVideo.setParameters(par2);
+      par.semCamadas = true;
+    }
+  }catch(e){ par.perfilAplicado=null; console.warn('perfil video',e); }
 }
 
 async function reequilibrarVideo(){
@@ -2462,6 +2773,13 @@ async function pegarTela(){
         resizeMode:'none',           // o navegador não reescala no caminho
       },
       audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},
+      // pede o som do sistema junto; deixa você TROCAR a janela
+      // compartilhada sem parar e recomeçar a transmissão; e tira a
+      // própria aba do Frag da lista, que só serviria pra fazer espelho
+      // de espelho.
+      systemAudio:'include',
+      surfaceSwitching:'include',
+      selfBrowserSurface:'exclude',
     });
   }catch(e){
     if(e.name!=='NotAllowedError') recado('Não consegui capturar a tela: '+e.name,'mal');
@@ -2507,14 +2825,15 @@ async function pegarTela(){
          ' Tente "Parar" e compartilhar de novo; se insistir, troque a compressão para Automática em Ajustes › Rede.');
     recado('Capturei sua tela, mas não consegui enviar. Veja o aviso.','mal');
   }
-  auto.fator=1; auto.ruim=0; auto.bom=0; auto.aquece=0; auto.motivo='';
+  pares.forEach(zerarAuto);
   await reequilibrarVideo();
   vigiarPrimeirosQuadros();
 
   const n=quantosRecebem();
   recado('Transmitindo em '+p.a+'p a '+p.fps+' fps'+(aud?' com som':'')+
          (n>1?' para '+n+' pessoas':''),'ok');
-  if(n>=3) recado('Com '+n+' recebendo, a resolução baixa um pouco pra caber na sua subida.','');
+  if(n>=3) recado('Com '+n+' recebendo, o seu PC comprime a mesma tela '+n+' vezes — a resolução '+
+                  'baixa um pouco pra caber na sua subida E no seu processador.','');
 }
 
 /* ---------------------------------------------------------------------
@@ -2602,26 +2921,85 @@ async function pararTela(){
  * Internet não é constante. Quando ela aperta, o normal é a imagem
  * travar e o som picotar — porque o navegador continua tentando mandar
  * mais do que cabe. Aqui a gente olha, uma vez por segundo, quanto
- * pacote está se perdendo e quanta banda ainda tem. Com várias pessoas,
- * quem manda no ajuste é a PIOR das conexões: não adianta mandar bonito
- * para dois e picotado para o terceiro.
+ * pacote está se perdendo e quanta banda ainda tem.
+ *
+ * E olha SEPARADO para cada pessoa. Antes existia uma régua só, global:
+ * a pior conexão da call mandava em todas as outras, então o amigo no
+ * 4G derrubava a imagem do amigo de fibra junto com a dele. Numa malha
+ * isso não faz sentido nenhum — são conexões diferentes, cada uma com o
+ * seu compressor, cada uma aguentando o que aguenta. Agora cada uma
+ * cede sozinha, e quem tem internet boa fica com a imagem boa.
  * =================================================================== */
-const auto = { fator:1, ruim:0, bom:0, aquece:0, motivo:'' };
+function autoDe(par){
+  return par.auto || (par.auto = { fator:1, ruim:0, bom:0, aquece:0, motivo:'', quando:0,
+                                   degrau:1, degrauQuer:1, degrauFirme:0, quandoDegrau:0, banda:0 });
+}
+function zerarAuto(par){
+  const a = autoDe(par);
+  a.fator=1; a.ruim=0; a.bom=0; a.aquece=0; a.motivo='';
+  a.degrau=1; a.degrauQuer=1; a.degrauFirme=0; a.quandoDegrau=0; a.banda=0;
+  par.perfilAplicado=null;
+}
 
-async function ajustarQualidade(piorPerda, apertado){
-  if(!cfg.auto || !est.streamTela) return;
-  if(auto.aquece++ < 8) return;           // os primeiros segundos não valem
+/* Tamanhos possíveis, do maior para o menor. Trocar de degrau custa um
+   solavanco, então a gente troca pouco e com convicção. */
+const DEGRAUS = [1, 1.25, 1.5, 2, 2.5, 3];
 
-  if(piorPerda>4 || (apertado && piorPerda>2)){ auto.ruim++; auto.bom=0; }
-  else if(piorPerda<0.7 && !apertado){ auto.bom++; auto.ruim=0; }
+/* Quanto de internet um tamanho pede, mais ou menos. Reduzir o lado pela
+   metade reduz os pixels a um quarto — e a banda cai quase na mesma
+   proporção. */
+function degrauQueCabe(p, banda){
+  if(!banda) return null;
+  const alvo = banda*0.85;
+  for(const d of DEGRAUS){
+    if((p.mbps*1e6)/(d*d) <= alvo) return d;
+  }
+  return DEGRAUS[DEGRAUS.length-1];
+}
+
+async function ajustarQualidade(par, perda, apertado, banda){
+  if(!cfg.auto || !est.streamTela || !par.senderVideo) return;
+  const a = autoDe(par);
+  if(a.aquece++ < 8) return;              // os primeiros segundos não valem
+
+  // média que anda devagar: uma leitura ruim isolada não muda nada
+  if(banda>0) a.banda = a.banda ? (a.banda*0.8 + banda*0.2) : banda;
+
+  // ---- escolha do TAMANHO, com muita teimosia ----
+  const p0 = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  const quer = degrauQueCabe(p0, a.banda);
+  if(quer){
+    if(quer===a.degrauQuer) a.degrauFirme++;
+    else{ a.degrauQuer=quer; a.degrauFirme=1; }
+    const passou = Date.now()-(a.quandoDegrau||0);
+    // só troca de tamanho se a mesma resposta se repetir por 6 segundos
+    // e fazia pelo menos 20 s desde a última troca
+    if(quer!==a.degrau && a.degrauFirme>=6 && passou>20000){
+      a.degrau=quer; a.quandoDegrau=Date.now();
+      await aplicarPerfilVideo(par);
+      return;
+    }
+  }
+
+  if(perda>4 || (apertado && perda>2)){ a.ruim++; a.bom=0; }
+  else if(perda<0.7 && !apertado){ a.bom++; a.ruim=0; }
+
+  const agora = Date.now();
+  const desdeAUltima = agora - (a.quando||0);
 
   let mexeu=false;
-  if(auto.ruim>=3){ auto.fator=Math.max(0.25, auto.fator*0.7); auto.ruim=0; mexeu=true; }
-  else if(auto.bom>=15 && auto.fator<1){ auto.fator=Math.min(1, auto.fator*1.3); auto.bom=0; mexeu=true; }
+  // descer é urgente (a imagem já está sofrendo), mas nunca mais de uma
+  // vez a cada 4 s; subir é luxo, espera 12 s
+  if(a.ruim>=3 && desdeAUltima>4000){
+    a.fator=Math.max(0.25, a.fator*0.7); a.ruim=0; mexeu=true;
+  }else if(a.bom>=15 && a.fator<1 && desdeAUltima>12000){
+    a.fator=Math.min(1, a.fator*1.3); a.bom=0; mexeu=true;
+  }
   if(!mexeu) return;
 
-  auto.motivo = auto.fator>=0.99 ? '' : Math.round(auto.fator*100)+'% da qualidade escolhida';
-  await reequilibrarVideo();
+  a.quando = agora;
+  a.motivo = a.fator>=0.99 ? '' : Math.round(a.fator*100)+'% da qualidade escolhida';
+  await aplicarPerfilVideo(par);
 }
 /* =====================================================================
  * NÚMEROS DA CHAMADA
@@ -2633,7 +3011,16 @@ async function atualizarNumeros(){
   const gente=[...pares.values()].filter(p=>p.pc);
   if(!gente.length) return;
 
-  let piorPing=0, piorPerda=0, apertado=false;
+  // getStats() não é de graça: com 5 pessoas são 5 varreduras por
+  // segundo, para sempre. Quando você não está transmitindo E o painel
+  // está fechado, ninguém está olhando estes números — aí vai em meio
+  // ritmo. Transmitindo, continua de segundo em segundo, porque é daqui
+  // que o ajuste automático tira as decisões dele.
+  const precisaAgora = est.streamTela || $('painel').classList.contains('aberto');
+  est.pulso = (est.pulso||0)+1;
+  if(!precisaAgora && (est.pulso%2)) return;
+
+  let piorPing=0;
   const porPessoa=[];
 
   for(const par of gente){
@@ -2650,11 +3037,11 @@ async function atualizarNumeros(){
     });
     const ms = pardeIce ? Math.round((pardeIce.currentRoundTripTime||0)*1000) : 0;
     par.ping = ms;
+    ajustarAmortecedor(par);
     if(ms>piorPing) piorPing=ms;
     const perda = eco&&eco.fractionLost!=null ? eco.fractionLost*100 : 0;
     par.perda = perda;
-    if(perda>piorPerda) piorPerda=perda;
-    if(sv&&sv.qualityLimitationReason==='bandwidth') apertado=true;
+    const apertadoDele = !!(sv && sv.qualityLimitationReason==='bandwidth');
     if(sv&&sv.qualityLimitationReason==='cpu') par.cpuApertado=(par.cpuApertado||0)+1;
     else if(sv) par.cpuApertado=0;
 
@@ -2669,7 +3056,7 @@ async function atualizarNumeros(){
       par.quadrosAntes = agora;
       if(avancou){
         clearTimeout(par.relogioVazio);   // tem imagem chegando de verdade
-        if(!par.temTela && par.fluxo){
+        if(!par.temTela && par.fluxo && !par.naoQueroVer){
           par.temTela = true;
           mostrarTela(par);
           recado('A tela de '+(par.nome||'seu amigo')+' apareceu.','ok');
@@ -2696,13 +3083,16 @@ async function atualizarNumeros(){
         ? 'por retransmissor' : 'direto';
     }
     porPessoa.push({ par, ms, perda, kbps, sv, ev, caminho, fpsEnviado, fpsComprimido, fonte,
+                     apertado: apertadoDele,
+                     banda: pardeIce ? (pardeIce.availableOutgoingBitrate||0) : 0,
                      codecEnv:(cs.get(sv&&sv.codecId)||'').split('/')[1]||'',
                      codecRec:(cs.get(ev&&ev.codecId)||'').split('/')[1]||'' });
   }
 
   $('ping').textContent = piorPing ? piorPing+' ms' : '—';
   $('ponto').className = 'ponto '+(piorPing<60?'bom':piorPing<130?'medio':'ruim');
-  ajustarQualidade(piorPerda, apertado);
+  // cada pessoa com a sua régua, medida na conexão dela
+  for(const x of porPessoa) ajustarQualidade(x.par, x.perda, x.apertado, x.banda);
 
   // FPS sempre à vista enquanto você transmite: é o número que importa
   const alvoFps = (PERFIS[cfg.qualidade]||PERFIS['1080-60-8']).fps;
@@ -2773,13 +3163,18 @@ async function atualizarNumeros(){
               um.sv.qualityLimitationResolutionChanges>6?'medio':'');
     }
     linha('Banda total de subida', total+' kbps');
-    if(auto.motivo) linha('Ajuste automático', auto.motivo,'medio');
     if(cfg.clipeSempre) linha('Clipe sempre pronto','ligado (usa processador)','medio');
   }
 
   for(const x of porPessoa){
     h.push('<div class="secao">'+escapar(x.par.nome||'Entrando…')+'</div>');
     linha('Ping', x.ms+' ms', x.ms<60?'bom':x.ms<130?'medio':'ruim');
+    if(x.par.qualidadeDele && PERFIS[x.par.qualidadeDele]){
+      const q=PERFIS[x.par.qualidadeDele];
+      linha('Ele escolheu transmitir em', q.a+'p a '+q.fps+' fps', q.fps>=60?'bom':'medio');
+    }
+    if(x.par.auto && x.par.auto.motivo) linha('Ajuste automático', x.par.auto.motivo,'medio');
+    if(x.par.folgaAplicada!=null) linha('Folga contra engasgo', x.par.folgaAplicada+' ms');
     if(x.caminho) linha('Caminho', x.caminho, x.caminho==='direto'?'bom':'medio');
     if(est.streamTela) linha('Mandando pra ele', x.kbps+' kbps');
     if(x.perda) linha('Perda no caminho', x.perda.toFixed(1)+'%', x.perda>3?'ruim':x.perda>1?'medio':'bom');
@@ -2812,7 +3207,17 @@ function cuidarDoAvisoDeCpu(porPessoa){
   const impl = um.sv.encoderImplementation||'';
   const naPlaca = um.sv.powerEfficientEncoder===true ||
     /external|mediafoundation|vaapi|videotoolbox|nvenc|amf|qsv/i.test(impl);
-  const sofrendo = (um.par.cpuApertado||0) >= 6;
+  // Duas portas para o mesmo problema. A primeira é o navegador avisando
+  // "estou segurando a qualidade por causa do processador". A segunda é
+  // mais crua e pega o caso que escapava calado: o compressor não está
+  // alcançando o alvo — 60 quadros pedidos, 30 saindo — sem ser por
+  // falta de internet. É esse o "meu FPS fica oscilando" que ninguém
+  // conseguia nomear, porque nada na tela dizia o que estava havendo.
+  const alvoDoPerfil = (PERFIS[cfg.qualidade]||PERFIS['1080-60-8']).fps;
+  const atrasado = um.fpsComprimido>0 && um.fpsComprimido < alvoDoPerfil*0.6 &&
+                   um.sv.qualityLimitationReason!=='bandwidth';
+  um.par.encAtrasado = atrasado ? (um.par.encAtrasado||0)+1 : 0;
+  const sofrendo = (um.par.cpuApertado||0) >= 6 || (um.par.encAtrasado||0) >= 8;
 
   if(!sofrendo || est.avisouCpu) return;
   est.avisouCpu = true;
@@ -3320,8 +3725,10 @@ async function testarConexao(){
     ? 'Tem retransmissor funcionando. Mesmo nas redes mais fechadas, você conecta.'
     : (temTurnConfig
         ? 'O retransmissor que você colou em Ajustes não respondeu. Confira endereço, usuário e senha.'
-        : 'Nenhum retransmissor respondeu. Os públicos gratuitos vivem caindo. '+
-          'Se a conexão falhar com alguém, é aqui que resolve: cole um seu em Ajustes > Rede.'),
+        : 'Você não tem retransmissor configurado, e o Frag não vem com nenhum (os públicos '+
+          'gratuitos saíram do ar). Enquanto a conexão direta funcionar, tudo bem. Se falhar com '+
+          'alguém específico, é aqui que resolve: pegue um grátis (a Metered dá 20 GB por mês) '+
+          'e cole em Ajustes > Rede.'),
     c.relay?'bem':(estadoRede==='bem'?'meio':'mal'));
 
   // --- veredito ---
@@ -3582,6 +3989,51 @@ function cuidarDoBuffer(){
     : 'Clipe (C) — ligue "deixar sempre pronto" em Ajustes para pegar o que já passou';
 }
 
+
+/* =====================================================================
+ * SE ATUALIZAR SOZINHO
+ * ---------------------------------------------------------------------
+ * O navegador guarda a página e continua servindo a versão velha por
+ * muito tempo. Isso já custou horas: eu consertava, subia, e do outro
+ * lado continuava tudo igual — porque o arquivo novo nem era baixado.
+ *
+ * A página agora pergunta ao próprio endereço, com um número aleatório
+ * no fim para furar o cache, qual versão está publicada. Se for
+ * diferente da que está rodando, ela se recarrega — mas nunca no meio
+ * de uma chamada, e nunca duas vezes seguidas (senão viraria um
+ * carrossel se o servidor teimasse em servir o antigo).
+ * =================================================================== */
+async function versaoPublicada(){
+  const url = location.pathname + '?frag=' + Date.now();
+  const r = await fetch(url, { cache:'no-store' });
+  const t = await r.text();
+  const m = t.match(/const VERSAO = '([^']+)'/);
+  return m ? m[1] : null;
+}
+
+async function conferirAtualizacao(){
+  if(!temEndereco()) return;                 // arquivo no disco não atualiza
+  let nova;
+  try{ nova = await versaoPublicada(); }catch{ return; }
+  if(!nova || nova === VERSAO) return;
+
+  // trava anti-carrossel: no máximo uma recarga automática por sessão
+  let jaRecarreguei = false;
+  try{ jaRecarreguei = sessionStorage.getItem('frag-recarga') === nova; }catch{}
+
+  if(naChamada() || sala.ligada){
+    recado('Tem uma versão mais nova do Frag ('+nova.split(' ')[0]+'). Recarregue quando terminar.','');
+    return;
+  }
+  if(jaRecarreguei){
+    recado('A versão nova ('+nova.split(' ')[0]+') existe, mas o navegador insiste na antiga. '+
+           'Abra o endereço com ?v='+Date.now().toString().slice(-4)+' no fim.','mal');
+    return;
+  }
+  try{ sessionStorage.setItem('frag-recarga', nova); }catch{}
+  location.replace(location.pathname + '?v=' + encodeURIComponent(nova.split(' ')[0]) + location.hash);
+}
+
 /* =====================================================================
  * DIAGNÓSTICO
  * ---------------------------------------------------------------------
@@ -3737,10 +4189,16 @@ async function montarDiagnostico(){
              ', codec '+((cs.get(x.codecId)||'?').split('/')[1])+
              ', compressor '+(x.encoderImplementation||'?')+
              ', segurando por '+(x.qualityLimitationReason||'?'));
-        if(x.type==='inbound-rtp'&&x.kind==='video')
+        if(x.type==='inbound-rtp'&&x.kind==='video'){
+          dz('  folga do amortecedor: '+(par.folgaAplicada!=null?par.folgaAplicada+' ms':'padrão')+
+             ' | atraso do buffer: '+(x.jitterBufferDelay&&x.jitterBufferEmittedCount
+                ? Math.round(x.jitterBufferDelay/x.jitterBufferEmittedCount*1000)+' ms' : '?')+
+             ' | congelou '+(x.freezeCount!=null?x.freezeCount+'×':'?')+
+             ' por '+(x.totalFreezesDuration!=null?x.totalFreezesDuration.toFixed(1)+'s':'?'));
           dz('  RECEBENDO vídeo: '+(x.framesDecoded||0)+' quadros, '+(x.bytesReceived||0)+' bytes, '+
              Math.round(x.framesPerSecond||0)+' fps, '+(x.frameWidth||'?')+'×'+(x.frameHeight||'?')+
              ', codec '+((cs.get(x.codecId)||'?').split('/')[1]));
+        }
         if(x.type==='outbound-rtp'&&x.kind==='audio')
           dz('  ENVIANDO voz: '+(x.bytesSent||0)+' bytes');
         if(x.type==='inbound-rtp'&&x.kind==='audio')
@@ -4092,7 +4550,6 @@ document.addEventListener('keyup',(ev)=>{
 // perdeu o foco segurando a tecla: fecha o microfone para não vazar
 window.addEventListener('blur',()=>{ if(est.segurando) segurarFala(false); });
 
-$('btn-diag').onclick=redesenharTudo && copiarDiagnostico;
 $('btn-diag').onclick=copiarDiagnostico;
 $('btn-redesenhar').onclick=redesenharTudo;
 $('in-canvas').onchange=()=>{
@@ -4121,6 +4578,7 @@ $('vol').oninput=(e)=>{
 };
 $('sel-qualidade').onchange=async(e)=>{
   cfg.qualidade=e.target.value; guardarAjustes();
+  enviarTodos({t:'perfil', v:cfg.qualidade});
   // vale já, sem precisar parar e recomeçar a transmissão
   if(est.streamTela){
     const p=PERFIS[cfg.qualidade];
@@ -4129,7 +4587,7 @@ $('sel-qualidade').onchange=async(e)=>{
         width:{ideal:p.l,max:p.l}, height:{ideal:p.a,max:p.a}, frameRate:{ideal:p.fps},
       });
     }catch(err){ console.warn('reajustar captura',err); }
-    auto.fator=1; auto.aquece=0; auto.motivo='';
+    pares.forEach(zerarAuto);
     await reequilibrarVideo();
     recado('Agora em '+p.a+'p a '+p.fps+' fps.','ok');
   }
@@ -4149,7 +4607,7 @@ $('sel-mic').onchange=$('in-ruido').onchange=async()=>{
 
 document.addEventListener('keydown',(e)=>{
   if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
-  if(e.key==='Escape'){ guardarGaveta($('painel'),false); guardarGaveta($('chat'),false); }
+  if(e.key==='Escape'){ guardarGaveta($('painel'),false); guardarGaveta($('chat'),false); fecharMenuDaPessoa(); }
   if($('chamada').hidden) return;
   if(e.key==='m'||e.key==='M') alternarMudo();
   if(e.key==='d'||e.key==='D') alternarSurdo();
@@ -4308,6 +4766,7 @@ $('vol').value=cfg.volume; $('lbl-vol').textContent=cfg.volume+'%';
 $('sel-codec').value=cfg.codec||'auto';
 $('sel-clipe').value=String(cfg.clipe||30);
 $('sel-prioridade').value=cfg.prioridade||'fps';
+$('sel-latencia').value=cfg.latencia||'estavel';
 $('in-clipe-sempre').checked=!!cfg.clipeSempre;
 $('in-canvas').checked = cfg.desenho==='canvas';
 aplicarModoDesenho();
@@ -4319,6 +4778,11 @@ $('in-site').onchange=()=>{ cfg.site=$('in-site').value.trim(); guardarAjustes()
 $('sel-codec').onchange=async()=>{
   cfg.codec=$('sel-codec').value; guardarAjustes();
   if(naChamada()){ recado('Trocando a compressão…',''); await trocarCodecAgora(); }
+};
+$('sel-latencia').onchange=()=>{
+  cfg.latencia=$('sel-latencia').value; guardarAjustes();
+  pares.forEach(p=>{ p.folgaAplicada=null; ajustarAmortecedor(p); });
+  recado(cfg.latencia==='estavel'?'Vou segurar uma folga para a imagem não engasgar.':'Latência mínima ligada.','ok');
 };
 $('sel-prioridade').onchange=async()=>{
   cfg.prioridade=$('sel-prioridade').value; guardarAjustes();
@@ -4338,6 +4802,8 @@ $('bloco-ptt').hidden = cfg.fala!=='ptt';
 $('chat-linhas').innerHTML='<p class="chat-vazio">Nada por aqui ainda.<br>Aperte <b>T</b> a qualquer momento para abrir o chat.</p>';
 pintarGente();
 $('pin-versao').textContent='v'+VERSAO.split(' ')[0];
+// alguns segundos depois de abrir, confere se saiu versão nova
+setTimeout(conferirAtualizacao, 4000);
 
 (function(){
   const h=location.hash||'';
