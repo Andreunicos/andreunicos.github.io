@@ -753,6 +753,13 @@ body.sem-tela .divisor{display:none}
     </label>
     <p class="ajuda" style="margin-top:0">Em vez de travar, a imagem baixa um pouco e volta sozinha. Deixe ligado.</p>
 
+    <div class="secao">Deu problema?</div>
+    <button id="btn-diag" class="b b-cinza b-largo" type="button">📋 Copiar diagnóstico</button>
+    <p class="ajuda" style="margin-top:0">
+      Copia um relatório com o que está acontecendo agora: conexões, formatos, quadros, erros.
+      Cole numa conversa com quem estiver te ajudando. Não vai nada pessoal, só números.
+    </p>
+
     <div class="secao">Clipe e gravação</div>
     <label class="chk">
       <input id="in-clipe-sempre" type="checkbox">
@@ -803,15 +810,16 @@ body.sem-tela .divisor{display:none}
     <label class="campo">
       <span>Compressão do vídeo</span>
       <select id="sel-codec">
-        <option value="h264">H264 — usa a placa de vídeo (recomendado para jogo)</option>
-        <option value="auto">Automática (o navegador escolhe)</option>
+        <option value="auto">Automática — a mais segura (padrão)</option>
+        <option value="h264">H264 — usa a placa de vídeo, poupa processador</option>
         <option value="vp9">VP9 — imagem mais limpa, come mais processador</option>
         <option value="vp8">VP8 — a mais compatível</option>
       </select>
     </label>
     <p class="ajuda" style="margin-top:0" id="ajuda-codec">
-      H264 é comprimido pelo chip de vídeo da placa; VP8 e VP9 são comprimidos pelo processador,
-      o mesmo que está rodando o jogo. Se o seu FPS cai quando você transmite, é quase sempre isso.
+      H264 é comprimido pelo chip de vídeo da placa e poupa o processador para o jogo — vale tentar
+      se o FPS cai quando você transmite. Se depois de trocar a imagem parar de aparecer do outro
+      lado, volte para <b>Automática</b>: quer dizer que os dois navegadores não fecharam acordo.
     </p>
 
     <label class="campo" style="margin-top:12px">
@@ -884,6 +892,21 @@ body.sem-tela .divisor{display:none}
 
 <script>
 'use strict';
+
+/* Guarda os erros desde o primeiro instante. Sem isso, quando alguém
+   pede ajuda, o que aconteceu já rolou para fora do console. */
+const diario = [];
+function anotar(tipo, texto){
+  diario.push(new Date().toISOString().slice(11,19)+' '+tipo+': '+String(texto).slice(0,300));
+  while(diario.length>60) diario.shift();
+}
+window.addEventListener('error', (e)=>anotar('erro', e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno));
+window.addEventListener('unhandledrejection', (e)=>anotar('promessa', (e.reason&&e.reason.message)||e.reason));
+(function(){
+  const orig={warn:console.warn, error:console.error};
+  console.warn=function(...a){ anotar('aviso', a.map(x=>x&&x.message||x).join(' ')); orig.warn.apply(console,a); };
+  console.error=function(...a){ anotar('erro', a.map(x=>x&&x.message||x).join(' ')); orig.error.apply(console,a); };
+})();
 
 /* =====================================================================
  * COMO ISSO FUNCIONA
@@ -967,7 +990,7 @@ const $ = (id)=>document.getElementById(id);
 const cfg = {
   nome:'', mic:'padrao', limpar:true, qualidade:'1080-60-8',
   fala:'voz', tecla:'KeyV', nomeTecla:'V', volume:100,
-  codec:'h264', auto:true, turn:'', site:'',
+  codec:'auto', auto:true, turn:'', site:'',
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
   clipe:30, clipeSempre:false, prioridade:'fps',
 };
@@ -2314,38 +2337,109 @@ async function pegarTela(){
   const aud=stream.getAudioTracks()[0];
   v.contentHint='motion';   // prioridade é movimento fluido, não pixel perfeito
 
-  let foi=0;
-  for(const par of pares.values()){
-    if(!par.senderVideo) continue;
-    try{
-      await par.senderVideo.replaceTrack(v);
-      if(aud && par.senderTelaAudio){
-        await par.senderTelaAudio.replaceTrack(aud);
-        await bitrateAudio(par.senderTelaAudio,128000);
-      }
-      foi++;
-    }catch(e){ console.warn('tela para '+par.id,e); }
-  }
-  if(!foi){
-    stream.getTracks().forEach(t=>t.stop());
-    recado('Não consegui mandar a tela pra ninguém.','mal');
-    return;
-  }
-
+  // A prévia primeiro. Se ela aparecer, a captura deu certo — e qualquer
+  // problema daqui pra frente é de ENVIO, não de captura. Antes isso
+  // ficava indistinguível.
   est.streamTela=stream;
-  auto.fator=1; auto.ruim=0; auto.bom=0; auto.aquece=0; auto.motivo='';
-  await reequilibrarVideo();
-
   v.addEventListener('ended',pararTela);
   quadroLocal(stream);
   mostrarAvisoTx(true);
   acordarControles();
   $('btn-tela').textContent='⏹ Parar de transmitir';
   $('btn-tela').classList.add('parando');
+
+  const falhas=[];
+  let foi=0;
+  for(const par of pares.values()){
+    if(!par.senderVideo){ falhas.push((par.nome||par.id)+': sem vaga de vídeo negociada'); continue; }
+    try{
+      await par.senderVideo.replaceTrack(v);
+      if(aud && par.senderTelaAudio){
+        await par.senderTelaAudio.replaceTrack(aud);
+        // agora que a faixa existe, o ajuste de qualidade pega
+        await bitrateAudio(par.senderTelaAudio,128000);
+      }
+      foi++;
+    }catch(e){
+      falhas.push((par.nome||par.id)+': '+(e&&e.name||e));
+      console.warn('tela para '+par.id,e);
+    }
+  }
+  est.falhasDaTela=falhas;
+  if(!foi){
+    erro('A sua tela está sendo capturada (você a vê aí embaixo), mas não consegui MANDAR para ninguém. '+
+         (falhas.length?'Motivo: '+falhas.join(' · '):'Nenhuma vaga de vídeo foi negociada.')+
+         ' Tente "Parar" e compartilhar de novo; se insistir, troque a compressão para Automática em Ajustes › Rede.');
+    recado('Capturei sua tela, mas não consegui enviar. Veja o aviso.','mal');
+  }
+  auto.fator=1; auto.ruim=0; auto.bom=0; auto.aquece=0; auto.motivo='';
+  await reequilibrarVideo();
+  vigiarPrimeirosQuadros();
+
   const n=quantosRecebem();
   recado('Transmitindo em '+p.a+'p a '+p.fps+' fps'+(aud?' com som':'')+
          (n>1?' para '+n+' pessoas':''),'ok');
   if(n>=3) recado('Com '+n+' recebendo, a resolução baixa um pouco pra caber na sua subida.','');
+}
+
+/* ---------------------------------------------------------------------
+ * O VIGIA DOS PRIMEIROS QUADROS
+ * ---------------------------------------------------------------------
+ * Existe um jeito silencioso de falhar: a conexão está de pé, a captura
+ * está rodando, e mesmo assim nenhum quadro chega do outro lado —
+ * normalmente porque os dois navegadores não fecharam acordo sobre a
+ * compressão. Sem esse vigia, a pessoa fica olhando uma tela preta sem
+ * saber de nada.
+ * ------------------------------------------------------------------ */
+function vigiarPrimeirosQuadros(){
+  clearTimeout(est.vigiaTela);
+  est.vigiaTela = setTimeout(async ()=>{
+    if(!est.streamTela) return;
+    let saiu=0, codec='';
+    for(const par of pares.values()){
+      if(!par.pc) continue;
+      const rel=await par.pc.getStats().catch(()=>null);
+      if(!rel) continue;
+      const mapa=new Map();
+      rel.forEach(x=>{ if(x.type==='codec') mapa.set(x.id,x.mimeType); });
+      rel.forEach(x=>{
+        if(x.type==='outbound-rtp'&&x.kind==='video'){
+          saiu += (x.framesSent||0);
+          codec = codec || (mapa.get(x.codecId)||'');
+        }
+      });
+    }
+    if(saiu>0) return;                      // está saindo quadro, tudo bem
+
+    recado('A tela não está saindo daqui. Vou tentar consertar.','mal');
+    if(cfg.codec!=='auto'){
+      // A causa mais comum é a compressão escolhida. Volta para automática
+      // e refaz o acordo — na maioria das vezes resolve na hora.
+      cfg.codec='auto'; guardarAjustes();
+      const sel=$('sel-codec'); if(sel) sel.value='auto';
+      await trocarCodecAgora();
+      recado('Troquei a compressão para automática e refiz o acordo.','ok');
+      clearTimeout(est.vigiaTela);
+      est.vigiaTela=setTimeout(()=>{ if(est.streamTela) conferirDeNovo(); }, 9000);
+    }else{
+      erro('A tela está sendo capturada mas nenhum quadro sai daqui. '+
+           'Pare e comece a transmitir de novo; se continuar, use o botão "Copiar diagnóstico" '+
+           'em Qualidade e ajustes e mande o texto para quem te ajuda.');
+    }
+  }, 8000);
+}
+
+async function conferirDeNovo(){
+  let saiu=0;
+  for(const par of pares.values()){
+    if(!par.pc) continue;
+    const rel=await par.pc.getStats().catch(()=>null);
+    if(!rel) continue;
+    rel.forEach(x=>{ if(x.type==='outbound-rtp'&&x.kind==='video') saiu+=(x.framesSent||0); });
+  }
+  if(saiu>0){ recado('Pronto, a tela está indo.','ok'); return; }
+  erro('Mesmo com a compressão automática nenhum quadro sai daqui. Use "Copiar diagnóstico" '+
+       'em Qualidade e ajustes e mande o texto — assim dá para descobrir onde trava.');
 }
 
 async function pararTela(){
@@ -2358,6 +2452,7 @@ async function pararTela(){
     try{ if(par.senderTelaAudio && !est.streamTela) await par.senderTelaAudio.replaceTrack(null); }catch{}
   }
   if(est.streamTela) return;              // já começou outra transmissão
+  clearTimeout(est.vigiaTela);
   tirarQuadro('eu');
   mostrarAvisoTx(false);
   acordarControles();
@@ -2744,7 +2839,11 @@ async function bitrateAudio(sender,bps){
   if(!sender) return;
   try{
     const p=sender.getParameters();
-    p.encodings=p.encodings&&p.encodings.length?p.encodings:[{}];
+    // Não dá para INVENTAR uma faixa de envio: se o navegador ainda não
+    // criou nenhuma, mexer no número delas é recusado ("read-only field
+    // modified"). Nesse caso não há o que ajustar ainda — quando a faixa
+    // entrar, o ajuste é refeito.
+    if(!p.encodings || !p.encodings.length) return;
     p.encodings[0].maxBitrate=bps;
     await sender.setParameters(p);
   }catch(e){console.warn('bitrate audio',e);}
@@ -3330,6 +3429,132 @@ function cuidarDoBuffer(){
 }
 
 /* =====================================================================
+ * DIAGNÓSTICO
+ * ---------------------------------------------------------------------
+ * Quando alguém diz "não funciona", adivinhar é caro. Isto junta, num
+ * texto só, tudo que responde as perguntas certas: a captura pegou? o
+ * vídeo tem vaga? qual formato ficou combinado? saiu quadro daqui?
+ * chegou quadro lá? e o que deu errado pelo caminho?
+ * =================================================================== */
+function soAsLinhasDeMidia(sdp){
+  if(!sdp) return [];
+  return sdp.split(/\r\n|\n/).filter(l=>
+    /^m=/.test(l) || /^a=(mid|inactive|sendonly|recvonly|sendrecv):?/.test(l)
+  ).map(l=>l.length>70?l.slice(0,70)+'…':l);
+}
+
+async function montarDiagnostico(){
+  const L=[];
+  const dz=(t)=>L.push(t);
+  const onde=ondeEstou();
+
+  dz('===== DIAGNÓSTICO DO FRAG =====');
+  dz('quando: '+new Date().toISOString());
+  dz('endereço: '+location.href.replace(/#.*$/,'#…'));
+  dz('navegador: '+navigator.userAgent);
+  dz('dentro de moldura: '+onde.dentroDeMoldura+' | sem chamada: '+onde.semChamada+' | sem cifra: '+onde.semCifra);
+  dz('');
+  dz('--- ajustes ---');
+  dz('codec: '+cfg.codec+' | qualidade: '+cfg.qualidade+' | prioridade: '+cfg.prioridade+
+     ' | automático: '+cfg.auto+' | clipe sempre: '+cfg.clipeSempre);
+  dz('tem H264: '+temCodec('h264')+' | tem VP9: '+temCodec('vp9')+' | tem VP8: '+temCodec('vp8'));
+  dz('retransmissor próprio: '+((cfg.turn||'').trim()?'sim':'não'));
+  dz('');
+  dz('--- sala ---');
+  dz('ligada: '+sala.ligada+' | servidores vivos: '+(sala.bases||[]).length+' | pessoas: '+pares.size);
+  dz('');
+  dz('--- minha tela ---');
+  if(est.streamTela){
+    const f=est.streamTela.getVideoTracks()[0];
+    const a=est.streamTela.getAudioTracks()[0];
+    dz('capturando: SIM');
+    if(f){
+      const c=f.getSettings();
+      dz('  faixa: '+f.readyState+' | ligada: '+f.enabled+' | muda: '+f.muted);
+      dz('  captura: '+c.width+'×'+c.height+' a '+Math.round(c.frameRate||0)+' fps'+
+         (c.displaySurface?' ('+c.displaySurface+')':''));
+    }
+    dz('  som da tela: '+(a?'sim':'não'));
+    if(est.falhasDaTela && est.falhasDaTela.length) dz('  FALHAS AO ENVIAR: '+est.falhasDaTela.join(' · '));
+  }else dz('capturando: não');
+  dz('');
+
+  for(const par of pares.values()){
+    dz('--- pessoa: '+(par.nome||par.id)+' ---');
+    if(!par.pc){ dz('  sem conexão montada'); continue; }
+    dz('  conexão: '+par.pc.connectionState+' | ice: '+par.pc.iceConnectionState+
+       ' | sinal: '+par.pc.signalingState+' | canal: '+(par.canal?par.canal.readyState:'nenhum'));
+    dz('  eu proponho: '+impolido(par));
+    dz('  vagas: mic='+!!par.senderMic+' vídeo='+!!par.senderVideo+' somDaTela='+!!par.senderTelaAudio);
+    dz('  transceivers: '+par.pc.getTransceivers().map(t=>{
+        const k=(t.receiver&&t.receiver.track&&t.receiver.track.kind)||'?';
+        const f=t.sender&&t.sender.track;
+        return k+'['+t.direction+'/'+(t.currentDirection||'—')+(f?' faixa:'+f.kind:' sem faixa')+']';
+      }).join(' ') || 'nenhum');
+    dz('  minha proposta: '+soAsLinhasDeMidia(par.pc.localDescription&&par.pc.localDescription.sdp).join(' | '));
+    dz('  proposta dele: '+soAsLinhasDeMidia(par.pc.remoteDescription&&par.pc.remoteDescription.sdp).join(' | '));
+
+    const rel=await par.pc.getStats().catch(()=>null);
+    if(rel){
+      const cs=new Map(); rel.forEach(x=>{ if(x.type==='codec') cs.set(x.id,x.mimeType); });
+      rel.forEach(x=>{
+        if(x.type==='outbound-rtp'&&x.kind==='video')
+          dz('  ENVIANDO vídeo: '+(x.framesSent||0)+' quadros, '+(x.bytesSent||0)+' bytes, '+
+             Math.round(x.framesPerSecond||0)+' fps, '+(x.frameWidth||'?')+'×'+(x.frameHeight||'?')+
+             ', codec '+((cs.get(x.codecId)||'?').split('/')[1])+
+             ', compressor '+(x.encoderImplementation||'?')+
+             ', segurando por '+(x.qualityLimitationReason||'?'));
+        if(x.type==='inbound-rtp'&&x.kind==='video')
+          dz('  RECEBENDO vídeo: '+(x.framesDecoded||0)+' quadros, '+(x.bytesReceived||0)+' bytes, '+
+             Math.round(x.framesPerSecond||0)+' fps, '+(x.frameWidth||'?')+'×'+(x.frameHeight||'?')+
+             ', codec '+((cs.get(x.codecId)||'?').split('/')[1]));
+        if(x.type==='outbound-rtp'&&x.kind==='audio')
+          dz('  ENVIANDO voz: '+(x.bytesSent||0)+' bytes');
+        if(x.type==='inbound-rtp'&&x.kind==='audio')
+          dz('  RECEBENDO voz: '+(x.bytesReceived||0)+' bytes');
+        if(x.type==='candidate-pair'&&x.state==='succeeded'&&x.nominated){
+          const acha=(id)=>{ let t=''; rel.forEach(y=>{ if(y.id===id) t=y.candidateType||''; }); return t; };
+          dz('  caminho: '+acha(x.localCandidateId)+' → '+acha(x.remoteCandidateId)+
+             ' | ping '+Math.round((x.currentRoundTripTime||0)*1000)+' ms'+
+             ' | cabe '+Math.round((x.availableOutgoingBitrate||0)/1000)+' kbps');
+        }
+      });
+    }
+    dz('');
+  }
+
+  dz('--- o que apareceu na tela ---');
+  const er=$('erro');
+  if(er && !er.hidden) dz('aviso na tela: '+er.textContent.slice(0,200));
+  dz('');
+  dz('--- erros registrados ---');
+  if(!diario.length) dz('(nenhum)');
+  else diario.slice(-25).forEach(l=>dz(l));
+  dz('===== fim =====');
+  return L.join('\n');
+}
+
+async function copiarDiagnostico(){
+  const b=$('btn-diag');
+  b.disabled=true; b.textContent='Montando…';
+  let txt='';
+  try{ txt=await montarDiagnostico(); }
+  catch(e){ txt='falhou ao montar o diagnóstico: '+e; }
+  let ok=false;
+  try{ await navigator.clipboard.writeText(txt); ok=true; }catch{}
+  if(!ok){
+    // sem área de transferência: mostra numa caixa para copiar à mão
+    const cx=document.createElement('textarea');
+    cx.value=txt; cx.readOnly=true;
+    cx.style.cssText='position:fixed;inset:6%;z-index:200;width:88%;height:88%;font-size:12px;padding:14px';
+    document.body.appendChild(cx); cx.select();
+    cx.onblur=()=>cx.remove();
+  }
+  b.disabled=false; b.textContent='📋 Copiar diagnóstico';
+  recado(ok?'Diagnóstico copiado. É só colar.':'Copie o texto da caixa que abriu.','ok');
+}
+
+/* =====================================================================
  * O QUE SÓ EXISTE NO APP INSTALADO
  * ---------------------------------------------------------------------
  * Sobreposição por cima do jogo, tecla de mudo que funciona de dentro
@@ -3551,6 +3776,7 @@ document.addEventListener('keyup',(ev)=>{
 // perdeu o foco segurando a tecla: fecha o microfone para não vazar
 window.addEventListener('blur',()=>{ if(est.segurando) segurarFala(false); });
 
+$('btn-diag').onclick=copiarDiagnostico;
 $('btn-clipe').onclick=salvarClipe;
 $('btn-clipe').disabled=true;
 $('btn-gravar').onclick=alternarGravacao;
