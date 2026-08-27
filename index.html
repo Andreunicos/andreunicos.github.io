@@ -990,7 +990,7 @@ const $ = (id)=>document.getElementById(id);
 const cfg = {
   nome:'', mic:'padrao', limpar:true, qualidade:'1080-60-8',
   fala:'voz', tecla:'KeyV', nomeTecla:'V', volume:100,
-  codec:'auto', auto:true, turn:'', site:'',
+  codec:'auto', auto:true, turn:'', site:'', versaoAjustes:0,
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
   clipe:30, clipeSempre:false, prioridade:'fps',
 };
@@ -1011,6 +1011,16 @@ function lerAjustes(){
   if(typeof cfg.volume!=='number' || !isFinite(cfg.volume)) cfg.volume=100;
   cfg.volume=Math.max(0,Math.min(200,cfg.volume));
   if(!PERFIS[cfg.qualidade]) cfg.qualidade='1080-60-8';
+
+  // Eu cheguei a deixar H264 como padrão numa versão, e essa escolha
+  // ficou grudada no navegador de quem usou. Se ela veio de lá e não de
+  // uma decisão sua, volta para automática uma única vez — automática é
+  // a que fecha acordo com qualquer navegador do outro lado.
+  if((cfg.versaoAjustes|0) < 2){
+    if(cfg.codec==='h264') cfg.codec='auto';
+    cfg.versaoAjustes = 2;
+    try{ localStorage.setItem('frag', JSON.stringify(cfg)); }catch{}
+  }
   if(cfg.fala!=='ptt') cfg.fala='voz';
   cfg.nome=String(cfg.nome||'').slice(0,18);
 }
@@ -1694,6 +1704,7 @@ function criarPar(id){
       // A vaga de vídeo nasce vazia e "muda". Ela só ganha imagem quando
       // a pessoa começa a transmitir — e o aviso disso é o 'unmute'.
       par.fluxo = ev.streams[0] || new MediaStream([faixa]);
+      par.faixaVideo = faixa;
       const aparecer = ()=>{ par.temTela=true; mostrarTela(par); };
       const sumir    = ()=>{ par.temTela=false; tirarQuadro('p-'+par.id); pintarGente(); };
       faixa.addEventListener('unmute',aparecer);
@@ -1799,6 +1810,8 @@ function abrirCanal(par){
     else if(d.t==='ice') receberIce(par, d.v);
     else if(d.t==='ping') enviar(par,{t:'pong', v:d.v});
     else if(d.t==='pong') par.esperandoPong && par.esperandoPong(d.v);
+    else if(d.t==='diag?') responderDiagnostico(par);
+    else if(d.t==='diag!') par.aoChegarDiag && par.aoChegarDiag(d.v);
   };
   canal.onclose = ()=>{
     if(pares.get(par.id)!==par) return;
@@ -2152,7 +2165,11 @@ function montarQuadro(id, titulo, aoVivo, aoParar){
 }
 function mostrarTela(par){
   montarQuadro('p-'+par.id, 'tela de '+(par.nome||'seu amigo'), true);
-  $('v-p-'+par.id).srcObject = par.fluxo;
+  const v = $('v-p-'+par.id);
+  if(v.srcObject !== par.fluxo) v.srcObject = par.fluxo;
+  // alguns navegadores não começam a tocar sozinhos mesmo com autoplay
+  const tocar = ()=>{ v.play().catch(()=>{}); };
+  tocar(); setTimeout(tocar, 400); setTimeout(tocar, 1500);
   arrumarPalco(); pintarGente();
 }
 function quadroLocal(stream){
@@ -2522,6 +2539,20 @@ async function atualizarNumeros(){
     if(sv&&sv.qualityLimitationReason==='bandwidth') apertado=true;
     if(sv&&sv.qualityLimitationReason==='cpu') par.cpuApertado=(par.cpuApertado||0)+1;
     else if(sv) par.cpuApertado=0;
+
+    // Segunda porta: chegou imagem mas não tem quadro na tela? Desenha.
+    if(ev && (ev.framesDecoded||0) > 0 && !par.temTela && par.fluxo){
+      par.temTela = true;
+      mostrarTela(par);
+      recado('A tela de '+(par.nome||'seu amigo')+' apareceu.','ok');
+    }
+    // e o contrário: parou de chegar imagem faz tempo? tira o quadro
+    if(ev){
+      const antes = par.quadrosAntes||0;
+      const agora = ev.framesDecoded||0;
+      par.paradoHa = (agora>antes) ? 0 : (par.paradoHa||0)+1;
+      par.quadrosAntes = agora;
+    }
 
     let kbps=0, fpsEnviado=0, fpsComprimido=0;
     if(sv){
@@ -3523,6 +3554,14 @@ async function montarDiagnostico(){
     dz('');
   }
 
+  dz('===== O LADO DE QUEM RECEBE =====');
+  for(const par of pares.values()){
+    const r = await pedirDiagnostico(par, 3500);
+    dz('--- '+(par.nome||par.id)+' respondeu ---');
+    dz(r || '(não respondeu — versão antiga do Frag ou canal fechado)');
+    dz('');
+  }
+
   dz('--- o que apareceu na tela ---');
   const er=$('erro');
   if(er && !er.hidden) dz('aviso na tela: '+er.textContent.slice(0,200));
@@ -3532,6 +3571,55 @@ async function montarDiagnostico(){
   else diario.slice(-25).forEach(l=>dz(l));
   dz('===== fim =====');
   return L.join('\n');
+}
+
+/* O resumo que eu mando quando o outro lado pergunta. Só números e
+   estados — nada de conteúdo, nada pessoal. */
+async function resumoParaOAmigo(){
+  const L=[];
+  L.push('navegador: '+navigator.userAgent.replace(/^Mozilla\/5\.0 /,''));
+  L.push('codec escolhido: '+cfg.codec+' | tem H264: '+temCodec('h264')+
+         ' | tem VP9: '+temCodec('vp9')+' | tem VP8: '+temCodec('vp8'));
+  L.push('transmitindo: '+(est.streamTela?'sim':'não')+
+         ' | quadros na tela: '+document.querySelectorAll('#palco .quadro').length);
+  for(const par of pares.values()){
+    if(!par.pc) continue;
+    L.push('  com '+(par.nome||par.id)+': '+par.pc.connectionState+
+           ' | vaga de vídeo: '+!!par.senderVideo+' | tem tela dele: '+!!par.temTela);
+    const rel=await par.pc.getStats().catch(()=>null);
+    if(!rel) continue;
+    const cs=new Map(); rel.forEach(x=>{ if(x.type==='codec') cs.set(x.id,x.mimeType); });
+    rel.forEach(x=>{
+      if(x.type==='inbound-rtp'&&x.kind==='video')
+        L.push('    RECEBI vídeo: '+(x.framesDecoded||0)+' quadros decodificados, '+
+               (x.bytesReceived||0)+' bytes, '+(x.framesReceived||0)+' recebidos, '+
+               (x.framesDropped||0)+' descartados, codec '+((cs.get(x.codecId)||'?').split('/')[1])+
+               ', decodificador '+(x.decoderImplementation||'?')+
+               ', erros de decodificação: '+(x.keyFramesDecoded!=null?('chaves '+x.keyFramesDecoded):'?'));
+      if(x.type==='outbound-rtp'&&x.kind==='video')
+        L.push('    ENVIEI vídeo: '+(x.framesSent||0)+' quadros, '+(x.bytesSent||0)+' bytes, codec '+
+               ((cs.get(x.codecId)||'?').split('/')[1])+', compressor '+(x.encoderImplementation||'?'));
+      if(x.type==='inbound-rtp'&&x.kind==='audio')
+        L.push('    RECEBI voz: '+(x.bytesReceived||0)+' bytes');
+    });
+  }
+  if(diario.length) L.push('  últimos erros: '+diario.slice(-4).join(' // '));
+  return L.join('\n');
+}
+
+async function responderDiagnostico(par){
+  let txt=''; try{ txt=await resumoParaOAmigo(); }catch(e){ txt='falhou: '+e; }
+  enviar(par,{t:'diag!', v:txt});
+}
+
+function pedirDiagnostico(par, prazo){
+  if(!canalDe(par)) return Promise.resolve(null);
+  return new Promise(res=>{
+    let pronto=false;
+    par.aoChegarDiag=(v)=>{ if(!pronto){ pronto=true; res(v); } };
+    enviar(par,{t:'diag?'});
+    setTimeout(()=>{ if(!pronto){ pronto=true; par.aoChegarDiag=null; res(null); } }, prazo||3000);
+  });
 }
 
 async function copiarDiagnostico(){
