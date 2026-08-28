@@ -1852,7 +1852,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '3.6 — 27/08 22:45';
+const VERSAO = '3.7 — 28/08 09:20';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2924,9 +2924,38 @@ function quantosRecebem(){ return Math.max(1, vivos().length); }
  * quadros, o ajuste automático NUNCA mexe no maxFramerate — ele só
  * encolhe a imagem e baixa a taxa.
  * ------------------------------------------------------------------ */
+/* ---------------------------------------------------------------------
+ * O TAMANHO QUE A TELA ENTREGA DE VERDADE
+ * ---------------------------------------------------------------------
+ * Dá para escolher 1440p num monitor de 1080p. O Windows entrega 1080p,
+ * como tem que ser — mas o Frag continuava fazendo a conta com 1440p:
+ * pedia a banda de 1440p, não cabia, e encolhia a imagem para caber numa
+ * conta que nunca existiu. Foi assim que uma tela de 1080p, com a
+ * internet inteiramente livre, acabou sendo enviada em 640x360.
+ *
+ * Agora a conta é feita em cima do que a captura realmente entrega.
+ * ------------------------------------------------------------------ */
+function tamanhoDaCaptura(){
+  try{
+    const v = est.streamTela && est.streamTela.getVideoTracks()[0];
+    const c = v && v.getSettings ? v.getSettings() : null;
+    return (c && c.width && c.height) ? { l:c.width, a:c.height } : null;
+  }catch{ return null; }
+}
+
+function perfilReal(){
+  const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  const r = tamanhoDaCaptura();
+  if(!r || r.l >= p.l) return p;
+  // menos pixels pedem menos banda, quase na mesma proporção
+  const parte = (r.l*r.a)/(p.l*p.a);
+  return { l:r.l, a:r.a, fps:p.fps,
+           mbps: Math.max(1, +(p.mbps*parte).toFixed(1)), encolhido:true };
+}
+
 async function aplicarPerfilVideo(par){
   if(!par.senderVideo) return;
-  const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  const p = perfilReal();
   const n = quantosRecebem();
   const seguraFps = cfg.prioridade!=='nitidez';
   const a = autoDe(par);
@@ -3257,15 +3286,25 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
   if(banda>0) a.banda = a.banda ? (a.banda*0.8 + banda*0.2) : banda;
 
   // ---- escolha do TAMANHO, com muita teimosia ----
-  const p0 = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  const p0 = perfilReal();
   const quer = degrauQueCabe(p0, a.banda);
   if(quer){
     if(quer===a.degrauQuer) a.degrauFirme++;
     else{ a.degrauQuer=quer; a.degrauFirme=1; }
     const passou = Date.now()-(a.quandoDegrau||0);
-    // só troca de tamanho se a mesma resposta se repetir por 6 segundos
-    // e fazia pelo menos 20 s desde a última troca
-    if(quer!==a.degrauBanda && a.degrauFirme>=6 && passou>20000){
+    // Só troca de tamanho se a mesma resposta se repetir por 6 segundos
+    // e fazia pelo menos 20 s desde a última troca.
+    //
+    // E, para ENCOLHER, ainda tem que haver aperto de verdade. A
+    // estimativa de banda do navegador só significa alguma coisa quando
+    // você está mesmo tentando mandar muito: com a tela parada ele manda
+    // pouco, a estimativa fica baixa por falta de amostra, e encolher por
+    // causa disso é encolher à toa. Foi exatamente o que aconteceu num
+    // teste real — imagem cortada a um terço com a internet 100% livre.
+    // Crescer de volta continua livre, sempre.
+    const crescendo   = quer < a.degrauBanda;
+    const apertaMesmo = apertado || perda > 1.5;
+    if(quer!==a.degrauBanda && a.degrauFirme>=6 && passou>20000 && (crescendo || apertaMesmo)){
       a.degrauBanda=quer; a.quandoDegrau=Date.now();
       marcar('escada da BANDA: imagem '+quer+'x menor (cabe ~'+Math.round(a.banda/1000)+' kbps)');
       a.degrau=Math.max(a.degrauBanda, a.degrauFps);
@@ -3469,6 +3508,9 @@ function montarRegistro(){
   dz('versão: '+VERSAO);
   dz('gravado por: '+relogio(Date.now()-registro.inicio)+'  ('+registro.linhas.length+' amostras)');
   dz('navegador: '+navigator.userAgent.replace(/^Mozilla\/5\.0 /,''));
+  const real = perfilReal();
+  if(real.encolhido) dz('ATENÇÃO: você pediu '+p.a+'p mas a sua tela entrega '+real.a+
+                        'p — a conta é feita em cima de '+real.a+'p');
   dz('escolhido: '+p.a+'p a '+p.fps+' fps | prioridade: '+(cfg.prioridade==='nitidez'?'nitidez':'fluidez')+
      ' | compressão: '+cfg.codec+' | imagem: '+cfg.latencia);
   dz('tem H264: '+temCodec('h264')+' | tem AV1: '+temCodec('av1'));
@@ -3659,12 +3701,18 @@ async function atualizarNumeros(){
 
   if(est.streamTela){
     h.push('<div class="secao" style="margin-top:0">Você transmitindo</div>');
-    const p=PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+    const pedido=PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+    const p=perfilReal();
     const total=porPessoa.reduce((a,b)=>a+b.kbps,0);
     const um=porPessoa.find(x=>x.sv);
 
     linha('Para quantos', quantosRecebem());
-    linha('Você pediu', p.a+'p a '+p.fps+' fps');
+    linha('Você pediu', pedido.a+'p a '+pedido.fps+' fps');
+    if(p.encolhido)
+      linha('Sua tela só tem', p.a+'p — a conta é feita em cima disto', 'medio');
+    if(cfg.prioridade==='nitidez')
+      linha('No aperto, cede primeiro', 'os QUADROS (você escolheu nitidez)',
+            um && um.fpsEnviado < p.fps*0.85 ? 'ruim' : 'medio');
 
     // Três medidas diferentes, e é a comparação entre elas que diz onde
     // o quadro se perdeu: o Windows entregou? o compressor deu conta?
@@ -3782,6 +3830,20 @@ async function cuidarDoAvisoDeCpu(porPessoa){
   // falta de internet. É esse o "meu FPS fica oscilando" que ninguém
   // conseguia nomear, porque nada na tela dizia o que estava havendo.
   const alvoDoPerfil = (PERFIS[cfg.qualidade]||PERFIS['1080-60-8']).fps;
+  /* A escolha mais importante para quem joga mora num menu que quase
+     ninguém abre. Se os quadros estão caindo E a pessoa pediu "manter a
+     nitidez", ela precisa saber que foi ela quem pediu isso — senão fica
+     achando que o programa é ruim justamente enquanto ele obedece. */
+  if(cfg.prioridade==='nitidez' && um.fpsEnviado>0 && um.fpsEnviado < alvoDoPerfil*0.7){
+    um.par.nitidezRuim = (um.par.nitidezRuim||0)+1;
+    if(um.par.nitidezRuim>=8 && !est.avisouNitidez){
+      est.avisouNitidez = true;
+      marcar('quadros baixos com prioridade em NITIDEZ — é a escolha que causa isso');
+      recado('Os quadros estão caindo porque o Frag está em "manter a nitidez". '+
+             'Em Ajustes, troque para "manter os quadros" se quiser fluidez.','mal');
+    }
+  }else if(um.par) um.par.nitidezRuim = 0;
+
   const atrasado = um.fpsComprimido>0 && um.fpsComprimido < alvoDoPerfil*0.6 &&
                    um.sv.qualityLimitationReason!=='bandwidth';
   um.par.encAtrasado = atrasado ? (um.par.encAtrasado||0)+1 : 0;
@@ -4821,7 +4883,8 @@ async function montarDiagnostico(){
              ', codec '+((cs.get(x.codecId)||'?').split('/')[1])+
              ', compressor '+(x.encoderImplementation||'?')+
              ', segurando por '+(x.qualityLimitationReason||'?'));
-        if(x.type==='inbound-rtp'&&x.kind==='video'){
+        // sem bytes não há vídeo nenhum chegando: falar dele só confunde
+        if(x.type==='inbound-rtp'&&x.kind==='video'&&x.bytesReceived){
           dz('  folga do amortecedor: '+(par.folgaAplicada!=null?par.folgaAplicada+' ms':'padrão')+
              ' | atraso do buffer: '+(x.jitterBufferDelay&&x.jitterBufferEmittedCount
                 ? Math.round(x.jitterBufferDelay/x.jitterBufferEmittedCount*1000)+' ms' : '?')+
