@@ -168,7 +168,8 @@ async function principal() {
 
     const banda = await A.evaluate(() => [...pares.values()].map(p => {
       const e = p.senderVideo && p.senderVideo.getParameters().encodings[0];
-      return { nome: p.nome, teto: e ? e.maxBitrate : 0, encolhe: e ? e.scaleResolutionDownBy : 0 };
+      return { nome: p.nome, teto: e ? e.maxBitrate : 0, encolhe: e ? e.scaleResolutionDownBy : 0,
+               porque: p.porqueTamanho || "?", escB: p.auto ? p.auto.degrauBanda : 0, quer: p.larguraQueQuer||0 };
     }));
     info('por pessoa: ' + JSON.stringify(banda));
     banda.length === 2 && banda.every(x => x.teto > 0 && x.teto <= 4100000)

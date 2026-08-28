@@ -166,7 +166,7 @@ async function principal() {
     titulo('1. A página abre e monta');
     await A.pg.goto(BASE, { waitUntil: 'load' });
     const versao = await A.pg.evaluate(() => VERSAO);
-    versao.startsWith('3.') ? ok('versão carregada', versao) : mal('versão errada', versao);
+    parseFloat(versao) >= 3 ? ok('versão carregada', versao) : mal('versão errada', versao);
     const geometria = await A.pg.evaluate(() => {
       const e = document.getElementById('entrada').getBoundingClientRect();
       return { topo: Math.round(e.top), altura: Math.round(e.height), visivel: e.height > 100 };

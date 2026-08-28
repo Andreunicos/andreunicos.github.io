@@ -889,6 +889,7 @@ body.sem-tela .divisor{display:none}
         <option value="h264">H264 — usa a placa de vídeo, poupa processador</option>
         <option value="vp9">VP9 — imagem mais limpa, come mais processador</option>
         <option value="vp8">VP8 — a mais compatível</option>
+        <option value="h265">H265 — Chrome 136+: melhor imagem com o menor esforço de processador</option>
         <option value="av1">AV1 — placa nova (RTX 40, RX 7000, Arc): mesma imagem com menos internet</option>
       </select>
     </label>
@@ -902,12 +903,13 @@ body.sem-tela .divisor{display:none}
       <span>Imagem de quem você assiste</span>
       <select id="sel-latencia">
         <option value="estavel">Lisa — o Frag guarda uma folga conforme o ping</option>
-        <option value="minima">Sem atraso — responde na hora, mas engasga se a rede variar</option>
+        <option value="minima">Quase sem atraso — o mínimo que ainda anda liso</option>
       </select>
     </label>
     <p class="ajuda" style="margin-top:0">
-      Se a tela do seu amigo trava de tempos em tempos, deixe em <b>Lisa</b>. "Sem atraso" só
-      compensa em rede muito boa (ping abaixo de uns 40 ms).
+      Se a tela do seu amigo trava de tempos em tempos, deixe em <b>Lisa</b>. A outra opção só
+      compensa em rede muito boa (ping abaixo de uns 40 ms) — e mesmo ela guarda uns 30 ms,
+      porque zerar de vez não acelera nada: só faz o navegador largar quadros.
     </p>
 
     <label class="campo" style="margin-top:12px">
@@ -1771,6 +1773,49 @@ function melhorarAudio(sdp){
                      l=>l+'\r\na=fmtp:'+pt+' '+extras);
 }
 
+/* ---------------------------------------------------------------------
+ * O EMPURRÃO INICIAL
+ * ---------------------------------------------------------------------
+ * Toda conexão WebRTC nasce em 300 kbps e sobe devagar. Em tela
+ * compartilhada, chegar a um 1080p decente leva de trinta segundos a
+ * mais de um minuto — e nesse tempo o amigo já viu a imagem feia e já
+ * tirou conclusão sobre o Frag.
+ *
+ * Dá para dizer por onde COMEÇAR. E, ao contrário do melhorarAudio, isto
+ * vale no SDP que a gente RECEBE: são instruções que o outro lado dá ao
+ * NOSSO compressor. Por isso é aplicado antes de setRemoteDescription.
+ *
+ * Só mexe no começo. O teto de verdade continua sendo o setParameters,
+ * medido e reavaliado a cada segundo lá em aplicarPerfilVideo.
+ * ------------------------------------------------------------------ */
+function melhorarVideo(sdp){
+  if(!sdp || sdp.indexOf('m=video')<0) return sdp;
+  const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  // um terço do alvo: alto para pular a fila, baixo para não afogar uma
+  // internet modesta logo no primeiro segundo
+  const kbps = Math.max(800, Math.min(4000, Math.round(p.mbps*1000/3)));
+  const pts = [];
+  sdp.split(/\r?\n/).forEach(l=>{
+    const m = l.match(/^a=rtpmap:(\d+) (VP8|VP9|H264|H265|AV1)\/90000/i);
+    if(m) pts.push(m[1]);
+  });
+  if(!pts.length) return sdp;
+  let saida = sdp;
+  for(const pt of pts){
+    const jaTem = new RegExp('a=fmtp:'+pt+' ([^\\r\\n]*)');
+    if(jaTem.test(saida)){
+      saida = saida.replace(jaTem, (l, params)=>{
+        const limpos = params.split(';').filter(x=>!/^x-google-(start|min|max)-bitrate=/.test(x));
+        return 'a=fmtp:'+pt+' '+limpos.concat('x-google-start-bitrate='+kbps).join(';');
+      });
+    }else{
+      saida = saida.replace(new RegExp('(a=rtpmap:'+pt+' [^\\r\\n]*)'),
+                            '$1\r\na=fmtp:'+pt+' x-google-start-bitrate='+kbps);
+    }
+  }
+  return saida;
+}
+
 /* =====================================================================
  * MICROFONE
  * =================================================================== */
@@ -1854,7 +1899,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '3.9 — 28/08 11:40';
+const VERSAO = '4.0 — 28/08 15:10';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2091,6 +2136,8 @@ function abrirCanal(par){
     else if(d.t==='assisto'){ par.naoAssiste = !d.v; reequilibrarVideo(); }
     else if(d.t==='ping') enviar(par,{t:'pong', v:d.v});
     else if(d.t==='pong') par.esperandoPong && par.esperandoPong(d.v);
+    else if(d.t==='cad?') responderCaderninho(par);
+    else if(d.t==='cad!') par.aoChegarCad && par.aoChegarCad(d.v);
     else if(d.t==='diag?') responderDiagnostico(par);
     else if(d.t==='diag!') par.aoChegarDiag && par.aoChegarDiag(d.v);
   };
@@ -2210,7 +2257,8 @@ async function receberSdp(par, desc){
   par.ignorandoOferta = impolido(par) && colisao;
   if(par.ignorandoOferta) return;
   try{
-    await pc.setRemoteDescription(desc);
+    await pc.setRemoteDescription(
+      desc.sdp ? {type:desc.type, sdp:melhorarVideo(desc.sdp)} : desc);
     if(desc.type==='offer'){
       const r = await pc.createAnswer();
       r.sdp = melhorarAudio(r.sdp);
@@ -2243,10 +2291,18 @@ function parResponde(par, prazo){
    rápida; muito = imagem lisa. O certo depende do ping, então medimos. */
 function ajustarAmortecedor(par){
   if(!par || !par.receptorVideo) return;
+  /* Zerar o amortecedor não deixa a imagem mais rápida — deixa
+     ENGASGADA, e piora quanto maior a resolução. O navegador continua
+     precisando de uma folga para montar o quadro; forçando zero ele fica
+     sendo empurrado para baixo o tempo todo e larga quadros. A
+     recomendação do próprio WebRTC é explícita: não force zero.
+     Então "sem atraso" passa a ser o MENOR valor que ainda anda liso. */
   if(cfg.latencia==='minima'){
-    try{ par.receptorVideo.playoutDelayHint=0; }catch{}
-    try{ par.receptorVideo.jitterBufferTarget=0; }catch{}
-    par.folgaAplicada=0;
+    const piso = (par.ping||0) < 40 ? 30 : 50;
+    if(par.folgaAplicada===piso) return;
+    par.folgaAplicada=piso;
+    try{ par.receptorVideo.jitterBufferTarget=piso; }catch{}
+    try{ par.receptorVideo.playoutDelayHint=piso/1000; }catch{}
     return;
   }
   const ping = par.ping||0;
@@ -2393,7 +2449,7 @@ async function aoOferta(m){
     const colisao = par.fazendoOferta || par.pc.signalingState!=='stable';
     par.ignorandoOferta = impolido(par) && colisao;
     if(par.ignorandoOferta) return;
-    await par.pc.setRemoteDescription({type:'offer', sdp:m.sdp});
+    await par.pc.setRemoteDescription({type:'offer', sdp:melhorarVideo(m.sdp)});
     if(novo){ await prepararMidia(par); preferirCodec(par.pc); }
     const r = await par.pc.createAnswer();
     r.sdp = melhorarAudio(r.sdp);
@@ -2417,7 +2473,7 @@ async function aoResposta(m){
   if(!par || !par.pc) return;
   if(par.pc.signalingState!=='have-local-offer') return;
   try{
-    await par.pc.setRemoteDescription({type:'answer', sdp:m.sdp});
+    await par.pc.setRemoteDescription({type:'answer', sdp:melhorarVideo(m.sdp)});
     await escoarGelo(par);
   }catch(e){ console.warn('resposta',e); }
 }
@@ -2770,6 +2826,70 @@ function aplicarModoDesenho(){
   });
 }
 
+/* ---------------------------------------------------------------------
+ * QUANTOS QUADROS FORAM MESMO DESENHADOS
+ * ---------------------------------------------------------------------
+ * As estatísticas contam o que CHEGOU pela rede e o que foi
+ * decodificado. Não é a mesma coisa que o que apareceu na tela — e o
+ * caderninho vinha misturando duas coisas bem diferentes: "não chegou
+ * quadro" e "chegou, mas foi desenhado torto".
+ *
+ * Quarenta quadros espaçados de forma irregular parecem muito piores que
+ * quarenta espaçados direito. É o que o pessoal de streaming de jogo
+ * chama de frame pacing, e a média esconde isso por completo: os dois
+ * casos dão a MESMA média.
+ *
+ * O navegador avisa a cada quadro entregue de verdade ao compositor.
+ * Daí saem as duas coisas que a média some: o 1% pior e o tamanho do
+ * maior buraco entre dois quadros seguidos.
+ * ------------------------------------------------------------------ */
+function olharQuadrosPintados(v, par){
+  if(!v || !v.requestVideoFrameCallback) return;
+  // Já está de pé NESTE MESMO <video>: não duplica.
+  // A comparação tem que ser com o elemento, não só com a marca: quando o
+  // palco é redesenhado (o redesenharTudo apaga e remonta tudo), o <video>
+  // antigo sai do documento e o navegador simplesmente para de chamar a
+  // função — sem avisar ninguém. Olhando só a marca, ela ficava ligada
+  // para sempre apontando para um elemento morto, e a medida sumia pelo
+  // resto da chamada sem nenhum sinal de que tinha sumido.
+  if(par.olhandoQuadros && par.videoOlhado === v) return;
+  par.videoOlhado = v;
+  par.olhandoQuadros = true;
+  par.intervalos = [];
+  let antes = 0;
+  const passo = (agora)=>{
+    if(par.videoOlhado !== v) return;          // outro medidor assumiu o lugar
+    // o quadro trocou de dono (parou de transmitir, saiu da call): larga
+    if(!par.olhandoQuadros || v.srcObject !== par.fluxo){ par.olhandoQuadros=false; return; }
+    if(antes){
+      const dt = agora-antes;
+      // acima de 2 s não é engasgo, é pausa: contaria como buraco gigante
+      // e estragaria a média de todo o resto
+      if(dt>0 && dt<2000){
+        par.intervalos.push(dt);
+        if(par.intervalos.length>240) par.intervalos.shift();
+      }
+    }
+    antes = agora;
+    try{ v.requestVideoFrameCallback(passo); }catch{ par.olhandoQuadros=false; }
+  };
+  try{ v.requestVideoFrameCallback(passo); }catch{ par.olhandoQuadros=false; }
+}
+
+/* Do histórico de intervalos, o que a média esconde. */
+function pacingDe(par){
+  const I = par.intervalos;
+  if(!I || I.length<20) return null;
+  const ord = I.slice().sort((a,b)=>a-b);
+  const medio = I.reduce((a,b)=>a+b,0)/I.length;
+  const p99 = ord[Math.min(ord.length-1, Math.floor(ord.length*0.99))];
+  return {
+    fps:    Math.round(1000/medio),
+    pior:   Math.round(1000/p99),          // o 1% pior, em quadros por segundo
+    buraco: Math.round(ord[ord.length-1]), // o maior salto entre dois quadros, em ms
+  };
+}
+
 function mostrarTela(par){
   montarQuadro('p-'+par.id, 'tela de '+(par.nome||'seu amigo'), true);
   const v = $('v-p-'+par.id);
@@ -2778,6 +2898,7 @@ function mostrarTela(par){
   v.onresize = ()=>{ if(v.videoWidth>0) clearTimeout(par.relogioVazio); };
   const tocar = ()=>{ v.play().catch(()=>{}); };
   tocar(); setTimeout(tocar, 400); setTimeout(tocar, 1500);
+  olharQuadrosPintados(v, par);
   if(cfg.desenho==='canvas') pintarNoCanvas($('q-p-'+par.id));
   arrumarPalco(); pintarGente();
 }
@@ -2955,6 +3076,29 @@ function quantosRecebem(){
  *
  * Agora a conta é feita em cima do que a captura realmente entrega.
  * ------------------------------------------------------------------ */
+/* ---------------------------------------------------------------------
+ * A DICA DE CONTEÚDO NÃO É UM ENFEITE, É UMA CHAVE
+ * ---------------------------------------------------------------------
+ * Parece uma sugestão educada ao navegador. Não é: ela TROCA o modo do
+ * compressor por dentro.
+ *
+ *   'detail' / 'text' -> modo tela compartilhada: trava a resolução,
+ *                        liga camadas temporais, otimiza texto parado
+ *   'motion'          -> modo vídeo ao vivo: prioriza quadros e aceita
+ *                        encolher a imagem para segurá-los
+ *
+ * Repare que "ligar camadas temporais" é a MESMA coisa que produzia
+ * aquelas quedas exatas para metade dos quadros. Ou seja: a escolha que
+ * você faz nos ajustes e esta chave sempre falaram da mesma decisão —
+ * só que cada uma por conta própria, e às vezes discordando. Agora andam
+ * juntas.
+ * ------------------------------------------------------------------ */
+function aplicarDicaDeConteudo(faixa){
+  const v = faixa || (est.streamTela && est.streamTela.getVideoTracks()[0]);
+  if(!v) return;
+  try{ v.contentHint = cfg.prioridade==='nitidez' ? 'detail' : 'motion'; }catch{}
+}
+
 function tamanhoDaCaptura(){
   try{
     const v = est.streamTela && est.streamTela.getVideoTracks()[0];
@@ -3032,7 +3176,42 @@ async function aplicarPerfilVideo(par){
    * novo era contar duas vezes: numa call de três, o Frag pedia um terço
    * da qualidade que cabia, justamente quando a call fica cheia. */
   let teto = Math.round((p.mbps*1e6*a.fator)/n);
-  if(a.banda>300000) teto = Math.min(teto, Math.round(a.banda*0.85));
+
+  /* ---------------------------------------------------------------------
+   * AQUI MORAVA A RATOEIRA — e ela custou dias
+   * ---------------------------------------------------------------------
+   * Esta linha era "teto = min(teto, banda * 0,85)", sempre. Parece
+   * prudência: não peça mais do que cabe. Mas o palpite de banda do
+   * navegador NÃO é a rede falando. Ele é o resultado de sondas que o
+   * próprio navegador dispara — rajadas de pacotes para ver se atrasam —
+   * e essas sondas nunca passam do teto que a gente entrega aqui.
+   *
+   * Então:
+   *
+   *     Frag acha que tem pouca banda
+   *        -> baixa o teto
+   *           -> a sonda não sobe além do teto
+   *              -> o palpite cai
+   *                 -> Frag acha que tem pouca banda      (volta ao começo)
+   *
+   * Uma vez que descia, não subia nunca mais, porque a prova de que dava
+   * para subir era exatamente a sonda que a gente tinha amordaçado. É o
+   * que aparecia nos caderninhos reais: banda estimada baixa, ninguém
+   * segurando nada, imagem cortada, e nada melhorando com o tempo.
+   *
+   * O conserto não é um número, é uma inversão: apertar SÓ quando existe
+   * aperto de verdade. Sem aperto, o teto fica ACIMA do palpite de
+   * propósito, para o navegador ter espaço de descobrir que cabe mais.
+   * Se ele descobrir que não cabia, a sobra vira congestionamento, o
+   * aperto aparece em um ou dois segundos e a linha de baixo aperta. É o
+   * mesmo risco que qualquer medição de banda corre — a diferença é que
+   * agora ela pode terminar para cima.
+   * ------------------------------------------------------------------ */
+  const apertoReal   = !!par.apertado || (par.perda||0) > 1.5;
+  const desdeAperto  = Date.now() - (par.quandoAperto||0);
+  // logo depois de um susto, folga nenhuma; passados 10 s, folga cheia
+  const folga = apertoReal ? 0.85 : (desdeAperto < 10000 ? 1.0 : 1.6);
+  if(a.banda>300000) teto = Math.min(teto, Math.round(a.banda*folga));
 
   /* Imagem menor pede menos banda: metade do lado são um quarto dos
      pixels. Mandar 8 Mbps num 360p não deixa mais bonito — só ocupa a
@@ -3044,6 +3223,10 @@ async function aplicarPerfilVideo(par){
   }
   if(par.sumiu) teto = Math.min(teto, 900000);
 
+  // guardado para o ajuste conseguir perguntar depois: "o palpite bateu no
+  // limite da REDE ou no limite que EU dei?". Sem isto não dá para
+  // distinguir as duas coisas, e elas pedem reações opostas.
+  par.tetoAplicado = teto;
   par.encolherAtual = encolher;
   const explicacao = porque.length ? porque.join(' · ') : 'nada segurando';
   if(par.porqueTamanho !== explicacao){
@@ -3210,7 +3393,7 @@ async function pegarTela(){
 
   const v=stream.getVideoTracks()[0];
   const aud=stream.getAudioTracks()[0];
-  v.contentHint='motion';   // prioridade é movimento fluido, não pixel perfeito
+  aplicarDicaDeConteudo(v);
 
   // A prévia primeiro. Se ela aparecer, a captura deu certo — e qualquer
   // problema daqui pra frente é de ENVIO, não de captura. Antes isso
@@ -3321,6 +3504,7 @@ async function conferirDeNovo(){
 }
 
 async function pararTela(){
+  est.avisouCaptura=false; est.histFonte=[]; est.olhouCaptura=0;
   const indo=est.streamTela;
   if(!indo) return;
   est.streamTela=null;
@@ -3361,13 +3545,17 @@ function autoDe(par){
                                    // duas escadas separadas: uma comandada pela internet,
                                    // outra pelos quadros. O tamanho final é o maior aperto
                                    // das duas — cada uma sabe de um problema diferente.
-                                   degrauBanda:1, degrauFps:1, fpsRuim:0, fpsBom:0, quandoFps:0 });
+                                   degrauBanda:1, degrauFps:1, fpsRuim:0, fpsBom:0, quandoFps:0,
+                                   // "o teto era meu": ver a explicação grande em ajustarQualidade
+                                   euSouOTeto:false, folgado:0 });
 }
 function zerarAuto(par){
   const a = autoDe(par);
   a.fator=1; a.ruim=0; a.bom=0; a.aquece=0; a.motivo='';
   a.degrau=1; a.degrauQuer=1; a.degrauFirme=0; a.quandoDegrau=0; a.banda=0;
   a.degrauBanda=1; a.degrauFps=1; a.fpsRuim=0; a.fpsBom=0; a.quandoFps=0;
+  a.euSouOTeto=false; a.folgado=0;
+  par.tetoAplicado=0; par.quandoAperto=0;
   par.perfilAplicado=null;
 }
 
@@ -3394,6 +3582,52 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
 
   // média que anda devagar: uma leitura ruim isolada não muda nada
   if(banda>0) a.banda = a.banda ? (a.banda*0.8 + banda*0.2) : banda;
+
+  /* ---------------------------------------------------------------------
+   * "O TETO ERA MEU"
+   * ---------------------------------------------------------------------
+   * O palpite de banda encostou no limite que nós mesmos demos ao
+   * compressor, e ninguém está reclamando: sem aperto, sem perda. Isso
+   * não é a rede dizendo "não cabe mais" — é o Frag olhando para o
+   * próprio limite e confundindo com a rede.
+   *
+   * Enquanto isso for verdade, encolher é sempre errado: a imagem menor
+   * derruba o teto, o teto derruba o palpite, e o palpite manda encolher
+   * de novo. A saída é a de cima (dar folga ao teto) e a daqui: não
+   * descer a escada com base numa medida que a gente mesmo limitou.
+   * ------------------------------------------------------------------ */
+  const nosso = par.tetoAplicado||0;
+  a.euSouOTeto = nosso>0 && a.banda >= nosso*0.85 && !apertado && perda < 1;
+  a.folgado = a.euSouOTeto ? a.folgado+1 : 0;
+  /* ---------------------------------------------------------------------
+   * A SAÍDA DA RATOEIRA
+   * ---------------------------------------------------------------------
+   * Dar folga ao teto (lá em aplicarPerfilVideo) resolve o caso comum.
+   * Mas quando a imagem JÁ ESTÁ encolhida sobra um segundo fundo de
+   * poço, e ele é pior: o orçamento de uma imagem menor é menor também,
+   * então o teto cai junto com os pixels e a medida continua presa —
+   * agora num valor ainda mais baixo. Nesse estado nenhuma quantidade de
+   * paciência descobre que cabia mais, porque a única prova possível é
+   * uma medida que não pode acontecer.
+   *
+   * A única saída é experimental: subir um degrau de propósito e olhar o
+   * que acontece. Se era ilusão, o aperto aparece em poucos segundos e a
+   * escada desce de novo — mas aí desce por um motivo MEDIDO, não por um
+   * eco do próprio limite. Doze segundos de calma para tentar, e quinze
+   * entre uma tentativa e outra, para isto não virar sobe-e-desce.
+   * ------------------------------------------------------------------ */
+  if(a.folgado>=12 && a.degrauBanda>1 && Date.now()-(a.quandoDegrau||0)>15000){
+    const i = Math.max(0, DEGRAUS.indexOf(a.degrauBanda));
+    const acima = DEGRAUS[Math.max(0, i-1)];
+    if(acima !== a.degrauBanda){
+      a.degrauBanda = acima; a.quandoDegrau = Date.now(); a.folgado = 0;
+      a.degrauQuer = acima; a.degrauFirme = 0;
+      a.degrau = Math.max(a.degrauBanda, a.degrauFps);
+      marcar('escada da BANDA: subindo para '+acima+'x — o teto era MEU, não o da rede');
+      await aplicarPerfilVideo(par);
+      return;
+    }
+  }
 
   // ---- escolha do TAMANHO, com muita teimosia ----
   const p0 = perfilReal();
@@ -3532,8 +3766,50 @@ function marcar(txt){
   while(registro.marcos.length>300) registro.marcos.shift();
 }
 
+/* A regra que separa "captura capada" de "tela parada", sozinha para
+   poder ser testada: captura capada fica CRAVADA num número; tela parada
+   oscila muito e sobe assim que algo se mexe. */
+function capturaSuspeita(H, alvo){
+  if(!H || H.length<30 || !alvo) return false;
+  const firme = (Math.max(...H) - Math.min(...H)) <= 5;
+  const ultimo = H[H.length-1];
+  return firme && ultimo >= alvo*0.25 && ultimo <= alvo*0.8;
+}
+
 function anotarLinha(x){
   const f = x.fonte;
+
+  /* ---------------------------------------------------------------------
+   * QUANDO O PROBLEMA É ANTES DO FRAG
+   * ---------------------------------------------------------------------
+   * "fonte" é quantos quadros a CAPTURA do sistema entregou — antes de
+   * qualquer coisa que o Frag faça. Se ela entrega 30 quando você pediu
+   * 60, nada aqui dentro conserta: o compressor nem foi chamado. No
+   * Windows as duas causas comuns são o jogo em tela cheia exclusiva e o
+   * agendamento de GPU desligado, e as duas têm conserto de dois
+   * cliques — fora daqui.
+   *
+   * O cuidado: tela PARADA também entrega poucos quadros, e isso é
+   * normal e correto. O que separa os dois casos é a firmeza. Captura
+   * capada fica cravada num número (30, 25, 20); tela parada oscila
+   * bastante e sobe no instante em que algo se mexe. Então o aviso só
+   * sai quando o número fica firme por meio minuto.
+   * ------------------------------------------------------------------ */
+  if(est.streamTela && f && Date.now()-(est.olhouCaptura||0) > 800){
+    est.olhouCaptura = Date.now();
+    const alvoF = perfilReal().fps;
+    const agora = Math.round(f.framesPerSecond||0);
+    const H = est.histFonte || (est.histFonte=[]);
+    H.push(agora); if(H.length>30) H.shift();
+    if(capturaSuspeita(H, alvoF) && !est.avisouCaptura){
+      est.avisouCaptura = true;
+      marcar('a tela entrega '+agora+' quadros FIRMES e você pediu '+alvoF+
+             ' — isso é a captura do Windows, não o envio do Frag');
+      recado('Sua tela entrega só '+agora+' quadros por segundo, antes de o Frag tocar nela. '+
+             'Tente o jogo em JANELA SEM BORDA e ligue o "Agendamento de GPU acelerado por '+
+             'hardware" nas configurações gráficas do Windows.','mal');
+    }
+  }
   registro.linhas.push({
     t: Date.now()-registro.inicio,
     quem: (x.par.nome||x.par.id||'?').slice(0,6),
@@ -3553,6 +3829,9 @@ function anotarLinha(x){
     recL: x.ev ? (x.ev.frameWidth||0) : 0,
     recA: x.ev ? (x.ev.frameHeight||0) : 0,
     recPerdidos: x.ev ? (x.ev.packetsLost||0) : 0,
+    pint:     x.par.pacing ? x.par.pacing.fps : 0,
+    pintPior: x.par.pacing ? x.par.pacing.pior : 0,
+    pintBur:  x.par.pacing ? x.par.pacing.buraco : 0,
     congelou: x.ev ? (x.ev.freezeCount||0) : 0,
   });
   while(registro.linhas.length>TETO_LINHAS) registro.linhas.shift();
@@ -3631,6 +3910,24 @@ function resumoDoRegistro(){
     if(tam.recL) R.push('tamanho recebido  : '+tam.recL+'x'+tam.recA);
     const perdidos = L[L.length-1].recPerdidos - L[0].recPerdidos;
     if(perdidos>0) R.push('pacotes perdidos  : '+perdidos);
+
+    /* Chegar e ser desenhado são coisas diferentes, e é a segunda que
+       você enxerga. Quando estes números divergem do de cima, o problema
+       não é a rede nem quem transmite: é a hora de desenhar aqui. */
+    const pint = rec.map(l=>l.pint).filter(v=>v>0);
+    if(pint.length){
+      const piores = rec.map(l=>l.pintPior).filter(v=>v>0);
+      const buracos = rec.map(l=>l.pintBur).filter(v=>v>0);
+      R.push('quadros DESENHADOS: média '+Math.round(conta(pint.map(v=>({v})),o=>o.v))+
+             (piores.length ? ' | 1% pior '+Math.min(...piores) : ''));
+      if(buracos.length) R.push('maior engasgo     : '+Math.max(...buracos)+' ms sem quadro nenhum');
+      const chegam = Math.round(conta(rec,l=>l.recFps));
+      const desenha = Math.round(conta(pint.map(v=>({v})),o=>o.v));
+      if(chegam - desenha >= 8)
+        R.push('ATENÇÃO           : chegam '+chegam+' quadros mas só '+desenha+
+               ' são desenhados. O gargalo está NESTE computador (placa de vídeo ou aba pesada), '+
+               'não na rede nem em quem transmite.');
+    }
     // quando VOCÊ está fora da aba, quem manda economiza de propósito.
     // sem dizer isso, esse número parece defeito e não é.
     const baixos = v.filter(x=>x<=20).length;
@@ -3654,7 +3951,7 @@ function resumoDoRegistro(){
   return R;
 }
 
-function montarRegistro(){
+function montarRegistro(extra){
   const L=[];
   const dz=(t)=>L.push(t);
   const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
@@ -3667,7 +3964,7 @@ function montarRegistro(){
                         'p — a conta é feita em cima de '+real.a+'p');
   dz('escolhido: '+p.a+'p a '+p.fps+' fps | prioridade: '+(cfg.prioridade==='nitidez'?'nitidez':'fluidez')+
      ' | compressão: '+cfg.codec+' | imagem: '+cfg.latencia);
-  dz('tem H264: '+temCodec('h264')+' | tem AV1: '+temCodec('av1'));
+  dz('tem H264: '+temCodec('h264')+' | tem H265: '+temCodec('h265')+' | tem AV1: '+temCodec('av1'));
   dz('');
   dz('--- resumo ---');
   resumoDoRegistro().forEach(dz);
@@ -3702,6 +3999,7 @@ function montarRegistro(){
   dz('--- erros registrados ---');
   if(!diario.length) dz('(nenhum)');
   else diario.slice(-20).forEach(x=>dz('  '+x));
+  if(extra){ dz(''); dz(extra); }
   dz('===== fim =====');
   return L.join('\n');
 }
@@ -3719,8 +4017,30 @@ async function copiarTexto(txt){
 async function copiarRegistro(){
   const b=$('btn-registro');
   b.disabled=true; b.textContent='Montando…';
+
+  // primeiro pergunta aos outros, porque montar o texto é instantâneo e
+  // esperar resposta não é
+  let anexo = '';
+  const comCanal = vivos().filter(p=>canalDe(p));
+  if(comCanal.length){
+    b.textContent='Perguntando aos outros…';
+    const vindas = await Promise.all(comCanal.map(p=>
+      pedirCaderninho(p, 4000).then(v=>({p, v})).catch(()=>({p, v:null}))));
+    const A=[];
+    vindas.filter(r=>r.v).forEach(r=>{
+      A.push('--- o que '+(r.p.nome||'o amigo')+' viu ---');
+      A.push(String(r.v));
+      A.push('');
+    });
+    const calados = vindas.filter(r=>!r.v).map(r=>r.p.nome||'amigo');
+    if(calados.length)
+      A.push('(não respondeu: '+calados.join(', ')+' — Frag antigo do lado dele, ou canal fechado)');
+    if(A.length) anexo = '===== O QUE OS OUTROS VIRAM =====\n\n'+A.join('\n');
+  }
+
+  b.textContent='Montando…';
   let txt='';
-  try{ txt=montarRegistro(); }catch(e){ txt='falhou ao montar o caderninho: '+e; }
+  try{ txt=montarRegistro(anexo); }catch(e){ txt='falhou ao montar o caderninho: '+e; }
   const ok = await copiarTexto(txt);
   b.disabled=false; b.textContent='📈 Copiar histórico de FPS e ping';
   recado(ok? ('Histórico copiado — '+registro.linhas.length+' segundos gravados.')
@@ -3763,11 +4083,16 @@ async function atualizarNumeros(){
     });
     const ms = pardeIce ? Math.round((pardeIce.currentRoundTripTime||0)*1000) : 0;
     par.ping = ms;
+    par.pacing = pacingDe(par);
     ajustarAmortecedor(par);
     if(ms>piorPing) piorPing=ms;
     const perda = eco&&eco.fractionLost!=null ? eco.fractionLost*100 : 0;
     par.perda = perda;
     const apertadoDele = !!(sv && sv.qualityLimitationReason==='bandwidth');
+    // o orçamento (aplicarPerfilVideo) roda fora daqui e precisa saber se
+    // existe aperto agora e há quanto tempo foi o último
+    par.apertado = apertadoDele;
+    if(apertadoDele) par.quandoAperto = Date.now();
     if(sv&&sv.qualityLimitationReason==='cpu') par.cpuApertado=(par.cpuApertado||0)+1;
     else if(sv) par.cpuApertado=0;
 
@@ -4234,7 +4559,8 @@ function temCodec(qual){
 function preferirCodec(pc){
   const alvo=cfg.codec||'auto';
   if(alvo==='auto') return;
-  const nome={h264:'video/h264', vp9:'video/vp9', vp8:'video/vp8', av1:'video/av1'}[alvo];
+  const nome={h264:'video/h264', vp9:'video/vp9', vp8:'video/vp8',
+              av1:'video/av1', h265:'video/h265'}[alvo];
   if(!nome) return;
   try{
     const caps=RTCRtpSender.getCapabilities('video');
@@ -4332,7 +4658,7 @@ async function conectar(){
     if(!par||!par.pc) throw new Error('SEM_CONVITE');
     const {sdp,papel}=desempacotar(extrairCodigo(cod));
     if(papel!=='resposta') throw new Error('TROCADO');
-    await par.pc.setRemoteDescription({type:'answer',sdp});
+    await par.pc.setRemoteDescription({type:'answer',sdp:melhorarVideo(sdp)});
     $('e2').classList.add('ok');
   }catch(e){
     console.error(e);
@@ -4356,7 +4682,7 @@ async function responder(){
     const par = pares.get(PAR_MANUAL) || novoPar(PAR_MANUAL);
     par.impolido = false;                      // quem responde é o educado
     criarPar(PAR_MANUAL);
-    await par.pc.setRemoteDescription({type:'offer',sdp});
+    await par.pc.setRemoteDescription({type:'offer',sdp:melhorarVideo(sdp)});
     await prepararMidia(par);
     preferirCodec(par.pc);
     const r=await par.pc.createAnswer();
@@ -5147,6 +5473,38 @@ async function resumoParaOAmigo(){
   return L.join('\n');
 }
 
+/* ---------------------------------------------------------------------
+ * O CADERNINHO DO OUTRO LADO
+ * ---------------------------------------------------------------------
+ * Metade das respostas sempre esteve na máquina do amigo, e a única
+ * forma de chegar até lá era pedir para ele clicar e colar. Na prática
+ * isso nunca acontece: quem está jogando não vai parar para copiar log.
+ *
+ * O canal de dados já existe e o Frag já usa exatamente isto para o
+ * diagnóstico. Então o botão passa a trazer os dois lados de uma vez.
+ * Vai só o RESUMO, não o segundo-a-segundo: o segundo-a-segundo de três
+ * pessoas viraria um texto que ninguém lê, e o resumo é onde as
+ * respostas moram.
+ * ------------------------------------------------------------------ */
+async function responderCaderninho(par){
+  let txt='';
+  try{
+    txt = ['(Frag '+VERSAO+' — '+(eu.nome||'sem nome')+')']
+            .concat(resumoDoRegistro()).join('\n');
+  }catch(e){ txt='falhou ao montar: '+e; }
+  enviar(par,{t:'cad!', v:String(txt).slice(0,8000)});
+}
+
+function pedirCaderninho(par, prazo){
+  if(!canalDe(par)) return Promise.resolve(null);
+  return new Promise(res=>{
+    let pronto=false;
+    par.aoChegarCad=(v)=>{ if(!pronto){ pronto=true; res(v); } };
+    enviar(par,{t:'cad?'});
+    setTimeout(()=>{ if(!pronto){ pronto=true; par.aoChegarCad=null; res(null); } }, prazo||4000);
+  });
+}
+
 async function responderDiagnostico(par){
   let txt=''; try{ txt=await resumoParaOAmigo(); }catch(e){ txt='falhou: '+e; }
   enviar(par,{t:'diag!', v:txt});
@@ -5721,6 +6079,7 @@ $('sel-latencia').onchange=()=>{
 };
 $('sel-prioridade').onchange=async()=>{
   cfg.prioridade=$('sel-prioridade').value; guardarAjustes();
+  aplicarDicaDeConteudo();
   await reequilibrarVideo();
   recado(cfg.prioridade==='fps'?'Vou segurar os quadros por segundo.':'Vou segurar a nitidez.','ok');
 };
