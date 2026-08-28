@@ -1899,7 +1899,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '4.0 — 28/08 15:10';
+const VERSAO = '4.1 — 28/08 17:30';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3207,10 +3207,25 @@ async function aplicarPerfilVideo(par){
    * mesmo risco que qualquer medição de banda corre — a diferença é que
    * agora ela pode terminar para cima.
    * ------------------------------------------------------------------ */
+  /* Aqui eu errei a mão na v4.0 e vale deixar escrito.
+   *
+   * Consertar a ratoeira exigia parar de prender o teto EMBAIXO do
+   * palpite — até aí certo. Só que eu pus 1,6x e deixei assim para
+   * sempre, e 60% acima do que a rede diz aguentar, o tempo todo, não é
+   * sondar: é morar em cima do limite. A linha enche, o aperto aparece,
+   * o teto desaba, a linha esvazia, o teto sobe de novo — e cada volta
+   * dessa é uma travadinha. Trocar uma travadinha permanente por uma
+   * cíclica não é conserto.
+   *
+   * Sondar é dar UM PASSO à frente e olhar. O navegador já faz isso
+   * sozinho (dispara rajadas curtas de teste a cada poucos segundos); o
+   * que ele precisava de nós era só não ter as rajadas CAPADAS pelo
+   * teto. Para isso 15% de sobra bastam — cabe a rajada e não cabe o
+   * congestionamento crônico. Quem dá o passo grande é a subida de
+   * degrau ali embaixo, que é rara, deliberada e sabe voltar atrás. */
   const apertoReal   = !!par.apertado || (par.perda||0) > 1.5;
   const desdeAperto  = Date.now() - (par.quandoAperto||0);
-  // logo depois de um susto, folga nenhuma; passados 10 s, folga cheia
-  const folga = apertoReal ? 0.85 : (desdeAperto < 10000 ? 1.0 : 1.6);
+  const folga = apertoReal ? 0.85 : (desdeAperto < 10000 ? 1.0 : 1.15);
   if(a.banda>300000) teto = Math.min(teto, Math.round(a.banda*folga));
 
   /* Imagem menor pede menos banda: metade do lado são um quarto dos
@@ -3547,14 +3562,15 @@ function autoDe(par){
                                    // das duas — cada uma sabe de um problema diferente.
                                    degrauBanda:1, degrauFps:1, fpsRuim:0, fpsBom:0, quandoFps:0,
                                    // "o teto era meu": ver a explicação grande em ajustarQualidade
-                                   euSouOTeto:false, folgado:0 });
+                                   euSouOTeto:false, folgado:0,
+                                   esperaSubida:15000, quandoSubiu:0 });
 }
 function zerarAuto(par){
   const a = autoDe(par);
   a.fator=1; a.ruim=0; a.bom=0; a.aquece=0; a.motivo='';
   a.degrau=1; a.degrauQuer=1; a.degrauFirme=0; a.quandoDegrau=0; a.banda=0;
   a.degrauBanda=1; a.degrauFps=1; a.fpsRuim=0; a.fpsBom=0; a.quandoFps=0;
-  a.euSouOTeto=false; a.folgado=0;
+  a.euSouOTeto=false; a.folgado=0; a.esperaSubida=15000; a.quandoSubiu=0;
   par.tetoAplicado=0; par.quandoAperto=0;
   par.perfilAplicado=null;
 }
@@ -3616,14 +3632,28 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
    * eco do próprio limite. Doze segundos de calma para tentar, e quinze
    * entre uma tentativa e outra, para isto não virar sobe-e-desce.
    * ------------------------------------------------------------------ */
-  if(a.folgado>=12 && a.degrauBanda>1 && Date.now()-(a.quandoDegrau||0)>15000){
+  /* Trocar o tamanho da imagem força um quadro-chave, e quadro-chave é
+     um solavanco que se VÊ. Uma tentativa de subida que dá errado custa
+     dois: o de subir e o de descer. Com espera fixa de 15 segundos, uma
+     linha que não aguenta mesmo produzia esse par de solavancos de 15 em
+     15 segundos, para sempre — que é exatamente a cara de "trava de
+     tempos em tempos".
+     Então a espera dobra a cada tentativa desfeita depressa (15s, 30s,
+     1min… até 3min) e só volta ao início quando uma subida se sustenta
+     por um minuto inteiro. Insistir é barato; insistir sempre no mesmo
+     ritmo é que sai caro. */
+  if(a.quandoSubiu && Date.now()-a.quandoSubiu > 60000) a.esperaSubida = 15000;
+  const espera = a.esperaSubida || 15000;
+  if(a.folgado>=12 && a.degrauBanda>1 && Date.now()-(a.quandoDegrau||0)>espera){
     const i = Math.max(0, DEGRAUS.indexOf(a.degrauBanda));
     const acima = DEGRAUS[Math.max(0, i-1)];
     if(acima !== a.degrauBanda){
       a.degrauBanda = acima; a.quandoDegrau = Date.now(); a.folgado = 0;
+      a.quandoSubiu = Date.now();
       a.degrauQuer = acima; a.degrauFirme = 0;
       a.degrau = Math.max(a.degrauBanda, a.degrauFps);
-      marcar('escada da BANDA: subindo para '+acima+'x — o teto era MEU, não o da rede');
+      marcar('escada da BANDA: subindo para '+acima+'x — o teto era MEU, não o da rede'+
+             (espera>15000 ? ' (depois de esperar '+Math.round(espera/1000)+'s)' : ''));
       await aplicarPerfilVideo(par);
       return;
     }
@@ -3650,6 +3680,12 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
     const apertaMesmo = apertado || perda > 1.5 ||
                         ((Date.now()-(par.quandoSaude||0)) < 6000 && (par.saudeSeguida||0) >= 2);
     if(quer!==a.degrauBanda && a.degrauFirme>=6 && passou>20000 && (crescendo || apertaMesmo)){
+      // desfazendo uma subida recente? então a próxima tentativa espera o dobro
+      if(!crescendo && a.quandoSubiu && Date.now()-a.quandoSubiu < 30000){
+        a.esperaSubida = Math.min(180000, (a.esperaSubida||15000)*2);
+        marcar('a subida não se sustentou — vou esperar '+
+               Math.round(a.esperaSubida/1000)+'s antes de tentar de novo');
+      }
       a.degrauBanda=quer; a.quandoDegrau=Date.now();
       marcar('escada da BANDA: imagem '+quer+'x menor (cabe ~'+Math.round(a.banda/1000)+' kbps)');
       a.degrau=Math.max(a.degrauBanda, a.degrauFps);

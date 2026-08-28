@@ -234,6 +234,57 @@ async function principal() {
     (saida.fim < 3) ? ok('a imagem encolhida subiu de volta sozinha', '3x → ' + saida.fim + 'x')
                     : mal('continua presa no fundo do poço', 'ainda ' + saida.fim + 'x');
 
+    /* ============ 7b. a subida aprende que já tentou ============ */
+    console.log('\n=== 7b. Uma subida desfeita ensina alguma coisa? ===');
+    const memoria = await A.evaluate(async () => {
+      const p = [...pares.values()][0], a = autoDe(p);
+      a.aquece = 100; a.fator = 1; a.degrauFps = 1;
+      a.degrauBanda = 3; a.quandoDegrau = Date.now() - 60000;
+      a.folgado = 0; a.banda = 0; a.esperaSubida = 15000; a.quandoSubiu = 0;
+      p.tetoAplicado = 1000000;
+      p.apertado = false; p.perda = 0; p.quandoSaude = 0; p.saudeSeguida = 0;
+
+      // calmaria: ele sobe de propósito para medir
+      for (let i = 0; i < 13; i++) await ajustarQualidade(p, 0, false, 950000, 60);
+      const subiu = a.degrauBanda, marcou = a.quandoSubiu > 0;
+      const esperaAntes = a.esperaSubida;
+
+      // e agora a rede aperta de verdade: a subida tem que ser desfeita
+      a.degrauFirme = 0; a.degrauQuer = 0; a.quandoDegrau = Date.now() - 25000;
+      for (let i = 0; i < 20; i++) await ajustarQualidade(p, 3, true, 600000, 60);
+
+      return { subiu, marcou, esperaAntes, desceu: a.degrauBanda, esperaDepois: a.esperaSubida };
+    });
+    info('subiu para ' + memoria.subiu + 'x, desceu para ' + memoria.desceu +
+         'x, espera ' + (memoria.esperaAntes / 1000) + 's → ' + (memoria.esperaDepois / 1000) + 's');
+    memoria.marcou ? ok('anotou quando tentou subir') : mal('não anotou a tentativa');
+    (memoria.desceu > memoria.subiu)
+      ? ok('a subida foi desfeita pelo aperto real', memoria.subiu + 'x → ' + memoria.desceu + 'x')
+      : mal('não desfez a subida com aperto real', JSON.stringify(memoria));
+    (memoria.esperaDepois >= memoria.esperaAntes * 2)
+      ? ok('a espera dobrou — não vai insistir de 15 em 15s',
+           (memoria.esperaAntes / 1000) + 's → ' + (memoria.esperaDepois / 1000) + 's')
+      : mal('continuaria tentando no mesmo ritmo (solavanco periódico)',
+            'espera ficou em ' + memoria.esperaDepois + ' ms');
+
+    /* ============ 7c. a folga é sonda, não mudança de endereço ============ */
+    console.log('\n=== 7c. A folga do teto ficou modesta? ===');
+    const folgaT = await A.evaluate(async () => {
+      const p = [...pares.values()][0], a = autoDe(p);
+      a.banda = 2000000; a.fator = 1; a.degrauBanda = 1; a.degrauFps = 1;
+      p.larguraQueQuer = 1920; p.sumiu = false; p.perda = 0;
+      p.apertado = false; p.quandoAperto = 0;
+      p.perfilAplicado = null; await aplicarPerfilVideo(p);
+      return { teto: p.tetoAplicado, banda: a.banda };
+    });
+    const razao = folgaT.teto / folgaT.banda;
+    info('teto ' + Math.round(folgaT.teto / 1000) + ' kbps sobre medida ' +
+         Math.round(folgaT.banda / 1000) + ' kbps = ' + razao.toFixed(2) + 'x');
+    (razao > 1 && razao <= 1.25)
+      ? ok('sobra o bastante para a sonda do navegador, sem morar em cima do limite',
+           razao.toFixed(2) + 'x')
+      : mal('a folga saiu do lugar', razao.toFixed(2) + 'x (queria entre 1,0 e 1,25)');
+
     /* ============ 8. não sobe quando há aperto de verdade ============ */
     console.log('\n=== 8. E não sobe quando a rede está mesmo apertada? ===');
     const teimoso = await A.evaluate(async () => {
