@@ -411,6 +411,35 @@ async function principal() {
       ? ok('contador de mensagens não lidas', naoLidas.texto)
       : mal('contador de não lidas errado', JSON.stringify(naoLidas));
 
+    /* ---------- 9d2. o caderninho ---------- */
+    titulo('9d2. O caderninho de FPS e ping');
+    /* ele grava uma linha por segundo — sem dar tempo, não há o que
+       conferir. Isso não é afrouxar o teste: é medir um gravador. */
+    await espera(8000);
+    const cad = await A.pg.evaluate(() => {
+      const txt = montarRegistro();
+      return {
+        temBotao: !!document.getElementById('btn-registro'),
+        linhas: registro.linhas.length,
+        marcos: registro.marcos.map(m => m.txt),
+        tamanho: txt.length,
+        temResumo: txt.includes('--- resumo ---'),
+        temTabela: txt.includes('--- segundo a segundo ---'),
+        temMomentos: txt.includes('--- momentos ---'),
+        // uma linha de dados de verdade tem que ter fps e tamanho
+        umaLinha: (txt.match(/^\s+\d+:\d\d\s+\S+\s+\d+/m) || [''])[0].trim(),
+      };
+    });
+    cad.temBotao ? ok('botão de copiar o histórico existe') : mal('botão sumiu');
+    cad.linhas > 5 ? ok('gravou segundo a segundo', cad.linhas + ' amostras')
+                   : mal('não gravou quase nada', String(cad.linhas));
+    (cad.temResumo && cad.temTabela && cad.temMomentos)
+      ? ok('o texto tem resumo, momentos e tabela', cad.tamanho + ' caracteres')
+      : mal('faltou seção no texto', JSON.stringify(cad));
+    cad.umaLinha ? ok('as linhas têm dados', cad.umaLinha.slice(0, 40)) : mal('linhas vazias');
+    cad.marcos.length ? ok('anotou os momentos', cad.marcos.length + ': ' + cad.marcos[0].slice(0, 45))
+                      : mal('nenhum momento anotado');
+
     /* ---------- 9e. sobreviver a um F5 ---------- */
     titulo('9e. Um F5 no meio da call');
     const salaAntes = await A.pg.evaluate(() => sala.id);

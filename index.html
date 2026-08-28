@@ -818,9 +818,20 @@ body.sem-tela .divisor{display:none}
     </p>
     <button id="btn-diag" class="b b-cinza b-largo" type="button" style="margin-top:10px">📋 Copiar diagnóstico</button>
     <p class="ajuda" style="margin-top:0">
-      Copia um relatório com o que está acontecendo agora: conexões, formatos, quadros, erros.
+      Copia um retrato do que está acontecendo <b>agora</b>: conexões, formatos, quadros, erros.
       Cole numa conversa com quem estiver te ajudando. Não vai nada pessoal, só números.
     </p>
+    <button id="btn-registro" class="b b-cinza b-largo" style="margin-top:12px">📈 Copiar histórico de FPS e ping</button>
+    <p class="ajuda" style="margin-top:0">
+      Este é o <b>filme</b>, não a foto: o Frag anota FPS, ping, tamanho da imagem, perda e quem
+      está segurando a qualidade <b>a cada segundo</b>, mais os momentos em que alguma coisa mudou.
+      É o que responde "caiu quando, por quanto tempo e por causa de quê". Guarda os últimos 15
+      minutos, só na memória — fechou a aba, acabou. Não custa nada: aproveita a medição que o
+      painel já faz.
+    </p>
+    <div class="num" style="border:0;padding-top:4px">
+      <span>gravando</span><b id="registro-quanto">—</b>
+    </div>
 
     <div class="secao">Clipe e gravação</div>
     <label class="chk">
@@ -1841,7 +1852,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '3.5 — 27/08 22:10';
+const VERSAO = '3.6 — 27/08 22:45';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -1958,6 +1969,7 @@ function criarPar(id){
       entrarNaChamada();
       enviar(par,{t:'nome', v:eu.nome||'Sem nome'});
       recado((par.nome||'Seu amigo')+' entrou na call','ok');
+      marcar((par.nome||'alguém')+' entrou na call');
       toque(true);
     }
     else if(s==='disconnected'){ pintarGente(); }
@@ -2270,7 +2282,7 @@ function tirarPar(id, motivo){
   try{ par.audio && par.audio.remove(); }catch{}
   tirarQuadro('p-'+id);
   pares.delete(id);
-  if(par.nome){ recado((par.nome)+' saiu'+(motivo?' — '+motivo:''),''); toque(false); }
+  if(par.nome){ recado((par.nome)+' saiu'+(motivo?' — '+motivo:''),''); marcar(par.nome+' saiu'+(motivo?' ('+motivo+')':'')); toque(false); }
   pintarGente();
   reequilibrarVideo();
   if(!pares.size && !sala.ligada) pararNumeros();
@@ -2636,6 +2648,8 @@ function entrarNaChamada(){
 }
 
 function mostrarReligando(par, ligado){
+  if(par.religando!==ligado) marcar(ligado ? ('a conexão com '+(par.nome||'alguém')+' caiu — reconectando')
+                                           : ('reconectado com '+(par.nome||'alguém')));
   par.religando = ligado;
   const algum = [...pares.values()].some(p=>p.religando);
   let el=$('religando');
@@ -3089,6 +3103,7 @@ async function pegarTela(){
     }
   }
   est.falhasDaTela=falhas;
+  marcar('comecei a transmitir ('+p.a+'p a '+p.fps+' fps pedidos, para '+quantosRecebem()+')');
   if(!foi){
     erro('A sua tela está sendo capturada (você a vê aí embaixo), mas não consegui MANDAR para ninguém. '+
          (falhas.length?'Motivo: '+falhas.join(' · '):'Nenhuma vaga de vídeo foi negociada.')+
@@ -3182,6 +3197,7 @@ async function pararTela(){
   acordarControles();
   $('btn-tela').textContent='🖥 Compartilhar tela';
   $('btn-tela').classList.remove('parando');
+  marcar('parei de transmitir');
   recado('Você parou de transmitir.','ok');
 }
 
@@ -3251,6 +3267,7 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
     // e fazia pelo menos 20 s desde a última troca
     if(quer!==a.degrauBanda && a.degrauFirme>=6 && passou>20000){
       a.degrauBanda=quer; a.quandoDegrau=Date.now();
+      marcar('escada da BANDA: imagem '+quer+'x menor (cabe ~'+Math.round(a.banda/1000)+' kbps)');
       a.degrau=Math.max(a.degrauBanda, a.degrauFps);
       await aplicarPerfilVideo(par);
       return;
@@ -3284,6 +3301,7 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
         a.degrauFps=prox; a.quandoFps=Date.now(); a.fpsRuim=0;
         a.degrau=Math.max(a.degrauBanda, a.degrauFps);
         a.motivo='imagem menor para segurar os '+alvoFps+' quadros';
+        marcar('escada dos QUADROS: imagem '+prox+'x menor (fps estava em '+fpsAgora+', alvo '+alvoFps+')');
         await aplicarPerfilVideo(par);
         return;
       }
@@ -3320,8 +3338,199 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
 
   a.quando = agora;
   a.motivo = a.fator>=0.99 ? '' : Math.round(a.fator*100)+'% da qualidade escolhida';
+  marcar('banda ajustada para '+Math.round(a.fator*100)+'% (perda '+perda.toFixed(1)+'%'+
+         (apertado?', internet apertada':'')+')');
   await aplicarPerfilVideo(par);
 }
+/* =====================================================================
+ * O CADERNINHO — o que aconteceu, segundo a segundo
+ * ---------------------------------------------------------------------
+ * Um número na tela só conta o AGORA. Quando alguém diz "caiu pra 30",
+ * a pergunta seguinte é sempre a mesma: caiu quando, por quanto tempo, e
+ * o que estava acontecendo junto? Sem isso a conversa vira adivinhação.
+ *
+ * Então o Frag vai anotando. E anota DE GRAÇA: ele já pede as estatís-
+ * ticas uma vez por segundo para desenhar o painel, e o caderninho só
+ * copia o que já veio. Nenhuma medição a mais, nenhum processador a
+ * mais — o que seria exatamente o pecado de um medidor de desempenho.
+ *
+ * Guarda 15 minutos e vai jogando o começo fora. Fica só na memória:
+ * fechou a aba, acabou.
+ * =================================================================== */
+const registro = { linhas:[], marcos:[], inicio:Date.now() };
+const TETO_LINHAS = 900;
+
+function relogio(ms){
+  const t = Math.max(0, Math.round(ms/1000));
+  return Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
+}
+
+/* Um momento digno de nota: uma troca, uma queda, alguém chegando. É o
+   que transforma uma tabela de números numa história que dá para ler. */
+function marcar(txt){
+  const t = Date.now()-registro.inicio;
+  const ultimo = registro.marcos[registro.marcos.length-1];
+  // não repete o mesmo aviso em sequência: vira ruído e esconde o resto
+  if(ultimo && ultimo.txt===txt && t-ultimo.t < 3000) return;
+  registro.marcos.push({ t, txt:String(txt).slice(0,140) });
+  while(registro.marcos.length>300) registro.marcos.shift();
+}
+
+function anotarLinha(x){
+  const f = x.fonte;
+  registro.linhas.push({
+    t: Date.now()-registro.inicio,
+    quem: (x.par.nome||x.par.id||'?').slice(0,6),
+    fps: x.fpsEnviado|0,
+    enc: x.fpsComprimido|0,
+    fonte: f ? Math.round(f.framesPerSecond||0) : 0,
+    larg: x.sv ? (x.sv.frameWidth||0) : 0,
+    alt:  x.sv ? (x.sv.frameHeight||0) : 0,
+    kbps: x.kbps|0,
+    ping: x.ms|0,
+    perda: +(x.perda||0).toFixed(1),
+    segura: x.sv ? (x.sv.qualityLimitationReason||'none') : '-',
+    escB: x.par.auto ? x.par.auto.degrauBanda : 1,
+    escF: x.par.auto ? x.par.auto.degrauFps : 1,
+    recFps: x.ev ? Math.round(x.ev.framesPerSecond||0) : 0,
+    congelou: x.ev ? (x.ev.freezeCount||0) : 0,
+  });
+  while(registro.linhas.length>TETO_LINHAS) registro.linhas.shift();
+
+  // trocas que valem virar momento
+  const impl = x.sv && x.sv.encoderImplementation;
+  if(impl && impl!==x.par.implAntes){
+    if(x.par.implAntes) marcar('o compressor mudou: '+x.par.implAntes+' -> '+impl);
+    x.par.implAntes = impl;
+  }
+  const tam = x.sv ? (x.sv.frameWidth+'x'+x.sv.frameHeight) : '';
+  if(tam && tam!==x.par.tamAntes){
+    if(x.par.tamAntes) marcar('o tamanho enviado mudou: '+x.par.tamAntes+' -> '+tam);
+    x.par.tamAntes = tam;
+  }
+}
+
+function resumoDoRegistro(){
+  const L = registro.linhas;
+  if(!L.length) return ['(nada gravado ainda — o caderninho só enche durante a chamada)'];
+  const alvo = (PERFIS[cfg.qualidade]||PERFIS['1080-60-8']).fps;
+  const comFps = L.filter(l=>l.fps>0);
+  const R = [];
+  const conta = (arr, f)=> arr.length ? arr.reduce((a,x)=>a+f(x),0)/arr.length : 0;
+
+  if(comFps.length){
+    const fps = comFps.map(l=>l.fps);
+    const abaixo = fps.filter(v=>v < alvo*0.85).length;
+    R.push('quadros que saem  : média '+Math.round(conta(comFps,l=>l.fps))+
+           ' | pior '+Math.min(...fps)+' | melhor '+Math.max(...fps)+' (alvo '+alvo+')');
+    R.push('                    abaixo de '+Math.round(alvo*0.85)+' em '+
+           Math.round(abaixo/fps.length*100)+'% do tempo transmitindo');
+    const enc = comFps.map(l=>l.enc).filter(v=>v>0);
+    if(enc.length) R.push('o compressor deu  : média '+Math.round(conta(enc.map(v=>({v})),o=>o.v))+
+                          ' | pior '+Math.min(...enc));
+    const fonte = comFps.map(l=>l.fonte).filter(v=>v>0);
+    if(fonte.length) R.push('a tela entregou   : média '+Math.round(conta(fonte.map(v=>({v})),o=>o.v))+
+                            ' | pior '+Math.min(...fonte));
+  }
+  const pings = L.map(l=>l.ping).filter(v=>v>0);
+  if(pings.length) R.push('ping              : média '+Math.round(conta(pings.map(v=>({v})),o=>o.v))+
+                          ' ms | pior '+Math.max(...pings)+' ms');
+  const perdas = L.map(l=>l.perda).filter(v=>v>0);
+  if(perdas.length) R.push('perda             : pior '+Math.max(...perdas).toFixed(1)+'% | '+
+                           'houve perda em '+Math.round(perdas.length/L.length*100)+'% do tempo');
+  const kb = L.map(l=>l.kbps).filter(v=>v>0);
+  if(kb.length) R.push('banda de subida   : média '+Math.round(conta(kb.map(v=>({v})),o=>o.v))+
+                       ' kbps | pico '+Math.max(...kb)+' kbps');
+
+  // quem estava segurando a qualidade, em porcentagem do tempo
+  const motivos = {};
+  L.forEach(l=>{ if(l.segura&&l.segura!=='-') motivos[l.segura]=(motivos[l.segura]||0)+1; });
+  const nomes = { none:'nada (livre)', cpu:'PROCESSADOR', bandwidth:'INTERNET', other:'outro' };
+  const partes = Object.keys(motivos).sort((a,b)=>motivos[b]-motivos[a])
+    .map(k=>(nomes[k]||k)+' '+Math.round(motivos[k]/L.length*100)+'%');
+  if(partes.length) R.push('segurando a imagem: '+partes.join(' | '));
+
+  const tams = L.filter(l=>l.larg>0).map(l=>l.larg);
+  if(tams.length){
+    const menor=Math.min(...tams), maior=Math.max(...tams);
+    R.push("tamanho enviado   : " + (menor===maior ? maior+"px de largura, sempre"
+          : "variou de "+menor+" a "+maior+"px de largura"));
+  }
+  const congelou = L.length ? (L[L.length-1].congelou - L[0].congelou) : 0;
+  if(congelou>0) R.push('congelamentos     : '+congelou+' na imagem que você RECEBE');
+  return R;
+}
+
+function montarRegistro(){
+  const L=[];
+  const dz=(t)=>L.push(t);
+  const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  dz('===== CADERNINHO DO FRAG =====');
+  dz('versão: '+VERSAO);
+  dz('gravado por: '+relogio(Date.now()-registro.inicio)+'  ('+registro.linhas.length+' amostras)');
+  dz('navegador: '+navigator.userAgent.replace(/^Mozilla\/5\.0 /,''));
+  dz('escolhido: '+p.a+'p a '+p.fps+' fps | prioridade: '+(cfg.prioridade==='nitidez'?'nitidez':'fluidez')+
+     ' | compressão: '+cfg.codec+' | imagem: '+cfg.latencia);
+  dz('tem H264: '+temCodec('h264')+' | tem AV1: '+temCodec('av1'));
+  dz('');
+  dz('--- resumo ---');
+  resumoDoRegistro().forEach(dz);
+  dz('');
+  dz('--- momentos ---');
+  if(!registro.marcos.length) dz('(nenhum)');
+  else registro.marcos.forEach(m=>dz('  '+relogio(m.t).padStart(6)+'  '+m.txt));
+  dz('');
+  dz('--- segundo a segundo ---');
+  dz('  fps = o que sai pela rede | enc = o que o compressor deu conta');
+  dz('  fonte = o que a tela entrega | rec = o que chega DELE pra você');
+  dz('  seg = quem está segurando | esc = escada banda/quadros');
+  dz('');
+  dz(' tempo  quem    fps  enc  fonte  tamanho     kbps  ping  perda  seg    esc      rec');
+  dz(' '+'-'.repeat(84));
+  const cortes = { none:'livre', cpu:'CPU', bandwidth:'REDE', other:'outro', '-':'-' };
+  for(const l of registro.linhas){
+    dz(' '+relogio(l.t).padStart(5)+
+       '  '+String(l.quem).padEnd(7)+
+       String(l.fps).padStart(3)+'  '+
+       String(l.enc).padStart(3)+'  '+
+       String(l.fonte).padStart(4)+'  '+
+       (l.larg?(l.larg+'x'+l.alt):'-').padEnd(12)+
+       String(l.kbps).padStart(5)+' '+
+       String(l.ping).padStart(5)+' '+
+       String(l.perda).padStart(6)+'  '+
+       String(cortes[l.segura]||l.segura).padEnd(6)+
+       (l.escB+'/'+l.escF).padEnd(8)+
+       String(l.recFps).padStart(3));
+  }
+  dz('');
+  dz('--- erros registrados ---');
+  if(!diario.length) dz('(nenhum)');
+  else diario.slice(-20).forEach(x=>dz('  '+x));
+  dz('===== fim =====');
+  return L.join('\n');
+}
+
+async function copiarTexto(txt){
+  try{ await navigator.clipboard.writeText(txt); return true; }catch{}
+  const cx=document.createElement('textarea');
+  cx.value=txt; cx.readOnly=true;
+  cx.style.cssText='position:fixed;inset:6%;z-index:200;width:88%;height:88%;font-size:12px;padding:14px';
+  document.body.appendChild(cx); cx.select();
+  cx.onblur=()=>cx.remove();
+  return false;
+}
+
+async function copiarRegistro(){
+  const b=$('btn-registro');
+  b.disabled=true; b.textContent='Montando…';
+  let txt='';
+  try{ txt=montarRegistro(); }catch(e){ txt='falhou ao montar o caderninho: '+e; }
+  const ok = await copiarTexto(txt);
+  b.disabled=false; b.textContent='📈 Copiar histórico de FPS e ping';
+  recado(ok? ('Histórico copiado — '+registro.linhas.length+' segundos gravados.')
+           : 'Copie o texto da caixa que abriu.','ok');
+}
+
 /* =====================================================================
  * NÚMEROS DA CHAMADA
  * =================================================================== */
@@ -3425,6 +3634,9 @@ async function atualizarNumeros(){
   for(const x of porPessoa) ajustarQualidade(x.par, x.perda, x.apertado, x.banda, x.fpsComprimido);
 
   // FPS sempre à vista enquanto você transmite: é o número que importa
+  // o caderninho se alimenta do que já foi colhido aqui em cima
+  for(const x of porPessoa) anotarLinha(x);
+
   const alvoFps = (PERFIS[cfg.qualidade]||PERFIS['1080-60-8']).fps;
   const enviando = porPessoa.filter(x=>x.sv);
   $('pin-fps').hidden = !est.streamTela || !enviando.length;
@@ -3434,6 +3646,11 @@ async function atualizarNumeros(){
     $('fps-agora').className = f>=alvoFps*0.85 ? 'bom' : f>=alvoFps*0.5 ? 'medio' : 'ruim';
   }
   cuidarDoAvisoDeCpu(porPessoa);
+
+  const quanto=$('registro-quanto');
+  if(quanto) quanto.textContent = registro.linhas.length
+    ? relogio(Date.now()-registro.inicio)+' · '+registro.linhas.length+' amostras'
+    : '—';
 
   if(!$('painel').classList.contains('aberto')) return;
 
@@ -3581,6 +3798,7 @@ async function cuidarDoAvisoDeCpu(porPessoa){
   // mesmo motivo pelo qual H264 fixo como padrão deu errado um dia; a
   // diferença é que agora ele é testado no ar, não escolhido no escuro.
   if(!naPlaca && cfg.codec!=='h264' && temCodec('h264')){
+    marcar('processador sofrendo — tentando passar para a placa de vídeo (H264)');
     recado('Seu processador está segurando a transmissão. Passando para a placa de vídeo…','');
     const antes = await quadrosQueSairam();
     cfg.codec='h264'; $('sel-codec').value='h264'; guardarAjustes();
@@ -3588,11 +3806,13 @@ async function cuidarDoAvisoDeCpu(porPessoa){
     setTimeout(async ()=>{
       if(!est.streamTela) return;
       if((await quadrosQueSairam()) > antes + 30){
+        marcar('deu certo: quem comprime agora é a placa de vídeo');
         recado('Pronto — quem comprime agora é a placa de vídeo. O jogo agradece.','ok');
         return;
       }
       cfg.codec='auto'; $('sel-codec').value='auto'; guardarAjustes();
       await trocarCodecAgora();
+      marcar('a placa NAO fechou acordo — voltei para compressão automática');
       recado('A placa não fechou acordo com o outro lado. Voltei para a compressão automática.','mal');
     }, 9000);
     return;
@@ -4963,6 +5183,7 @@ document.addEventListener('keyup',(ev)=>{
 window.addEventListener('blur',()=>{ if(est.segurando) segurarFala(false); });
 
 $('btn-diag').onclick=copiarDiagnostico;
+$('btn-registro').onclick=copiarRegistro;
 $('btn-redesenhar').onclick=redesenharTudo;
 $('in-canvas').onchange=()=>{
   cfg.desenho = $('in-canvas').checked ? 'canvas' : 'normal';
@@ -5055,6 +5276,8 @@ window.addEventListener('resize', ()=>{
    internet mandando imagem para uma janela que ninguém está olhando. */
 document.addEventListener('visibilitychange', ()=>{
   const sumi = document.hidden;
+  marcar(sumi ? 'você saiu da aba (os outros passam a mandar só um fiozinho)'
+              : 'você voltou para a aba');
   pares.forEach(p=>enviar(p,{t:'sumi', v:sumi}));
   if(!sumi){ pares.forEach(p=>{ p.avisei=0; }); setTimeout(avisarTamanhos, 300); }
 });
