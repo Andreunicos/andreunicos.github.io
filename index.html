@@ -781,7 +781,7 @@ body.sem-tela .divisor{display:none}
 
     <div class="secao">Tela</div>
     <label class="campo">
-      <span>Qualidade da transmissão</span>
+      <span>Qualidade do que VOCÊ transmite</span>
       <select id="sel-qualidade">
         <option value="720-30-3">720p 30fps — leve</option>
         <option value="1080-30-5">1080p 30fps</option>
@@ -790,8 +790,10 @@ body.sem-tela .divisor{display:none}
       </select>
     </label>
     <p class="ajuda" style="margin-top:0">
-      Aqui é conexão direta entre vocês dois: a qualidade depende do seu upload
-      e do download dele. 1080p60 pede uns 12 Mbps de subida.
+      <b>Isto vale só para a SUA tela.</b> A imagem que você recebe é escolhida por quem está
+      transmitindo — mexer aqui não muda em nada o que você está assistindo.
+      Aqui é conexão direta entre vocês dois: a qualidade depende do seu upload e do download
+      dele. 1080p60 pede uns 12 Mbps de subida.
     </p>
 
     <label class="chk" style="margin-top:14px">
@@ -1852,7 +1854,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '3.7 — 28/08 09:20';
+const VERSAO = '3.8 — 28/08 10:30';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2985,7 +2987,20 @@ async function aplicarPerfilVideo(par){
   // internet e o seu processador à toa. Fica um fiozinho — cortar de vez
   // custaria uma renegociação inteira na volta, e a volta é a hora em
   // que a pessoa mais quer ver imagem.
-  if(par.sumiu){ encolher = 3; fps = 8; teto = Math.min(teto, 250000); }
+  /* O amigo saiu da aba. Vale economizar — mas com muito menos violência
+     do que eu fiz da primeira vez.
+     Aquele "8 quadros por segundo" apareceu num caderninho real como uma
+     transmissão de 8 fps enquanto a pessoa OLHAVA para a tela: com um
+     jogo em tela cheia na frente, o Chrome marca a janela como escondida
+     mesmo quando ela está visível no segundo monitor. Economizar 30 vezes
+     em cima de um palpite errado é pior do que não economizar.
+     Agora corta uma banda parecida sem virar slideshow, e ainda espera
+     20 segundos antes de valer (lá no aviso). */
+  if(par.sumiu){
+    encolher = Math.max(encolher, 2);
+    fps = Math.max(15, Math.round(p.fps/3));
+    teto = Math.min(teto, 900000);
+  }
   // Você pediu fluidez — então é fluidez que o navegador tem que segurar.
   // Aqui ia "balanced", um meio-termo que cedia quadros JUNTO com
   // resolução: era ele que produzia aquele 1080p a 24 que parece travado.
@@ -3432,6 +3447,9 @@ function anotarLinha(x){
     escB: x.par.auto ? x.par.auto.degrauBanda : 1,
     escF: x.par.auto ? x.par.auto.degrauFps : 1,
     recFps: x.ev ? Math.round(x.ev.framesPerSecond||0) : 0,
+    recL: x.ev ? (x.ev.frameWidth||0) : 0,
+    recA: x.ev ? (x.ev.frameHeight||0) : 0,
+    recPerdidos: x.ev ? (x.ev.packetsLost||0) : 0,
     congelou: x.ev ? (x.ev.freezeCount||0) : 0,
   });
   while(registro.linhas.length>TETO_LINHAS) registro.linhas.shift();
@@ -3495,6 +3513,29 @@ function resumoDoRegistro(){
     R.push("tamanho enviado   : " + (menor===maior ? maior+"px de largura, sempre"
           : "variou de "+menor+" a "+maior+"px de largura"));
   }
+  /* Metade das pessoas numa call está ASSISTINDO, não transmitindo — e
+     para elas o resumo saía praticamente vazio, porque tudo aqui em cima
+     fala de quem manda. O primeiro caderninho que recebi era exatamente
+     assim: três linhas e nenhuma resposta. */
+  const rec = L.filter(l=>l.recFps>0);
+  if(rec.length){
+    const v = rec.map(l=>l.recFps);
+    R.push('');
+    R.push('--- a imagem que VOCÊ RECEBE ---');
+    R.push('quadros que chegam: média '+Math.round(conta(rec,l=>l.recFps))+
+           ' | pior '+Math.min(...v)+' | melhor '+Math.max(...v));
+    const tam = rec[rec.length-1];
+    if(tam.recL) R.push('tamanho recebido  : '+tam.recL+'x'+tam.recA);
+    const perdidos = L[L.length-1].recPerdidos - L[0].recPerdidos;
+    if(perdidos>0) R.push('pacotes perdidos  : '+perdidos);
+    // quando VOCÊ está fora da aba, quem manda economiza de propósito.
+    // sem dizer isso, esse número parece defeito e não é.
+    const baixos = v.filter(x=>x<=20).length;
+    if(baixos > v.length*0.15)
+      R.push('ATENÇÃO           : '+Math.round(baixos/v.length*100)+'% do tempo com 20 quadros ou menos. '+
+             'Confira nos "momentos" se você estava fora da aba — quem manda economiza nessa hora, de propósito.');
+  }
+
   const congelou = L.length ? (L[L.length-1].congelou - L[0].congelou) : 0;
   if(congelou>0) R.push('congelamentos     : '+congelou+' na imagem que você RECEBE');
   return R;
@@ -3779,6 +3820,8 @@ async function atualizarNumeros(){
       const q=PERFIS[x.par.qualidadeDele];
       linha('Ele escolheu transmitir em', q.a+'p a '+q.fps+' fps', q.fps>=60?'bom':'medio');
     }
+    if(x.par.sumiu) linha('Ele saiu da aba', 'estou mandando pouco de propósito','medio');
+    if(document.hidden) linha('Você está fora da aba', 'ele pode estar economizando','medio');
     if(x.par.auto && x.par.auto.motivo) linha('Ajuste automático', x.par.auto.motivo,'medio');
     if(x.par.folgaAplicada!=null) linha('Folga contra engasgo', x.par.folgaAplicada+' ms');
     if(x.caminho) linha('Caminho', x.caminho, x.caminho==='direto'?'bom':'medio');
@@ -5337,12 +5380,47 @@ window.addEventListener('resize', ()=>{
 
 /* Trocou de aba ou minimizou. Avisa todo mundo para parar de gastar
    internet mandando imagem para uma janela que ninguém está olhando. */
+/* ---------------------------------------------------------------------
+ * SAIR DA ABA — com o benefício da dúvida
+ * ---------------------------------------------------------------------
+ * Duas armadilhas que só apareceram num caderninho de verdade:
+ *
+ * 1. Sair da aba por dois segundos para ler uma mensagem não pode
+ *    derrubar a imagem de todo mundo. Então a economia só começa depois
+ *    de 20 segundos fora.
+ *
+ * 2. Com um jogo em tela cheia na frente, o Chrome marca a janela como
+ *    escondida MESMO quando ela está visível no segundo monitor. Não dá
+ *    para saber isso pelo navegador — mas dá para perceber pelo
+ *    comportamento: quem fica indo e voltando está de olho na tela. Na
+ *    terceira ida e volta rápida, o Frag desiste de economizar e não
+ *    tenta mais nesta sessão.
+ * ------------------------------------------------------------------ */
 document.addEventListener('visibilitychange', ()=>{
-  const sumi = document.hidden;
-  marcar(sumi ? 'você saiu da aba (os outros passam a mandar só um fiozinho)'
-              : 'você voltou para a aba');
-  pares.forEach(p=>enviar(p,{t:'sumi', v:sumi}));
-  if(!sumi){ pares.forEach(p=>{ p.avisei=0; }); setTimeout(avisarTamanhos, 300); }
+  clearTimeout(est.relogioSumi);
+
+  if(!document.hidden){
+    if(est.quandoSumi && Date.now()-est.quandoSumi < 60000){
+      est.idasEVoltas = (est.idasEVoltas||0)+1;
+      if(est.idasEVoltas>=3 && !est.naoEconomizar){
+        est.naoEconomizar = true;
+        marcar('você fica indo e voltando — parei de economizar (deve ser segundo monitor)');
+      }
+    }
+    est.quandoSumi = 0;
+    marcar('você voltou para a aba');
+    pares.forEach(p=>{ enviar(p,{t:'sumi', v:false}); p.avisei=0; });
+    setTimeout(avisarTamanhos, 300);
+    return;
+  }
+
+  est.quandoSumi = Date.now();
+  if(est.naoEconomizar){ marcar('você saiu da aba (economia desligada nesta sessão)'); return; }
+  est.relogioSumi = setTimeout(()=>{
+    if(!document.hidden || est.naoEconomizar) return;
+    marcar('20s fora da aba — os outros passam a economizar banda');
+    pares.forEach(p=>enviar(p,{t:'sumi', v:true}));
+  }, 20000);
 });
 
 document.addEventListener('mousemove',acordarControles);

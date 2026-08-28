@@ -316,9 +316,55 @@ async function principal() {
       await aplicarPerfilVideo(p);
       return r;
     });
-    (escondido.encolhe === 3 && escondido.fps === 8 && escondido.teto <= 250000)
-      ? ok('aba escondida vira fiozinho', 'encolhe ' + escondido.encolhe + 'x, ' + escondido.fps + ' fps, ' + Math.round(escondido.teto / 1000) + ' kbps')
-      : mal('aba escondida não reduziu', JSON.stringify(escondido));
+    /* Economiza, mas sem virar slideshow: um caderninho real mostrou 8 fps
+       chegando para alguém que ESTAVA olhando para a tela (jogo em tela
+       cheia faz o Chrome achar que a janela está escondida). */
+    (escondido.encolhe >= 2 && escondido.fps >= 15 && escondido.teto <= 900000)
+      ? ok('aba escondida economiza sem matar a imagem',
+           'encolhe ' + escondido.encolhe + 'x, ' + escondido.fps + ' fps, ' + Math.round(escondido.teto / 1000) + ' kbps')
+      : mal('economia da aba escondida fora do esperado', JSON.stringify(escondido));
+
+    /* ---------- 8b2. a economia tem que esperar ---------- */
+    titulo('8b2. Sair da aba por pouco tempo não pode derrubar nada');
+    const fingirEscondido = (v) => A.pg.evaluate((v) => {
+      if (!window.__stub) {
+        window.__stub = true;
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => !!window.__escondido });
+      }
+      window.__escondido = v;
+      document.dispatchEvent(new Event('visibilitychange'));
+    }, v);
+
+    // A é quem transmite; quem "some" aqui é B (o que assiste)
+    const fingirEmB = (v) => B.pg.evaluate((v) => {
+      if (!window.__stub) {
+        window.__stub = true;
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => !!window.__escondido });
+      }
+      window.__escondido = v;
+      document.dispatchEvent(new Event('visibilitychange'));
+    }, v);
+    void fingirEscondido;
+
+    const sumiuEmA = () => A.pg.evaluate(() => { const p = [...pares.values()][0]; return !!p.sumiu; });
+
+    await fingirEmB(true);
+    await espera(2500);
+    (await sumiuEmA()) === false
+      ? ok('2,5s fora da aba: não mexeu em nada')
+      : mal('economizou cedo demais — uma saída rápida já derrubaria a imagem');
+
+    await fingirEmB(false);
+    await espera(500);
+    (await sumiuEmA()) === false ? ok('voltar cancela a economia') : mal('ficou marcado como sumido');
+
+    /* três idas e voltas rápidas = a pessoa está de olho (segundo monitor,
+       ou o Chrome enganado pelo jogo em tela cheia). O Frag desiste. */
+    for (let i = 0; i < 3; i++) { await fingirEmB(true); await espera(250); await fingirEmB(false); await espera(250); }
+    const desistiu = await B.pg.evaluate(() => ({ naoEconomizar: !!est.naoEconomizar, idas: est.idasEVoltas || 0 }));
+    desistiu.naoEconomizar
+      ? ok('depois de ir e voltar 3x, para de economizar', desistiu.idas + ' idas e voltas')
+      : mal('continuou economizando mesmo com a pessoa de olho', JSON.stringify(desistiu));
 
     /* ---------- 8c. quanto custou de servidor ---------- */
     titulo('8c. Quanto pesou no servidor de recado');
