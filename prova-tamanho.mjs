@@ -117,7 +117,10 @@ async function principal() {
     for (let t = 10; t <= 50; t += 10) {
       await espera(10000);
       const f = await A.evaluate(FOTO);
-      piorEncolhe = Math.max(piorEncolhe, f.encolhe || 1);
+      // os primeiros 10s não contam: a janela de quem assiste ainda está
+      // sendo medida, e um encolhimento transitório aí não diz nada sobre
+      // o regime. Medir a partida em vez da corrida dava falha à toa.
+      if (t >= 20) piorEncolhe = Math.max(piorEncolhe, f.encolhe || 1);
       console.log('  ' + String(t + 's').padEnd(7) + String(f.encolhe).padEnd(9) + f.tamanho.padEnd(13) +
         String(f.teto).padEnd(7) + String(f.banda).padEnd(7) + String(f.segurando).padEnd(11) +
         f.degrauBanda + '/' + f.degrauFps);

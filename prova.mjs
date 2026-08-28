@@ -366,6 +366,64 @@ async function principal() {
       ? ok('depois de ir e voltar 3x, para de economizar', desistiu.idas + ' idas e voltas')
       : mal('continuou economizando mesmo com a pessoa de olho', JSON.stringify(desistiu));
 
+    /* ---------- 8b3. o mecanismo por dentro ---------- */
+    titulo('8b3. O mecanismo por dentro');
+
+    // imagem menor tem que pedir menos banda, não a mesma
+    /* Forço pela escada da banda, não pela largura pedida: a largura é
+       reescrita a qualquer momento por uma mensagem do amigo, e a sonda
+       virava corrida. A regra medida é a mesma. */
+    const orc = await A.pg.evaluate(async () => {
+      const p = [...pares.values()][0];
+      const autoAntes = cfg.auto; cfg.auto = false;
+      const a = autoDe(p);
+      const bAntes = a.degrauBanda;
+      a.degrauBanda = 1; p.perfilAplicado = null;
+      await aplicarPerfilVideo(p);
+      const inteiro = p.senderVideo.getParameters().encodings[0].maxBitrate;
+      a.degrauBanda = 3; p.perfilAplicado = null;
+      await aplicarPerfilVideo(p);
+      const e = p.senderVideo.getParameters().encodings[0];
+      const r = { inteiro, encolhe: e.scaleResolutionDownBy, teto: e.maxBitrate, porque: p.porqueTamanho };
+      a.degrauBanda = bAntes; p.perfilAplicado = null; cfg.auto = autoAntes;
+      await aplicarPerfilVideo(p);
+      return r;
+    });
+    (orc.encolhe >= 3 && orc.teto < orc.inteiro * 0.4)
+      ? ok('imagem menor pede menos banda',
+           Math.round(orc.inteiro / 1000) + ' → ' + Math.round(orc.teto / 1000) + ' kbps a ' + orc.encolhe + 'x')
+      : mal('orçamento não acompanhou os pixels', JSON.stringify(orc));
+    /pouca banda/.test(orc.porque || '')
+      ? ok('o Frag diz por que encolheu', orc.porque)
+      : mal('não explicou o motivo', String(orc.porque));
+    // queda severa não pode esperar 13 segundos
+    const rapido = await A.pg.evaluate(async () => {
+      const p = [...pares.values()][0];
+      const a = autoDe(p);
+      a.aquece = 20; a.degrauFps = 1; a.degrauBanda = 1; a.fpsRuim = 0; a.quandoFps = 0;
+      const alvo = perfilReal().fps;
+      await ajustarQualidade(p, 0, false, 0, Math.round(alvo * 0.3));
+      await ajustarQualidade(p, 0, false, 0, Math.round(alvo * 0.3));
+      const r = { degrauFps: a.degrauFps, motivo: a.motivo };
+      a.degrauFps = 1; a.degrau = 1; p.perfilAplicado = null;
+      await aplicarPerfilVideo(p);
+      return r;
+    });
+    rapido.degrauFps > 1
+      ? ok('queda severa reage em 2 segundos', 'encolheu para ' + rapido.degrauFps + 'x')
+      : mal('demorou a reagir a uma queda severa', JSON.stringify(rapido));
+
+    // o receptor consegue contar que travou
+    await B.pg.evaluate(() => { const p = [...pares.values()][0]; enviar(p, { t: 'saude', v: { c: 2, l: 7 } }); });
+    await espera(800);
+    const saude = await A.pg.evaluate(() => {
+      const p = [...pares.values()][0];
+      return { quando: p.quandoSaude || 0, recente: Date.now() - (p.quandoSaude || 0) < 5000 };
+    });
+    saude.recente
+      ? ok('quem assiste consegue avisar que travou')
+      : mal('o aviso de travamento não chegou', JSON.stringify(saude));
+
     /* ---------- 8c. quanto custou de servidor ---------- */
     titulo('8c. Quanto pesou no servidor de recado');
     const posts = await A.pg.evaluate(() => window.__posts);

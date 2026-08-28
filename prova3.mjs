@@ -175,7 +175,43 @@ async function principal() {
       ? ok('a banda foi dividida entre os dois', Math.round(banda[0].teto / 1000) + ' kbps para cada')
       : mal('a divisão de banda saiu errada', JSON.stringify(banda));
 
-    titulo('6. Cada um com a própria régua');
+    titulo('6. A banda não é dividida duas vezes');
+    /* O /n do orçamento total está certo (o upload é um só). Mas a banda
+       MEDIDA é por conexão e as conexões já competem entre si — ela já vem
+       repartida. Dividir de novo dava um terço da qualidade numa call de 3. */
+    const divisao = await A.evaluate(async () => {
+      const gente = [...pares.values()].filter(p => p.senderVideo);
+      const p = gente[0];
+      const a = p.auto;
+      a.banda = 4000000; a.fator = 1; a.degrauBanda = 1; a.degrauFps = 1;
+      p.larguraQueQuer = 0; p.perfilAplicado = null;
+      await aplicarPerfilVideo(p);
+      return {
+        recebendo: quantosRecebem(),
+        teto: p.senderVideo.getParameters().encodings[0].maxBitrate,
+        certo: Math.round(4000000 * 0.85),
+        errado: Math.round(4000000 * 0.85 / 2),
+      };
+    });
+    info('com ' + divisao.recebendo + ' recebendo e 4 Mbps medidos: teto ' + Math.round(divisao.teto / 1000) + ' kbps');
+    divisao.teto > divisao.errado * 1.5
+      ? ok('a banda medida não é dividida de novo', Math.round(divisao.teto / 1000) + ' kbps, não ' + Math.round(divisao.errado / 1000))
+      : mal('ainda dividindo duas vezes', Math.round(divisao.teto / 1000) + ' kbps');
+
+    titulo('6b. Quem não assiste não divide a banda');
+    const conta = await A.evaluate(() => {
+      const gente = [...pares.values()];
+      const antes = quantosRecebem();
+      gente[0].naoAssiste = true;
+      const depois = quantosRecebem();
+      gente[0].naoAssiste = false;
+      return { antes, depois };
+    });
+    (conta.antes === 2 && conta.depois === 1)
+      ? ok('sai da divisão quem parou de assistir', conta.antes + ' → ' + conta.depois)
+      : mal('continua dividindo com quem não assiste', JSON.stringify(conta));
+
+    titulo('7. Cada um com a própria régua');
     const reguas = await A.evaluate(() => [...pares.values()].map(p => ({ nome: p.nome, temAuto: !!p.auto, fator: p.auto ? p.auto.fator : null })));
     reguas.every(r => r.temAuto) ? ok('régua separada para cada pessoa', JSON.stringify(reguas.map(r => r.fator)))
                                  : mal('alguém ficou sem régua', JSON.stringify(reguas));
