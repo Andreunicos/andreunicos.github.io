@@ -356,6 +356,55 @@ async function principal() {
     junto ? ok('o caderninho aceita e mostra o anexo dos outros')
           : mal('o anexo não entrou no texto final');
 
+    /* ============ 10b. o pulso da própria página ============ */
+    console.log('\n=== 10b. O Frag mede se ELE MESMO está engasgando? ===');
+    const pulsoT = await B.evaluate(() => {
+      const p = resumoDoPulso();
+      return { ligado: pulso.ligado, amostras: pulso.quadros.length,
+               resumo: p ? { ...p } : null };
+    });
+    info('amostras de desenho: ' + pulsoT.amostras + ' | ' + JSON.stringify(pulsoT.resumo));
+    pulsoT.ligado ? ok('o medidor de pulso ligou ao entrar na chamada')
+                  : mal('o medidor de pulso não ligou');
+    (pulsoT.resumo && pulsoT.resumo.fps > 0)
+      ? ok('mede o ritmo de desenho da página', pulsoT.resumo.fps + ' por segundo, 1% pior ' +
+           pulsoT.resumo.pior + ', travas ' + pulsoT.resumo.travas)
+      : mal('não produziu medida de pulso', JSON.stringify(pulsoT));
+    (pulsoT.resumo && pulsoT.resumo.pior <= pulsoT.resumo.fps)
+      ? ok('o 1% pior do desenho é pior que a média, como tem que ser')
+      : mal('a conta do 1% pior está errada');
+
+    /* ============ 10c. os ajustes caros aparecem no caderninho ============ */
+    console.log('\n=== 10c. Os ajustes que custam FPS ficam visíveis? ===');
+    const caros = await B.evaluate(() => {
+      const antes = { desenho: cfg.desenho, clipe: cfg.clipeSempre };
+      cfg.desenho = 'normal'; cfg.clipeSempre = false;
+      const limpo = { lista: ajustesCaros().length, txt: montarRegistro() };
+      cfg.desenho = 'canvas'; cfg.clipeSempre = true;
+      const sujo = { lista: ajustesCaros().length, txt: montarRegistro() };
+      cfg.desenho = antes.desenho; cfg.clipeSempre = antes.clipe;
+      return {
+        limpoLista: limpo.lista,
+        sujoLista: sujo.lista,
+        limpoAvisa: limpo.txt.includes('AJUSTES CAROS LIGADOS'),
+        sujoAvisa: sujo.txt.includes('AJUSTES CAROS LIGADOS'),
+        sujoCita: sujo.txt.includes('MODO CANVAS') && sujo.txt.includes('CLIPE SEMPRE'),
+        semprePõe: limpo.txt.includes('desenho: normal') &&
+                   limpo.txt.includes('clipe sempre pronto: desligado'),
+        temPulso: limpo.txt.includes('a PÁGINA do Frag está acompanhando'),
+      };
+    });
+    (caros.limpoLista === 0 && caros.sujoLista === 2)
+      ? ok('reconhece os dois ajustes caros', '0 limpo, 2 ligados')
+      : mal('não contou os ajustes caros', JSON.stringify(caros));
+    (!caros.limpoAvisa && caros.sujoAvisa && caros.sujoCita)
+      ? ok('só grita quando algum está ligado, e diz qual')
+      : mal('o aviso de ajuste caro saiu errado', JSON.stringify(caros));
+    caros.semprePõe ? ok('o estado dos dois aparece sempre, ligado ou não')
+                    : mal('o estado dos ajustes não entrou no caderninho');
+    caros.temPulso ? ok('o pulso da página entrou no caderninho')
+                   : mal('o pulso não apareceu no caderninho');
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

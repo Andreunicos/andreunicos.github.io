@@ -1899,7 +1899,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '4.1 — 28/08 17:30';
+const VERSAO = '4.2 — 28/08 21:00';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2706,6 +2706,7 @@ function expulsar(id, avisarOsOutros){
 }
 
 function entrarNaChamada(){
+  medirPulso();
   if($('chamada').hidden===false) { pintarGente(); return; }
   $('entrada').hidden=true; $('chamada').hidden=false;
   pintarGente();
@@ -3410,6 +3411,18 @@ async function pegarTela(){
   const aud=stream.getAudioTracks()[0];
   aplicarDicaDeConteudo(v);
 
+  /* O modo canvas é uma saída de emergência para driver quebrado, não um
+     jeito normal de assistir: ele redesenha cada quadro na mão, na mesma
+     fila da página. Ligado durante um jogo, é dinheiro jogado fora — e
+     como o ajuste fica guardado no navegador, dá para ter sido ligado
+     semanas atrás e esquecido. */
+  if(cfg.desenho==='canvas' && !est.avisouCanvas){
+    est.avisouCanvas = true;
+    marcar('atenção: modo CANVAS ligado — redesenha cada quadro na mão e custa FPS');
+    recado('O "modo canvas" está ligado nos ajustes. Ele existe só para placa de vídeo com '+
+           'defeito e custa FPS. Se você não ligou de propósito, volte para Normal.','mal');
+  }
+
   // A prévia primeiro. Se ela aparecer, a captura deu certo — e qualquer
   // problema daqui pra frente é de ENVIO, não de captura. Antes isso
   // ficava indistinguível.
@@ -3783,6 +3796,78 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
  * Guarda 15 minutos e vai jogando o começo fora. Fica só na memória:
  * fechou a aba, acabou.
  * =================================================================== */
+/* ---------------------------------------------------------------------
+ * O PULSO DA PRÓPRIA PÁGINA
+ * ---------------------------------------------------------------------
+ * Todo o resto do caderninho fala do VÍDEO: o que saiu, o que chegou, o
+ * que foi desenhado. Nada dizia se a PÁGINA — o Frag em si — estava
+ * conseguindo acompanhar. E é justamente essa a pergunta quando alguém
+ * diz que o Frag come FPS do jogo: se a aba engasga, ela engasga o resto
+ * da máquina junto.
+ *
+ * Duas medidas, as duas de graça e sem tocar em nada:
+ *   - o intervalo entre desenhos de tela (num monitor de 60 Hz o certo
+ *     é 16,7 ms; se virar 33 ou 50, a aba perdeu quadros);
+ *   - as "tarefas longas": qualquer bloco acima de 50 ms em que a linha
+ *     principal ficou presa e absolutamente nada pôde acontecer.
+ *
+ * Custa um punhado de subtrações por quadro. Medir desempenho gastando
+ * desempenho seria o pecado óbvio aqui, então não tem DOM, não tem
+ * alocação e a lista é limitada a 10 segundos.
+ * ------------------------------------------------------------------ */
+const pulso = { quadros:[], travas:0, msTravado:0, ligado:false };
+
+function medirPulso(){
+  if(pulso.ligado) return;
+  pulso.ligado = true;
+  try{
+    new PerformanceObserver(l=>{
+      for(const e of l.getEntries()){ pulso.travas++; pulso.msTravado += e.duration; }
+    }).observe({ entryTypes:['longtask'] });
+  }catch{}          // navegador sem esse medidor: o resto continua valendo
+  let antes = 0;
+  const passo = (agora)=>{
+    if(antes){
+      const dt = agora-antes;
+      // acima de 1 s não é engasgo, é aba em segundo plano
+      if(dt>0 && dt<1000){
+        pulso.quadros.push(dt);
+        if(pulso.quadros.length>600) pulso.quadros.shift();
+      }
+    }
+    antes = agora;
+    requestAnimationFrame(passo);
+  };
+  requestAnimationFrame(passo);
+}
+
+function resumoDoPulso(){
+  const q = pulso.quadros;
+  if(q.length<60) return null;
+  const ord = q.slice().sort((a,b)=>a-b);
+  const medio = q.reduce((a,b)=>a+b,0)/q.length;
+  return {
+    fps:       Math.round(1000/medio),
+    pior:      Math.round(1000/ord[Math.floor(ord.length*0.99)]),
+    buraco:    Math.round(ord[ord.length-1]),
+    travas:    pulso.travas,
+    msTravado: Math.round(pulso.msTravado),
+  };
+}
+
+/* Os ajustes que fazem trabalho pesado A CADA QUADRO. Ficam guardados no
+   navegador, então dá para estarem ligados há semanas sem ninguém
+   lembrar — e nenhum dos dois aparecia no caderninho. */
+function ajustesCaros(){
+  const L = [];
+  if(cfg.desenho==='canvas')
+    L.push('MODO CANVAS — redesenha o vídeo inteiro na mão, 60x por segundo, '+
+           'na mesma fila que o resto da página');
+  if(cfg.clipeSempre)
+    L.push('CLIPE SEMPRE PRONTO — dois gravadores comprimindo sem parar, o tempo todo');
+  return L;
+}
+
 const registro = { linhas:[], marcos:[], inicio:Date.now() };
 const TETO_LINHAS = 900;
 
@@ -3984,6 +4069,23 @@ function resumoDoRegistro(){
 
   const congelou = L.length ? (L[L.length-1].congelou - L[0].congelou) : 0;
   if(congelou>0) R.push('congelamentos     : '+congelou+' na imagem que você RECEBE');
+
+  /* Isto vale para os dois lados e é o que separa "a rede está ruim" de
+     "esta máquina não está dando conta". Vai no resumo de propósito,
+     porque é o resumo que viaja pelo canal de dados. */
+  const pl = resumoDoPulso();
+  if(pl){
+    R.push('');
+    R.push('--- a PÁGINA do Frag está acompanhando? ---');
+    R.push('desenhos de tela  : '+pl.fps+' por segundo | 1% pior '+pl.pior+
+           ' | maior buraco '+pl.buraco+' ms');
+    R.push('linha principal   : '+pl.travas+' travadas, '+pl.msTravado+' ms parada no total');
+    if(pl.travas>0 || pl.pior<40)
+      R.push('LEIA              : a aba do Frag engasga sozinha. Quando isso acontece não é a '+
+             'rede nem quem transmite — é ESTA máquina, e o jogo sente junto.');
+  }
+  const cs = ajustesCaros();
+  if(cs.length) R.push('ajustes caros     : '+cs.length+' ligado(s) — ver o topo do caderninho');
   return R;
 }
 
@@ -4000,6 +4102,13 @@ function montarRegistro(extra){
                         'p — a conta é feita em cima de '+real.a+'p');
   dz('escolhido: '+p.a+'p a '+p.fps+' fps | prioridade: '+(cfg.prioridade==='nitidez'?'nitidez':'fluidez')+
      ' | compressão: '+cfg.codec+' | imagem: '+cfg.latencia);
+  dz('desenho: '+cfg.desenho+' | clipe sempre pronto: '+(cfg.clipeSempre?'LIGADO':'desligado'));
+  const caros = ajustesCaros();
+  if(caros.length){
+    dz('');
+    dz('!!! AJUSTES CAROS LIGADOS — cada um destes custa FPS:');
+    caros.forEach(c=>dz('    - '+c));
+  }
   dz('tem H264: '+temCodec('h264')+' | tem H265: '+temCodec('h265')+' | tem AV1: '+temCodec('av1'));
   dz('');
   dz('--- resumo ---');
