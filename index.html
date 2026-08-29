@@ -2011,7 +2011,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '5.0 — 29/08 18:00';
+const VERSAO = '5.1 — 29/08 20:40';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3477,11 +3477,36 @@ function aplicarDicaDeConteudo(faixa){
   try{ v.contentHint = cfg.prioridade==='nitidez' ? 'detail' : 'motion'; }catch{}
 }
 
+/* ---------------------------------------------------------------------
+ * O TAMANHO QUE PISCA
+ * ---------------------------------------------------------------------
+ * getSettings() volta vazio nos instantes em que a faixa está se
+ * acomodando: começo da transmissão, troca de tela, fim. Duram um
+ * segundo e eu tratava como "não sei o tamanho".
+ *
+ * Só que quem não sabe cai no PERFIL PEDIDO — e o perfil pedido costuma
+ * ser maior que o monitor (1440p pedido num monitor de 1080p). Aí a
+ * conta do tamanho do amigo dava 2560/1920 = 1,33, subia um degrau e
+ * mandava encolher a imagem à toa. Mexer no compressor custa um soluço,
+ * e um segundo depois o tamanho voltava e mexia de novo: DOIS soluços
+ * por causa de uma leitura que piscou.
+ *
+ * Isso aparece cru no caderninho de 29/08:
+ *   4:48  fps 1, compressor 0, kbps 0   <- a imagem parou
+ *   4:48  tamanho para Fykto: 1707px    <- 2560/1,5, largura de 1440p
+ * O monitor tinha 1920 de largura o tempo todo. Ninguém tinha mudado
+ * nada; foi só a leitura que faltou por um instante.
+ *
+ * Uma captura que media 1920 há um segundo continua medindo 1920. O
+ * último tamanho conhecido é um palpite muito melhor que o pedido.
+ * ------------------------------------------------------------------ */
 function tamanhoDaCaptura(){
   try{
-    const v = est.streamTela && est.streamTela.getVideoTracks()[0];
+    if(!est.streamTela){ est.ultimoTamCaptura=null; return null; }
+    const v = est.streamTela.getVideoTracks()[0];
     const c = v && v.getSettings ? v.getSettings() : null;
-    return (c && c.width && c.height) ? { l:c.width, a:c.height } : null;
+    if(c && c.width && c.height) return (est.ultimoTamCaptura = { l:c.width, a:c.height });
+    return est.ultimoTamCaptura || null;
   }catch{ return null; }
 }
 
@@ -3530,9 +3555,16 @@ async function aplicarPerfilVideo(par){
   if(n>=4)       pesar(2,   n+' pessoas recebendo');
   else if(n===3) pesar(1.5, '3 pessoas recebendo');
 
-  // O amigo disse de que tamanho ele precisa: não adianta mandar mais.
+  /* O amigo disse de que tamanho ele precisa: não adianta mandar mais.
+     Mas isto não pode ser ao pé da letra. A janela dele mede 1898 e o
+     vídeo tem 1920: sobram 22 pixels, ninguém enxerga a diferença — e
+     do jeito que estava isso subia um degrau inteiro e mandava 1536.
+     Uma imagem visivelmente pior, mais uma reconfiguração do compressor
+     (que é um soluço na imagem), para economizar 1% de largura.
+     Os 8% de folga fazem o encolhimento só valer quando o amigo precisa
+     de MENOS DE VERDADE — janela pela metade, canto da tela. */
   if(par.larguraQueQuer > 0){
-    const precisa = p.l / par.larguraQueQuer;
+    const precisa = p.l / (par.larguraQueQuer * 1.08);
     pesar(DEGRAUS.find(d => d >= precisa) || DEGRAUS[DEGRAUS.length-1],
           'janela dele ('+par.larguraQueQuer+'px)');
   }
@@ -4468,7 +4500,11 @@ function anotarLinha(x){
     if(x.par.implAntes) marcar('o compressor mudou: '+x.par.implAntes+' -> '+impl);
     x.par.implAntes = impl;
   }
-  const tam = x.sv ? (x.sv.frameWidth+'x'+x.sv.frameHeight) : '';
+  // Quando a transmissão termina o relatório ainda vem, só que sem
+  // largura nem altura — e o caderninho anotava "mudou para
+  // undefinedxundefined". Sem os dois números não há tamanho nenhum.
+  const temTam = x.sv && x.sv.frameWidth>0 && x.sv.frameHeight>0;
+  const tam = temTam ? (x.sv.frameWidth+'x'+x.sv.frameHeight) : '';
   if(tam && tam!==x.par.tamAntes){
     if(x.par.tamAntes) marcar('o tamanho enviado mudou: '+x.par.tamAntes+' -> '+tam);
     x.par.tamAntes = tam;
@@ -4867,6 +4903,49 @@ function pararNumeros(){ clearInterval(est.loopNum); est.loopNum=null; }
 async function atualizarNumeros(){
   const gente=[...pares.values()].filter(p=>p.pc);
   if(!gente.length) return;
+
+  /* ---------------------------------------------------------------------
+   * A PROPOSTA QUE SE PERDEU NO CAMINHO
+   * ---------------------------------------------------------------------
+   * No caderninho de 29/08 apareceu uma pessoa parada assim, do começo
+   * ao fim da chamada inteira:
+   *
+   *   conexão: new | ice: new | sinal: have-local-offer | proposta dele: (vazia)
+   *
+   * Eu mandei a proposta e a resposta nunca voltou. No mesmo registro,
+   * no mesmo minuto: "sala: tirando servidor entupido da roda" — o
+   * servidor de recados estourou a cota e saiu da roda levando a
+   * resposta junto.
+   *
+   * E não havia NADA para socorrer esse caso. Os dois vigias que já
+   * existem só acordam em 'failed' ou 'disconnected'. Aqui o estado
+   * nunca sai de 'new': sem resposta o ICE nem começa a procurar
+   * caminho, então nunca há o que falhar. A pessoa ficava na lista para
+   * sempre, sem conectar, sem erro, sem uma palavra.
+   *
+   * Reenviar a MESMA proposta é seguro nos dois casos: se ela nunca
+   * chegou, o outro lado monta a conexão e responde; se o que se perdeu
+   * foi a resposta, ele está em 'stable' e simplesmente responde de
+   * novo. Quem reenvia é só quem propôs, senão os dois se atropelam.
+   * ------------------------------------------------------------------ */
+  for(const par of gente){
+    const parado = par.pc.signalingState==='have-local-offer' &&
+                   par.pc.connectionState==='new' && impolido(par);
+    if(!parado){ par.desdeProposta=0; par.reenvios=0; continue; }
+    if(!par.desdeProposta){ par.desdeProposta=Date.now(); continue; }
+    const tentativas = par.reenvios||0;
+    if(tentativas>=5) continue;
+    // 8s, 12s, 18s, 27s, 40s — de propósito espaçado: se o que derrubou
+    // foi cota de servidor, insistir rápido só entope de novo.
+    if(Date.now()-par.desdeProposta < 8000*Math.pow(1.5,tentativas)) continue;
+    par.desdeProposta = Date.now();
+    par.reenvios = tentativas+1;
+    marcar('a proposta para '+(par.nome||par.id)+' ficou sem resposta — reenviando ('+par.reenvios+'/5)');
+    try{ await mandarSinal(par,{tipo:'oferta', para:par.id, sdp:par.pc.localDescription.sdp}); }
+    catch(e){ console.warn('reenvio',e); }
+    if(par.reenvios===5)
+      recado('Não consegui conectar com '+(par.nome||'alguém')+' — peça para recarregar a página','ruim');
+  }
 
   // getStats() não é de graça: com 5 pessoas são 5 varreduras por
   // segundo, para sempre. Quando você não está transmitindo E o painel
@@ -6487,7 +6566,13 @@ async function resumoParaOAmigo(){
                (x.bytesReceived||0)+' bytes, '+(x.framesReceived||0)+' recebidos, '+
                (x.framesDropped||0)+' descartados, codec '+((cs.get(x.codecId)||'?').split('/')[1])+
                ', decodificador '+(x.decoderImplementation||'?')+
-               ', erros de decodificação: '+(x.keyFramesDecoded!=null?('chaves '+x.keyFramesDecoded):'?'));
+               // Isto aqui dizia "erros de decodificação: chaves 7". Não era erro
+               // nenhum: keyFramesDecoded é quantos quadros-chave ele CONSEGUIU
+               // decodificar, e 7 batia certinho com os 7 que eu tinha mandado.
+               // Um rótulo errado meu mandou dois diagnósticos atrás do que não existia.
+               ', quadros-chave decodificados: '+(x.keyFramesDecoded!=null?x.keyFramesDecoded:'?')+
+               ', congelou '+(x.freezeCount||0)+'x'+
+               (x.totalFreezesDuration?(' ('+x.totalFreezesDuration.toFixed(1)+'s parado)'):''));
       if(x.type==='outbound-rtp'&&x.kind==='video')
         L.push('    ENVIEI vídeo: '+(x.framesSent||0)+' quadros, '+(x.bytesSent||0)+' bytes, codec '+
                ((cs.get(x.codecId)||'?').split('/')[1])+', compressor '+(x.encoderImplementation||'?'));

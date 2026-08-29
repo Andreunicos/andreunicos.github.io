@@ -1218,6 +1218,167 @@ async function principal() {
       ? ok('e diz o motivo por extenso ao passar o mouse', saude.comProblema.porque)
       : mal('não explica o motivo', saude.comProblema.porque);
 
+    /* ============ 32. a proposta que se perdeu no caminho ============ */
+    console.log('\n=== 32. Quem ficou preso em "have-local-offer" é socorrido? ===');
+    const perdida = await A.evaluate(async () => {
+      const enviados = [];
+      const guardado = window.mandarSinal;
+      window.mandarSinal = async (par, obj) => { enviados.push(obj.tipo); };
+
+      const p = [...pares.values()][0];
+      // fabrica exatamente o estado do caderninho: proposta feita, nada de volta
+      const fingir = (n, v) => Object.defineProperty(p.pc, n, { get: () => v, configurable: true });
+      fingir('signalingState', 'have-local-offer');
+      fingir('connectionState', 'new');
+      p.impolido = true;              // sou eu quem propõe, logo sou eu quem reenvia
+      p.desdeProposta = 0; p.reenvios = 0;
+
+      await atualizarNumeros();
+      const primeiraVolta = { enviou: enviados.length, anotouHorario: p.desdeProposta > 0 };
+
+      // finge que o tempo de espera já passou
+      p.desdeProposta = Date.now() - 60000;
+      await atualizarNumeros();
+      const depoisDaEspera = enviados.length;
+      const avisou = registro.marcos.some(m => /sem resposta — reenviando/.test(m.txt));
+
+      // insiste bem mais vezes do que o limite
+      for (let i = 0; i < 9; i++) { p.desdeProposta = Date.now() - 600000; await atualizarNumeros(); }
+      const total = enviados.length;
+
+      // a pessoa conectou: tem que largar do pé
+      delete p.pc.signalingState; delete p.pc.connectionState;
+      await atualizarNumeros();
+      const limpou = (p.reenvios === 0 && p.desdeProposta === 0);
+
+      window.mandarSinal = guardado;
+      delete p.impolido;
+      return { primeiraVolta, depoisDaEspera, total, avisou, limpou,
+               tipos: [...new Set(enviados)] };
+    });
+    info('reenvios: ' + perdida.total + ' | tipos: ' + JSON.stringify(perdida.tipos));
+    (perdida.primeiraVolta.enviou === 0 && perdida.primeiraVolta.anotouHorario)
+      ? ok('na primeira volta só marca a hora — não atropela quem acabou de propor')
+      : mal('reenviou na hora ou nem anotou', JSON.stringify(perdida.primeiraVolta));
+    (perdida.depoisDaEspera === 1)
+      ? ok('passada a espera, reenvia a proposta uma vez')
+      : mal('não reenviou (ou reenviou demais)', String(perdida.depoisDaEspera));
+    (perdida.tipos.length === 1 && perdida.tipos[0] === 'oferta')
+      ? ok('e o que sai é uma proposta, não outra coisa')
+      : mal('mandou o recado errado', JSON.stringify(perdida.tipos));
+    (perdida.total === 5)
+      ? ok('desiste depois de 5 tentativas em vez de martelar o servidor para sempre')
+      : mal('não respeitou o limite de 5', String(perdida.total));
+    perdida.avisou
+      ? ok('e conta no caderninho o que estava fazendo')
+      : mal('socorreu calado');
+    perdida.limpou
+      ? ok('quando a pessoa conecta, o vigia zera e some')
+      : mal('o vigia ficou marcado depois de conectar');
+
+    /* ============ 33. o tamanho que virava undefined ============ */
+    console.log('\n=== 33. O caderninho parou de anotar "undefinedxundefined"? ===');
+    const tamanho = await A.evaluate(() => {
+      const p = [...pares.values()][0];
+      p.tamAntes = '1280x720';
+      // é isto que chega quando a transmissão acaba: relatório sem as medidas
+      anotarLinha({ par: p, sv: { bytesSent: 1 }, ms: 1, perda: 0, kbps: 0 });
+      const sujo = registro.marcos.filter(m => /undefined/.test(m.txt)).map(m => m.txt);
+      return { sujo, guardou: p.tamAntes };
+    });
+    (tamanho.sujo.length === 0)
+      ? ok('sem medidas, não inventa tamanho nenhum')
+      : mal('ainda anota undefined', tamanho.sujo.join(' | '));
+    (tamanho.guardou === '1280x720')
+      ? ok('e guarda o último tamanho de verdade, para comparar quando voltar')
+      : mal('apagou o último tamanho bom', String(tamanho.guardou));
+
+    /* ============ 34. o tamanho da captura que pisca ============ */
+    console.log('\n=== 34. Uma leitura que falha por um instante manda encolher a imagem? ===');
+    const pisca = await A.evaluate(async () => {
+      const p = [...pares.values()][0];
+      const faixa = est.streamTela.getVideoTracks()[0];
+      const verdadeiro = faixa.getSettings.bind(faixa);
+
+      // pede MAIS do que o monitor tem — é a situação do caderninho
+      cfg.qualidade = '1440-60-14';
+      est.ultimoTamCaptura = null;
+      const normal = perfilReal();
+
+      // agora a leitura pisca, como acontece na troca de tela
+      faixa.getSettings = () => ({});
+      const piscou = perfilReal();
+
+      faixa.getSettings = verdadeiro;
+      const voltou = perfilReal();
+
+      // e quando a transmissão acaba de verdade, ele esquece
+      const guardaTela = est.streamTela;
+      est.streamTela = null;
+      const semTela = tamanhoDaCaptura();
+      est.streamTela = guardaTela;
+
+      cfg.qualidade = '1080-60-8';
+      return { normal: normal.l, piscou: piscou.l, voltou: voltou.l,
+               semTela, pedido: PERFIS['1440-60-14'].l };
+    });
+    info('captura ' + pisca.normal + 'px | piscando ' + pisca.piscou +
+         'px | pedido era ' + pisca.pedido + 'px');
+    (pisca.piscou === pisca.normal)
+      ? ok('a leitura piscou e o tamanho não mudou — usa o último que ele mediu')
+      : mal('caiu no tamanho pedido e ia mandar encolher à toa',
+            pisca.normal + ' -> ' + pisca.piscou);
+    (pisca.piscou !== pisca.pedido)
+      ? ok('e não chuta a largura do perfil pedido, que é maior que o monitor')
+      : mal('chutou o perfil pedido', String(pisca.piscou));
+    (pisca.voltou === pisca.normal)
+      ? ok('volta ao normal quando a leitura volta')
+      : mal('ficou preso no valor velho', String(pisca.voltou));
+    (pisca.semTela === null)
+      ? ok('e esquece o tamanho quando a transmissão termina')
+      : mal('guardou tamanho de uma transmissão que acabou', JSON.stringify(pisca.semTela));
+
+    /* ============ 35. a janela do amigo com folga ============ */
+    console.log('\n=== 35. 22 pixels de diferença mandam encolher a imagem inteira? ===');
+    const folgaJanela = await A.evaluate(async () => {
+      const p = [...pares.values()][0];
+      const largura = perfilReal().l;
+      const medir = async (querendo) => {
+        // os testes lá de cima mexeram nas escadas de propósito; aqui a
+        // pergunta é só sobre a JANELA, então elas voltam ao neutro
+        const a = autoDe(p); a.degrauBanda = 1; a.degrauFps = 1;
+        p.pedido = null; p.decDeleFraco = false;
+        p.larguraQueQuer = querendo;
+        p.perfilAplicado = null;
+        await aplicarPerfilVideo(p);
+        return { encolher: p.encolherAtual, porque: p.porqueTamanho,
+                 // é isto que responde a pergunta: a JANELA mandou encolher?
+                 janelaMandou: /janela dele/.test(p.porqueTamanho || '') };
+      };
+      const quaseIgual = await medir(Math.round(largura * 0.99));  // 1901 de 1920
+      const bemMenor   = await medir(Math.round(largura * 0.45));  // janela pela metade
+      const igual      = await medir(largura);
+      p.larguraQueQuer = 0; p.perfilAplicado = null;
+      await aplicarPerfilVideo(p);
+      return { largura, quaseIgual, bemMenor, igual };
+    });
+    info('vídeo ' + folgaJanela.largura + 'px | janela 99%: ' + folgaJanela.quaseIgual.encolher +
+         'x | janela 45%: ' + folgaJanela.bemMenor.encolher + 'x');
+    !folgaJanela.quaseIgual.janelaMandou
+      ? ok('janela 1% menor: a janela não manda encolher nada')
+      : mal('encolheu por causa de 1% de diferença', JSON.stringify(folgaJanela.quaseIgual));
+    !folgaJanela.igual.janelaMandou
+      ? ok('janela do mesmo tamanho: a janela não manda encolher nada')
+      : mal('encolheu com a janela exata', JSON.stringify(folgaJanela.igual));
+    (folgaJanela.quaseIgual.encolher === 1 && folgaJanela.igual.encolher === 1)
+      ? ok('e com as escadas no neutro a imagem sai inteira')
+      : mal('sobrou encolhimento de outra origem',
+            JSON.stringify([folgaJanela.quaseIgual, folgaJanela.igual]));
+    (folgaJanela.bemMenor.janelaMandou && folgaJanela.bemMenor.encolher > 1)
+      ? ok('janela pela metade: aí sim encolhe, e diz que foi por causa dela',
+           folgaJanela.bemMenor.encolher + 'x — ' + folgaJanela.bemMenor.porque)
+      : mal('deixou de economizar quando valia a pena', JSON.stringify(folgaJanela.bemMenor));
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');
