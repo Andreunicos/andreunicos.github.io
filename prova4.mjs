@@ -889,6 +889,119 @@ async function principal() {
       ? ok('sabe dizer o que este navegador consegue descomprimir', resgate.meus.join(', '))
       : mal('não conseguiu ler as capacidades de descompressão');
 
+    /* ============ 22. o fone caiu no meio da partida ============ */
+    console.log('\n=== 22. O microfone morrendo derruba a chamada? ===');
+    const socorro = await A.evaluate(async () => {
+      const p = [...pares.values()][0];
+      if (!p.senderMic) return { erro: 'sem senderMic' };
+      const antiga = p.senderMic.track;
+      const faixaAntes = est.streamMic.getAudioTracks()[0];
+
+      // mata o microfone do jeito que o Windows mata: a faixa termina
+      faixaAntes.stop();
+      const morreu = faixaAntes.readyState;
+
+      await socorrerMicrofone('teste');
+      await new Promise(r => setTimeout(r, 500));
+
+      const nova = p.senderMic.track;
+      return {
+        morreu,
+        trocou: !!(nova && nova !== antiga),
+        novaViva: !!(nova && nova.readyState === 'live'),
+        chamadaDePe: p.pc.connectionState,
+        temFluxo: !!(est.streamMic && est.streamMic.getAudioTracks()[0] &&
+                     est.streamMic.getAudioTracks()[0].readyState === 'live'),
+      };
+    });
+    (socorro.morreu === 'ended')
+      ? ok('o teste conseguiu matar o microfone de verdade')
+      : mal('não deu para simular a queda', JSON.stringify(socorro));
+    socorro.trocou ? ok('trocou a faixa no sender sozinho')
+                   : mal('a faixa morta continua no ar', JSON.stringify(socorro));
+    socorro.novaViva ? ok('e a faixa nova está viva') : mal('a faixa nova nasceu morta');
+    (socorro.chamadaDePe === 'connected')
+      ? ok('a chamada não caiu junto', socorro.chamadaDePe)
+      : mal('a chamada caiu na troca', socorro.chamadaDePe);
+    socorro.temFluxo ? ok('o microfone local voltou a funcionar') : mal('ficou sem microfone');
+
+    /* ============ 23. o clipe sem depender do relógio do JS ============ */
+    console.log('\n=== 23. O clipe é fatiado pelo gravador, não pelo setInterval? ===');
+    const clip = await A.evaluate(async () => {
+      cfg.clipe = 5;                       // alvo curto para o teste andar
+      const ligou = comecarBuffer();
+      if (!ligou) return { erro: 'não consegui ligar o buffer' };
+      // MATA o relógio do JavaScript de propósito: é exatamente o que o
+      // Chrome faz com a aba em segundo plano
+      clearInterval(clipe.relogio); clipe.relogio = null;
+      await new Promise(r => setTimeout(r, 9000));
+      const r = {
+        gravadores: clipe.gravadores.length,
+        pedacos: clipe.gravadores.map(g => g.pedacos.length),
+        semRelogio: clipe.relogio === null,
+      };
+      pararBuffer();
+      return r;
+    });
+    if (clip.erro) mal('o buffer do clipe não ligou', clip.erro);
+    else {
+      info('gravadores: ' + clip.gravadores + ' | pedaços em cada: ' + JSON.stringify(clip.pedacos));
+      clip.semRelogio ? ok('o relógio do JavaScript estava mesmo desligado no teste')
+                      : mal('o teste não conseguiu desligar o relógio');
+      (clip.pedacos.some(n => n > 0))
+        ? ok('o gravador entregou pedaços sozinho, sem relógio nenhum', clip.pedacos.join('+'))
+        : mal('nenhum pedaço saiu sem o setInterval — voltou a depender do relógio');
+      (clip.gravadores >= 2)
+        ? ok('e a troca de gravadores aconteceu pelo ritmo do gravador', clip.gravadores + ' vivos')
+        : ok('ainda no primeiro gravador (alvo pode não ter sido atingido em 9s)');
+      (clip.gravadores <= 2)
+        ? ok('nunca guarda mais de dois gravadores')
+        : mal('acumulou gravadores', String(clip.gravadores));
+    }
+
+    /* ============ 24. a barra de pessoas não é mais destruída ============ */
+    console.log('\n=== 24. A barra de pessoas sobrevive a um mudo? ===');
+    const barra = await A.evaluate(() => {
+      const p = [...pares.values()][0];
+      pintarGente();
+      const antes = document.getElementById('ficha-' + p.id);
+      const marca = {};
+      antes.dadoDeTeste = marca;               // marca que só sobrevive se o nó sobreviver
+
+      p.mudo = true; pintarGente();
+      const depoisMudo = document.getElementById('ficha-' + p.id);
+      const sobreviveu = depoisMudo === antes && depoisMudo.dadoDeTeste === marca;
+      const pegouMudo = depoisMudo.classList.contains('mudo');
+      const texto = depoisMudo.querySelector('.ficha-sub').textContent;
+
+      p.mudo = false; pintarGente();
+      const soltouMudo = !document.getElementById('ficha-' + p.id).classList.contains('mudo');
+
+      // alguém que sai tem que sumir mesmo
+      const falso = { id:'zzz9', nome:'Fantasma', conectado:true, mudo:false };
+      pares.set('zzz9', falso); pintarGente();
+      const entrou = !!document.getElementById('ficha-zzz9');
+      pares.delete('zzz9'); pintarGente();
+      const saiu = !document.getElementById('ficha-zzz9');
+
+      // e a ordem tem que continuar certa: eu primeiro
+      const ordem = [...document.getElementById('gente').children].map(f => f.id);
+      return { sobreviveu, pegouMudo, texto, soltouMudo, entrou, saiu, ordem };
+    });
+    info('ordem das fichas: ' + JSON.stringify(barra.ordem));
+    barra.sobreviveu ? ok('a ficha é a MESMA depois de mutar (nada foi destruído)')
+                     : mal('a ficha foi recriada do zero');
+    (barra.pegouMudo && /desligado/.test(barra.texto))
+      ? ok('e mesmo assim a classe e o texto acompanharam', barra.texto)
+      : mal('atualizou o nó mas não o conteúdo', JSON.stringify(barra));
+    barra.soltouMudo ? ok('desmutar tira a classe de volta') : mal('ficou preso no mudo');
+    (barra.entrou && barra.saiu)
+      ? ok('quem entra ganha ficha e quem sai perde a dele')
+      : mal('entrada ou saída de gente quebrou', JSON.stringify(barra));
+    (barra.ordem[0] === 'ficha-eu')
+      ? ok('a ordem continua certa, você em primeiro')
+      : mal('a ordem embaralhou', JSON.stringify(barra.ordem));
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

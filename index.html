@@ -1874,6 +1874,7 @@ async function ligarMicrofone(forcar){
   }});
   antigo && antigo.getTracks().forEach(t=>t.stop());
   est.streamMic=novo; est.micLimpar=limpar; est.micDev=dev;
+  vigiarMicrofone();
   try{
     est.ctx=est.ctx||new AudioContext();
     if(est.ctx.state==='suspended') await est.ctx.resume();
@@ -1933,7 +1934,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '4.7 — 29/08 23:40';
+const VERSAO = '4.8 — 29/08 14:20';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2616,40 +2617,77 @@ function pintarGente(){
   const lista = [{ id:'eu', nome:(eu.nome||'Você'), eu:true }]
     .concat([...pares.values()].map(p=>({ id:p.id, nome:p.nome||'Entrando…', par:p })));
 
-  caixa.innerHTML='';
-  for(const g of lista){
-    const f=document.createElement('div');
-    f.className='ficha'; f.id='ficha-'+g.id;
-
-    const av=document.createElement('div');
-    av.className='av'; av.id = g.eu?'av-eu':('av-'+g.id);
-    av.textContent=iniciais(g.nome);
-
-    const txt=document.createElement('div'); txt.className='ficha-txt';
-    const nome=document.createElement('div'); nome.className='ficha-nome'; nome.textContent=g.nome;
-    const sub=document.createElement('div'); sub.className='ficha-sub';
-    if(g.eu){ sub.id='sub-eu'; sub.textContent = est.mudo ? 'microfone desligado'
-              : (cfg.fala==='ptt' ? 'segure '+cfg.nomeTecla+' para falar' : 'microfone ligado'); }
-    else{
-      const p=g.par;
-      sub.textContent = !p.conectado ? 'conectando…'
-        : p.mudo ? 'microfone desligado'
-        : p.temTela ? 'transmitindo' : 'na call';
-      if(p.falando) av.classList.add('fala');
-      if(p.mudo) f.classList.add('mudo');
-      if(!p.conectado) f.classList.add('esperando');
+  /* ---------------------------------------------------------------------
+   * ATUALIZAR, NÃO REFAZER
+   * ---------------------------------------------------------------------
+   * Aqui morava um innerHTML='' seguido de recriar tudo. Medindo, o custo
+   * é ridículo — 0,05 ms com a call cheia, contra os 16,7 ms que um
+   * quadro a 60 fps tem — então NÃO é por desempenho que isto mudou.
+   *
+   * É por uma coisa que a medição não mostra: destruir as fichas destrói
+   * o que está ancorado nelas. Se você abriu o menu de alguém e outra
+   * pessoa muta o microfone nesse instante, a ficha que segurava o menu
+   * deixa de existir no meio do seu clique. Trocar texto e classe em
+   * elementos que continuam vivos não tem esse problema.
+   * ------------------------------------------------------------------ */
+  const vivas = new Set();
+  lista.forEach((g, ordem)=>{
+    const idFicha = 'ficha-'+g.id;
+    vivas.add(idFicha);
+    let f = $(idFicha);
+    if(!f){
+      f = document.createElement('div');
+      f.className = 'ficha'; f.id = idFicha;
+      const av = document.createElement('div');
+      av.className = 'av'; av.id = g.eu ? 'av-eu' : ('av-'+g.id);
+      const txt = document.createElement('div'); txt.className = 'ficha-txt';
+      const nome = document.createElement('div'); nome.className = 'ficha-nome';
+      const sub = document.createElement('div'); sub.className = 'ficha-sub';
+      if(g.eu){ sub.id = 'sub-eu'; f.classList.add('eu'); }
+      txt.append(nome, sub);
+      f.append(av, txt);
+      caixa.appendChild(f);
     }
-    if(g.eu && est.segurando) av.classList.add('fala');
+    const av   = f.querySelector('.av');
+    const nome = f.querySelector('.ficha-nome');
+    const sub  = f.querySelector('.ficha-sub');
 
-    txt.append(nome,sub);
-    f.append(av,txt);
-    if(g.eu) f.classList.add('eu');
-    else{
-      f.title='clique para opções';
-      f.onclick=(ev)=>{ ev.stopPropagation(); abrirMenuDaPessoa(g.par, f); };
+    const ini = iniciais(g.nome);
+    if(av.textContent !== ini) av.textContent = ini;
+    if(nome.textContent !== g.nome) nome.textContent = g.nome;
+
+    let texto, falando=false, mudo=false, esperando=false;
+    if(g.eu){
+      texto = est.mudo ? 'microfone desligado'
+            : (cfg.fala==='ptt' ? 'segure '+cfg.nomeTecla+' para falar' : 'microfone ligado');
+      falando = !!est.segurando;
+    }else{
+      const p = g.par;
+      texto = !p.conectado ? 'conectando…'
+            : p.mudo ? 'microfone desligado'
+            : p.temTela ? 'transmitindo' : 'na call';
+      falando = !!p.falando; mudo = !!p.mudo; esperando = !p.conectado;
+      // procurado na hora do clique, não guardado: se a pessoa reconectar,
+      // o objeto dela muda e um closure velho abriria o menu do fantasma
+      const idDele = g.id;
+      f.title = 'clique para opções';
+      f.onclick = (ev)=>{
+        ev.stopPropagation();
+        const p2 = pares.get(idDele);
+        if(p2) abrirMenuDaPessoa(p2, f);
+      };
     }
-    caixa.appendChild(f);
-  }
+    if(sub.textContent !== texto) sub.textContent = texto;
+    av.classList.toggle('fala', falando);
+    f.classList.toggle('mudo', mudo);
+    f.classList.toggle('esperando', esperando);
+
+    // põe na ordem certa só se estiver fora do lugar
+    if(caixa.children[ordem] !== f) caixa.insertBefore(f, caixa.children[ordem] || null);
+  });
+
+  // e só agora tira quem realmente saiu
+  [...caixa.children].forEach(f=>{ if(!vivas.has(f.id)) f.remove(); });
   const n=lista.length;
   $('quantos').textContent = n===1 ? 'só você' : n+' na call';
   caixa.classList.toggle('cheia', n>3);
@@ -5741,8 +5779,32 @@ function novoGravador(){
   try{
     const g = new MediaRecorder(clipe.fluxo, { mimeType: melhorFormato(), videoBitsPerSecond: 4000000 });
     const item = { rec:g, inicio:Date.now(), pedacos:[] };
-    g.ondataavailable = (ev)=>{ if(ev.data && ev.data.size) item.pedacos.push(ev.data); };
-    g.start();
+    const alvo = Math.max(5, Number(cfg.clipe)||30);
+
+    /* ---------------------------------------------------------------------
+     * NÃO CONFIAR NO RELÓGIO DO JAVASCRIPT
+     * ---------------------------------------------------------------------
+     * A troca de gravadores era comandada por um setInterval. Só que o
+     * Chrome ESTRANGULA setTimeout e setInterval quando a aba fica em
+     * segundo plano — e uma aba com um jogo em tela cheia na frente está
+     * exatamente nessa situação, que é justamente quando o clipe importa.
+     *
+     * O gravador, esse, não é estrangulado: ele continua gravando no
+     * ritmo dele. Então o relógio passa a ser o dele. Pedindo um pedaço
+     * por segundo, contar pedaços é contar segundos — e isso não depende
+     * de nenhuma fila de tarefas do JavaScript.
+     *
+     * O setInterval continua ali embaixo como rede de segurança, para o
+     * caso de o navegador ignorar o pedaço por segundo.
+     * ------------------------------------------------------------------ */
+    g.ondataavailable = (ev)=>{
+      if(ev.data && ev.data.size) item.pedacos.push(ev.data);
+      const ehOMaisNovo = clipe.gravadores[clipe.gravadores.length-1] === item;
+      if(ehOMaisNovo && item.pedacos.length >= alvo) return girarGravadores();
+      // trava de memória: se tudo mais falhar, ninguém passa de 4x o alvo
+      if(item.pedacos.length > alvo*4) girarGravadores();
+    };
+    g.start(1000);          // um pedaço por segundo, no ritmo do gravador
     return item;
   }catch(e){ console.warn('gravador',e); return null; }
 }
@@ -6396,6 +6458,73 @@ function avisarBandeja(){
     else if(a==='parar-tela') pararTela();
   });
 })();
+
+/* ---------------------------------------------------------------------
+ * O FONE CAIU NO MEIO DA PARTIDA
+ * ---------------------------------------------------------------------
+ * Fone Bluetooth descarrega, alguém esbarra no cabo, o Windows troca o
+ * aparelho padrão sozinho quando você liga a placa de captura. Em todos
+ * esses casos a faixa de áudio simplesmente MORRE — e morre calada: a
+ * chamada continua, a bolinha continua verde, e ninguém mais te ouve.
+ * Você só descobre quando alguém digita "cadê você".
+ *
+ * Duas portas para perceber, porque nenhuma das duas pega tudo sozinha:
+ * a faixa avisa quando termina, e a lista de aparelhos avisa quando
+ * muda. A segunda é a que pega o caso do Windows trocar o padrão por
+ * baixo dos panos, em que a faixa antiga às vezes fica viva mas surda.
+ *
+ * A troca é feita com replaceTrack, que não renegocia nada: ninguém do
+ * outro lado percebe, nem a imagem pisca.
+ * ------------------------------------------------------------------ */
+function vigiarMicrofone(){
+  const f = est.streamMic && est.streamMic.getAudioTracks()[0];
+  if(!f || f.jaVigiada) return;
+  f.jaVigiada = true;
+  f.addEventListener('ended', ()=>socorrerMicrofone('a faixa terminou'));
+}
+
+async function socorrerMicrofone(motivo){
+  if(est.socorrendoMic) return;
+  const f = est.streamMic && est.streamMic.getAudioTracks()[0];
+  if(f && f.readyState==='live' && !est.forcarSocorro) return;   // está vivo: nada a fazer
+  est.socorrendoMic = true;
+  try{
+    const ds = await navigator.mediaDevices.enumerateDevices().catch(()=>[]);
+    // o aparelho escolhido pode ter deixado de existir: volta para o padrão
+    const aindaExiste = ds.some(d=>d.kind==='audioinput' && d.deviceId===cfg.mic);
+    if(cfg.mic && cfg.mic!=='padrao' && !aindaExiste){
+      cfg.mic='padrao'; guardarAjustes();
+      const sel=$('sel-mic'); if(sel) sel.value='padrao';
+    }
+    const nova = await ligarMicrofone(true);
+    if(!nova) throw new Error('nenhum microfone respondeu');
+
+    let trocados = 0;
+    for(const par of pares.values()){
+      if(!par.senderMic) continue;
+      try{ await par.senderMic.replaceTrack(nova); trocados++; }catch{}
+    }
+    const nome = (nova.label||'').trim() || 'o microfone padrão';
+    marcar('o microfone caiu ('+motivo+') — troquei para "'+nome+'" em '+trocados+
+           ' conexão(ões), sem derrubar a chamada');
+    recado('Seu microfone saiu do ar. Troquei para "'+nome+'" e a chamada continua.','ok');
+  }catch(e){
+    marcar('o microfone caiu e não achei outro: '+((e&&e.message)||e));
+    recado('Seu microfone saiu do ar e não achei nenhum outro. Ligue um e escolha em Ajustes > Som.','mal');
+  }finally{ est.socorrendoMic = false; }
+}
+
+try{
+  navigator.mediaDevices.addEventListener('devicechange', ()=>{
+    // o Windows leva um instante para assentar o aparelho novo; perguntar
+    // no mesmo milissegundo devolve a lista antiga
+    clearTimeout(est.relogioAparelhos);
+    est.relogioAparelhos = setTimeout(()=>{
+      listarMics();
+      if(est.streamMic) socorrerMicrofone('a lista de aparelhos mudou');
+    }, 700);
+  });
+}catch{}
 
 /* =====================================================================
  * DISPOSITIVOS E CÓPIA
