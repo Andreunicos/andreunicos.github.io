@@ -426,7 +426,7 @@ async function principal() {
     trava.temSecao ? ok('a seção da travada entrou no caderninho') : mal('a seção não apareceu');
     (trava.citaChave && trava.citaSocorro && trava.citaFila)
       ? ok('conta as três causas: quadro-chave, socorro do amigo e fila de envio')
-      : mal('faltou alguma das três causas', JSON.stringify(trava));
+      : mal('faltou alguma das três causas', JSON.stringify(travaTela));
     (trava.mediuFila && trava.mediuChaves)
       ? ok('as medidas estão sendo colhidas de verdade')
       : mal('as medidas não foram colhidas', JSON.stringify(trava));
@@ -1001,6 +1001,89 @@ async function principal() {
     (barra.ordem[0] === 'ficha-eu')
       ? ok('a ordem continua certa, você em primeiro')
       : mal('a ordem embaralhou', JSON.stringify(barra.ordem));
+
+    /* ============ 25. a tela não apaga com vídeo rolando ============ */
+    console.log('\n=== 25. O Frag segura a tela acesa enquanto tem vídeo? ===');
+    const travaTela = await B.evaluate(async () => {
+      // o navegador de teste pode nem ter a API; o que importa é a REGRA
+      const p = [...pares.values()][0];
+      const semNada = (() => { const g = est.streamTela; est.streamTela = null;
+        const guarda = p.temTela; p.temTela = false;
+        const r = temVideoRolando(); est.streamTela = g; p.temTela = guarda; return r; })();
+      const recebendo = (() => { const g = est.streamTela; est.streamTela = null;
+        const guarda = p.temTela; p.temTela = true;
+        const r = temVideoRolando(); est.streamTela = g; p.temTela = guarda; return r; })();
+      const transmitindo = (() => { const guarda = p.temTela; p.temTela = false;
+        const g = est.streamTela; est.streamTela = {};
+        const r = temVideoRolando(); est.streamTela = g; p.temTela = guarda; return r; })();
+      await cuidarDaTravaDeTela();
+      return { semNada, recebendo, transmitindo, temApi: !!navigator.wakeLock,
+               travou: !!est.travaTela };
+    });
+    info('a API existe neste navegador: ' + travaTela.temApi + ' | travou agora: ' + travaTela.travou);
+    (!travaTela.semNada && travaTela.recebendo && travaTela.transmitindo)
+      ? ok('a regra está certa: segura quem TRANSMITE e quem ASSISTE, e solta quando não há vídeo')
+      : mal('a regra de quando segurar está errada', JSON.stringify(trava));
+    ok('pedir a trava não explodiu nem quando o navegador não tem a API');
+
+    /* ============ 26. flutuar por cima de tudo ============ */
+    console.log('\n=== 26. Dá para tirar o vídeo do amigo da aba? ===');
+    const pip = await B.evaluate(() => {
+      const q = document.querySelector('#palco .quadro[id^="q-p-"]');
+      const b = q ? [...q.querySelectorAll('.quadro-acoes button')]
+                      .find(x => /flutuar/i.test(x.textContent)) : null;
+      return { suportado: !!document.pictureInPictureEnabled, temBotao: !!b,
+               dica: b ? b.title : null,
+               naoBloqueado: q ? !q.querySelector('video').disablePictureInPicture : false };
+    });
+    info('o navegador suporta: ' + pip.suportado);
+    (pip.suportado ? pip.temBotao : true)
+      ? ok('o botão de flutuar aparece onde o navegador suporta',
+           pip.temBotao ? pip.dica : 'navegador sem suporte, e nada quebrou')
+      : mal('o navegador suporta mas o botão não apareceu');
+    pip.naoBloqueado ? ok('o vídeo não está bloqueado para flutuar')
+                     : mal('o vídeo está com o flutuar desabilitado');
+
+    /* ============ 27. o portão da voz ============ */
+    console.log('\n=== 27. O ponto de corte da voz virou ajuste? ===');
+    const portao = await A.evaluate(() => {
+      const campo = document.getElementById('in-portao');
+      const marca = document.getElementById('portao-marca');
+      const num   = document.getElementById('portao-num');
+      if (!campo || !marca) return { falta: true };
+      const guarda = cfg.portao;
+
+      campo.value = 30; campo.oninput();
+      const em30 = { cfg: cfg.portao, marca: marca.style.left, texto: num.textContent };
+
+      campo.value = 5; campo.oninput();
+      const em5 = { cfg: cfg.portao, marca: marca.style.left };
+
+      // e o medidor tem que respeitar o novo corte
+      cfg.portao = 40;
+      const abaixo = 20 > (cfg.portao||12);     // 20 de nível com corte em 40
+      cfg.portao = 10;
+      const acima  = 20 > (cfg.portao||12);     // mesmo nível com corte em 10
+
+      cfg.portao = guarda; campo.value = guarda; campo.oninput();
+      return { em30, em5, abaixo, acima, min: campo.min, max: campo.max };
+    });
+    if (portao.falta) mal('o controle do portão não foi criado');
+    else {
+      info('faixa do controle: ' + portao.min + ' a ' + portao.max +
+           ' | marca em 30: ' + portao.em30.marca);
+      (portao.em30.cfg === 30 && portao.em5.cfg === 5)
+        ? ok('arrastar o controle muda o ajuste de verdade')
+        : mal('o controle não mexe no ajuste', JSON.stringify(portao));
+      (portao.em30.marca === '30%' && portao.em5.marca === '5%')
+        ? ok('e o risquinho branco acompanha na barra', portao.em30.marca)
+        : mal('o risquinho não acompanha', JSON.stringify(portao));
+      (portao.em30.texto === '30')
+        ? ok('o número na tela acompanha') : mal('o número não acompanha');
+      (!portao.abaixo && portao.acima)
+        ? ok('um mesmo nível de som conta como fala ou não, conforme o corte')
+        : mal('o corte não está sendo usado na decisão', JSON.stringify(portao));
+    }
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');

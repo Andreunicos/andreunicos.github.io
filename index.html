@@ -305,7 +305,8 @@ body.desenho-canvas .controles{background:rgba(18,20,25,.98)}
 }
 .secao:first-child{margin-top:0}
 
-.medidor{height:9px;background:var(--preto);border:1px solid var(--linha);border-radius:6px;overflow:hidden;margin-bottom:6px}
+.medidor{height:9px;background:var(--preto);border:1px solid var(--linha);border-radius:6px;overflow:hidden;margin-bottom:6px;position:relative}
+#portao-marca{position:absolute;top:0;bottom:0;width:2px;background:#fff;opacity:.9;pointer-events:none;transition:left .1s linear}
 .medidor div{height:100%;width:0;background:linear-gradient(90deg,var(--verde),var(--amarelo) 76%,var(--vermelho));transition:width .06s linear}
 
 .num{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:1px solid var(--linha)}
@@ -755,8 +756,17 @@ body.sem-tela .divisor{display:none}
 
     <div class="secao">Microfone</div>
     <label class="campo"><span>Aparelho</span><select id="sel-mic"></select></label>
-    <div class="medidor"><div id="medidor"></div></div>
+    <div class="medidor"><div id="medidor"></div><div id="portao-marca"></div></div>
     <p class="ajuda" style="margin-top:0">Fale alguma coisa: a barra tem que mexer.</p>
+    <label class="campo" style="margin-top:10px">
+      <span>A partir de onde conta como fala: <b id="portao-num">12</b></span>
+      <input id="in-portao" type="range" min="5" max="50" step="1" value="12">
+    </label>
+    <p class="ajuda" style="margin-top:0">
+      O risquinho branco na barra é o ponto de corte. Fique <b>calado</b> com o ventilador, o
+      teclado e o jogo ligados: se a barra passar do risquinho sozinha, o seu microfone está
+      abrindo à toa e vazando isso para a call. Arraste para a <b>direita</b> até parar de passar.
+    </p>
     <label class="chk" style="margin-top:14px">
       <input id="in-ruido" type="checkbox" checked>
       <span>Cortar ruído de fundo e eco</span>
@@ -1118,7 +1128,7 @@ const cfg = {
   codec:'auto', auto:true, turn:'', site:'', versaoAjustes:0,
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
   clipe:30, clipeSempre:false, prioridade:'fps', desenho:'normal', latencia:'estavel',
-  espacial:false,
+  espacial:false, portao:12,
 };
 
 function lerAjustes(){
@@ -1906,7 +1916,7 @@ function iniciarMedidor(){
   est.loopNivel=setInterval(()=>{
     const n=nivel();
     if($('painel').classList.contains('aberto')) $('medidor').style.width=n+'%';
-    const falando = !est.mudo && n>12 && (cfg.fala!=='ptt' || est.segurando);
+    const falando = !est.mudo && n>(cfg.portao||12) && (cfg.fala!=='ptt' || est.segurando);
     const av=$('av-eu'); if(av) av.classList.toggle('fala',falando);
     if(falando!==est.falandoAntes){
       est.falandoAntes=falando;
@@ -1934,7 +1944,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '4.8 — 29/08 14:20';
+const VERSAO = '4.9 — 29/08 16:10';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2868,6 +2878,34 @@ function montarQuadro(id, titulo, aoVivo, aoParar, par){
   cheia.type='button'; cheia.textContent='⛶ Tela cheia';
   cheia.onclick=()=>{ document.fullscreenElement?document.exitFullscreen():q.requestFullscreen().catch(()=>{}); };
   acoes.appendChild(cheia);
+
+  /* ---------------------------------------------------------------------
+   * FLUTUAR POR CIMA DE TUDO
+   * ---------------------------------------------------------------------
+   * Em quem tem um monitor só, dar Alt+Tab para ler alguma coisa faz a
+   * tela do amigo sumir — e some justamente na hora em que ele estava
+   * mostrando o que você precisava ver.
+   *
+   * O navegador já tem um motor para isso e ele é de graça: o vídeo
+   * salta da aba e fica flutuando por cima do Windows, do jogo, de
+   * qualquer coisa. Não custa processamento nenhum a mais, porque é o
+   * MESMO vídeo, só desenhado em outro lugar.
+   * ------------------------------------------------------------------ */
+  if(document.pictureInPictureEnabled){
+    const flutuar=document.createElement('button');
+    flutuar.type='button'; flutuar.textContent='🗗 Flutuar';
+    flutuar.title='deixa este vídeo por cima de tudo, inclusive do jogo';
+    flutuar.onclick=async (ev)=>{
+      ev.stopPropagation();
+      try{
+        if(document.pictureInPictureElement===v) await document.exitPictureInPicture();
+        else await v.requestPictureInPicture();
+      }catch(err){
+        recado('Não consegui fazer flutuar: '+((err&&err.name)||err),'mal');
+      }
+    };
+    acoes.appendChild(flutuar);
+  }
   if(aoParar){
     const parar=document.createElement('button');
     parar.type='button'; parar.className='parar'; parar.textContent='⏹ Parar de transmitir';
@@ -3134,7 +3172,43 @@ function tirarQuadro(id){
   clearTimeout(q.relogioDeSaida);
   q.relogioDeSaida = setTimeout(()=>{ q.remove(); arrumarPalco(); }, 240);
 }
+/* ---------------------------------------------------------------------
+ * A TELA APAGANDO NA CARA DE QUEM SÓ ASSISTE
+ * ---------------------------------------------------------------------
+ * Quem está transmitindo mexe no mouse o tempo todo, então o Windows
+ * nunca acha que a máquina está parada. Quem só ASSISTE, não: ele largou
+ * o mouse, pegou o controle, e está olhando a sua tela. Para o Windows
+ * isso é um computador ocioso — e em quinze minutos o monitor apaga na
+ * cara dele.
+ *
+ * A trava diz ao sistema "tem vídeo rolando aqui". Duas pegadinhas:
+ * ela é SOLTA sozinha quando a aba sai de vista (então tem que ser
+ * pedida de novo na volta), e alguns navegadores recusam sem bateria ou
+ * sem gesto do usuário — por isso tudo aqui é opcional e silencioso.
+ * ------------------------------------------------------------------ */
+function temVideoRolando(){
+  if(est.streamTela) return true;
+  for(const p of pares.values()) if(p.temTela) return true;
+  return false;
+}
+
+async function cuidarDaTravaDeTela(){
+  const precisa = temVideoRolando() && !document.hidden;
+  if(precisa && !est.travaTela){
+    try{
+      if(!navigator.wakeLock) return;
+      est.travaTela = await navigator.wakeLock.request('screen');
+      est.travaTela.addEventListener('release', ()=>{ est.travaTela = null; });
+      marcar('segurando a tela acesa enquanto tem vídeo rolando');
+    }catch(e){ est.travaTela = null; }     // recusado: segue a vida
+  }else if(!precisa && est.travaTela){
+    try{ est.travaTela.release(); }catch{}
+    est.travaTela = null;
+  }
+}
+
 function arrumarPalco(){
+  cuidarDaTravaDeTela();
   setTimeout(cuidarDoBuffer,120);
   setTimeout(avisarTamanhos,200);
   const n=$('palco').querySelectorAll('.quadro:not(.saindo)').length;
@@ -4571,7 +4645,8 @@ function montarRegistro(extra){
   dz('escolhido: '+p.a+'p a '+p.fps+' fps | prioridade: '+(cfg.prioridade==='nitidez'?'nitidez':'fluidez')+
      ' | compressão: '+cfg.codec+' | imagem: '+cfg.latencia);
   dz('desenho: '+cfg.desenho+' | clipe sempre pronto: '+(cfg.clipeSempre?'LIGADO':'desligado')+
-     ' | vozes separadas: '+(cfg.espacial?'sim':'não'));
+     ' | vozes separadas: '+(cfg.espacial?'sim':'não')+
+     ' | corte da voz: '+(cfg.portao||12));
   if(!cfg.auto){
     dz('');
     dz('!!! O AJUSTE AUTOMÁTICO ESTÁ DESLIGADO. Nada do mecanismo de qualidade rodou nesta');
@@ -6797,6 +6872,8 @@ document.addEventListener('visibilitychange', ()=>{
       }
     }
     est.quandoSumi = 0;
+    // a trava de tela é solta sozinha quando a aba some: pede de novo
+    cuidarDaTravaDeTela();
     marcar('você voltou para a aba');
     pares.forEach(p=>{ enviar(p,{t:'sumi', v:false}); p.avisei=0; });
     setTimeout(avisarTamanhos, 300);
@@ -6953,6 +7030,17 @@ $('vol').value=cfg.volume; $('lbl-vol').textContent=cfg.volume+'%';
 $('sel-codec').value=cfg.codec||'auto';
 $('sel-clipe').value=String(cfg.clipe||30);
 $('sel-prioridade').value=cfg.prioridade||'fps';
+(function(){
+  const pintar = ()=>{
+    const m=$('portao-marca'); if(m) m.style.left = (cfg.portao||12)+'%';
+    const n=$('portao-num');   if(n) n.textContent = (cfg.portao||12);
+  };
+  const campo = $('in-portao');
+  campo.value = cfg.portao||12;
+  campo.oninput  = ()=>{ cfg.portao = Number(campo.value)||12; pintar(); };
+  campo.onchange = ()=>{ guardarAjustes(); recado('Ponto de corte da voz em '+cfg.portao+'.','ok'); };
+  pintar();
+})();
 $('sel-espacial').value = cfg.espacial ? 'sim' : 'nao';
 $('sel-espacial').onchange=()=>{
   cfg.espacial = $('sel-espacial').value==='sim'; guardarAjustes();
