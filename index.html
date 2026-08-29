@@ -892,6 +892,12 @@ body.sem-tela .divisor{display:none}
       <input id="in-socorro-captura" type="checkbox" checked>
       <span>Socorrer os quadros quando a placa de vídeo não der conta</span>
     </label>
+    <button id="btn-testar-captura" class="b b-cinza b-largo" type="button" style="margin-top:12px">🔬 Descobrir por que faltam quadros</button>
+    <p class="ajuda" style="margin-top:0" id="resultado-captura">Transmitindo, aperte aqui. Eu meço a captura
+      no tamanho de agora, meço de novo num tamanho bem menor, e comparo — é a única forma de saber se
+      faltam quadros por causa do <b>tamanho</b> da imagem ou por causa do <b>caminho</b> da captura.
+      Demora uns 20 segundos.</p>
+
     <label class="chk" style="margin-top:14px">
       <input id="in-previa-economica" type="checkbox" checked>
       <span>Parar de desenhar a minha própria tela enquanto transmito</span>
@@ -2015,7 +2021,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '5.4 — 29/08 23:30';
+const VERSAO = '5.5 — 30/08 00:15';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3858,6 +3864,89 @@ async function aplicarDegrauCaptura(n){
   return true;
 }
 
+/* ---------------------------------------------------------------------
+ * O TESTE QUE RESPONDE "É O TAMANHO OU É O CAMINHO?"
+ * ---------------------------------------------------------------------
+ * O André fez este experimento na mão: transmitiu em 480p, transmitiu em
+ * 1440p, e viu o MESMO número de quadros nos dois. Isso não é um
+ * detalhe — é a resposta inteira, e vale mais do que qualquer palpite
+ * meu, inclusive os que eu já dei.
+ *
+ * Se faltasse placa para COPIAR OS PIXELS, um quarto do tamanho renderia
+ * muito mais quadros. Se render igual, o que limita não é QUANTO se
+ * copia: é a frequência com que o Windows deixa copiar. São dois
+ * problemas diferentes, com conserto diferente, e até agora eu não tinha
+ * como distinguir um do outro sem pedir para ele ficar trocando ajuste e
+ * olhando número.
+ *
+ * Então o app passa a fazer o experimento sozinho, sob comando, e a dar
+ * o veredito por extenso.
+ * ------------------------------------------------------------------ */
+async function testarCaptura(){
+  if(!est.streamTela)
+    return recado('Comece a transmitir primeiro — este teste mede a captura de verdade.','mal');
+  if(est.testandoCaptura) return;
+  est.testandoCaptura = true;
+  const btn = $('btn-testar-captura'), saida = $('resultado-captura');
+  const rotulo = btn.textContent;
+  btn.disabled = true;
+
+  const medir = async (segundos)=>{
+    est.histFonte = []; est.olhouCaptura = 0;
+    await new Promise(r=>setTimeout(r, segundos*1000));
+    return medianaDe(est.histFonte||[]);
+  };
+
+  try{
+    const alvo = perfilReal().fps;
+    if(!est.socorro) zerarSocorroCaptura();
+    const degrauAntes = est.socorro.degrau;
+
+    btn.textContent = 'medindo no tamanho de agora…';
+    saida.textContent = 'Não mexa em nada por uns 20 segundos.';
+    const cheio = await medir(9);
+
+    btn.textContent = 'medindo num tamanho bem menor…';
+    await aplicarDegrauCaptura(ESCADA_CAPTURA.length-1);
+    const pequeno = await medir(9);
+
+    await aplicarDegrauCaptura(degrauAntes);
+    est.socorro.quando = Date.now();
+
+    const ganho = cheio>0 ? (pequeno-cheio)/cheio : 0;
+    let txt;
+    if(cheio >= alvo*0.85){
+      txt = 'A sua captura está SAUDÁVEL: a tela entregou '+cheio+' de '+alvo+
+            ' quadros. Não há o que consertar aqui.';
+    }else if(ganho >= 0.15){
+      txt = 'O gargalo é o TAMANHO da imagem. No tamanho de agora a tela entregou '+cheio+
+            ' quadros; num quarto do tamanho, '+pequeno+' — '+Math.round(ganho*100)+'% a mais. '+
+            'Falta placa para copiar tantos pixels. Deixe ligado o "socorrer os quadros", '+
+            'ou escolha 720p na mão.';
+    }else{
+      txt = 'O tamanho NÃO MUDA NADA — e isso é a resposta. No tamanho de agora a tela '+
+            'entregou '+cheio+' quadros; num quarto do tamanho, '+pequeno+'. Se fosse falta '+
+            'de placa para copiar pixels, o menor teria rendido muito mais. Não rendeu: o que '+
+            'limita não é QUANTO se copia, é a frequência com que o Windows deixa copiar. '+
+            'Duas causas, nesta ordem: (1) o jogo em TELA CHEIA EXCLUSIVA — troque para '+
+            'JANELA SEM BORDA, é o conserto de longe mais provável; (2) "Agendamento de GPU '+
+            'acelerado por hardware" desligado — ligue em Configurações › Sistema › Vídeo › '+
+            'Elementos Gráficos e reinicie o PC. Trocar a qualidade aqui dentro não vai '+
+            'resolver nenhum dos dois.';
+    }
+    saida.textContent = txt;
+    marcar('teste da captura: cheio '+cheio+' / pequeno '+pequeno+' quadros — '+
+           (cheio>=alvo*0.85 ? 'saudável' : ganho>=0.15 ? 'limitado por tamanho' : 'limitado pelo caminho'));
+    recado('Teste da captura pronto — a resposta está em Ajustes.','ok');
+  }catch(e){
+    saida.textContent = 'Não consegui terminar o teste: '+((e&&e.message)||e);
+  }finally{
+    est.testandoCaptura = false;
+    btn.disabled = false;
+    btn.textContent = rotulo;
+  }
+}
+
 async function socorrerCaptura(){
   if(!est.streamTela || cfg.socorroCaptura===false) return;
   if(!est.socorro) zerarSocorroCaptura();
@@ -3877,7 +3966,12 @@ async function socorrerCaptura(){
              s.antes+' para '+agora+' por segundo.','ok');
     }else{
       marcar('capturar menor NÃO rendeu ('+s.antes+' -> '+agora+
-             ') — o gargalo é outro, voltei ao tamanho cheio');
+             ') — voltei ao tamanho cheio');
+      marcar('  >>> isso PROVA que o gargalo não é o tamanho da imagem, e sim a frequência '+
+             'com que o Windows entrega quadro. Jogo em JANELA SEM BORDA e HAGS ligado — '+
+             'trocar a qualidade aqui dentro não muda nada.');
+      recado('Testei capturar menor e não rendeu. O problema não é o tamanho — veja o teste '+
+             'da captura em Ajustes.','mal');
       s.desistiu = true;
       await aplicarDegrauCaptura(0);
       s.quando = Date.now();
@@ -6358,8 +6452,19 @@ async function montarDiagnostico(){
     if(f){
       const c=f.getSettings();
       dz('  faixa: '+f.readyState+' | ligada: '+f.enabled+' | muda: '+f.muted);
+      const p2 = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
       dz('  captura: '+c.width+'×'+c.height+' a '+Math.round(c.frameRate||0)+' fps'+
          (c.displaySurface?' ('+c.displaySurface+')':''));
+      /* Isto aqui faltava, e a falta custou caro: o André trocou de 480p
+         para 1440p e viu o MESMO número de quadros. Sem comparar o que foi
+         PEDIDO com o que foi RECEBIDO não dá para saber se a escolha dele
+         sequer chegou na captura — e sem saber isso, todo o resto do
+         diagnóstico é chute. */
+      dz('  PEDI: '+p2.l+'×'+p2.a+' a '+p2.fps+' fps  ->  RECEBI: '+c.width+'×'+c.height+
+         ' a '+Math.round(c.frameRate||0)+' fps');
+      if(Math.abs((c.width||0)-p2.l) > 8)
+        dz('  >>> O TAMANHO PEDIDO NÃO FOI APLICADO. Trocar a qualidade não está mudando '+
+           'a captura — por isso o número de quadros não muda junto.');
     }
     dz('  som da tela: '+(a?'sim':'não'));
     // olha a captura ANTES de qualquer envio: se já vem preta daqui, o
@@ -7249,6 +7354,7 @@ $('sel-prioridade').onchange=async()=>{
   recado(cfg.prioridade==='fps'?'Vou segurar os quadros por segundo.':'Vou segurar a nitidez.','ok');
 };
 $('in-auto').onchange=()=>{ cfg.auto=$('in-auto').checked; guardarAjustes(); };
+$('btn-testar-captura').onclick = testarCaptura;
 $('in-previa-economica').checked = cfg.previaEconomica!==false;
 $('in-previa-economica').onchange=()=>{
   cfg.previaEconomica=$('in-previa-economica').checked; guardarAjustes();

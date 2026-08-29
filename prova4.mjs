@@ -1558,6 +1558,73 @@ async function principal() {
       ? ok('e o que não era do clipe continua de pé (caderninho, diagnóstico, transmissão)')
       : mal('a remoção levou coisa que não devia', semClipe.aindaTem.join(', '));
 
+    /* ============ 40. o teste que separa tamanho de caminho ============ */
+    console.log('\n=== 40. O app sabe dizer se faltam quadros por TAMANHO ou por CAMINHO? ===');
+    const veredito = await A.evaluate(async () => {
+      cfg.qualidade = '1080-60-8';
+      const faixa = est.streamTela.getVideoTracks()[0];
+      const pedidos = [];
+      faixa.applyConstraints = async (c) => { pedidos.push(c.height.ideal); };
+
+      // as esperas de 9s viram 50ms, senão são 54 segundos de prova parada
+      const relogioReal = window.setTimeout;
+      window.setTimeout = (fn, ms) => relogioReal(fn, ms > 1000 ? 50 : ms);
+      // e a medição da captura passa a devolver os números que eu quiser
+      const medianaReal = window.medianaDe;
+      let fila = [];
+      window.medianaDe = () => (fila.length ? fila.shift() : 0);
+
+      const rodar = async (antes, depois) => {
+        fila = [antes, depois];
+        pedidos.length = 0;
+        zerarSocorroCaptura();
+        est.tamBaseCaptura = { l: 1920, a: 1080 };
+        await testarCaptura();
+        return { txt: document.getElementById('resultado-captura').textContent,
+                 pediu: pedidos.slice(), degrau: est.socorro.degrau };
+      };
+
+      const porTamanho = await rodar(30, 52);   // encolher rendeu muito
+      const porCaminho = await rodar(30, 31);   // encolher não mudou nada
+      const saudavel   = await rodar(58, 58);   // 58 de 60: está bom
+
+      const botao = document.getElementById('btn-testar-captura');
+      const estadoDoBotao = { ligado: !botao.disabled, rotulo: botao.textContent };
+
+      window.setTimeout = relogioReal;
+      window.medianaDe = medianaReal;
+      return { porTamanho, porCaminho, saudavel, estadoDoBotao };
+    });
+    info('por tamanho: ' + veredito.porTamanho.txt.slice(0, 60) + '…');
+    info('por caminho: ' + veredito.porCaminho.txt.slice(0, 60) + '…');
+    /TAMANHO da imagem/.test(veredito.porTamanho.txt)
+      ? ok('encolher rendeu 73%: aponta o TAMANHO como gargalo e manda usar 720p')
+      : mal('não reconheceu o gargalo de tamanho', veredito.porTamanho.txt);
+    /NÃO MUDA NADA/.test(veredito.porCaminho.txt)
+      ? ok('encolher não rendeu: diz que o tamanho não é o problema — que é o caso do André')
+      : mal('não reconheceu o gargalo de caminho', veredito.porCaminho.txt);
+    (/JANELA SEM BORDA/.test(veredito.porCaminho.txt) &&
+     /Agendamento de GPU/.test(veredito.porCaminho.txt))
+      ? ok('e nesse caso dá as duas causas na ordem, com o caminho do ajuste no Windows')
+      : mal('não explicou o que fazer', veredito.porCaminho.txt);
+    /não vai resolver/.test(veredito.porCaminho.txt)
+      ? ok('e avisa que trocar a qualidade aqui dentro NÃO resolve — era a dúvida dele')
+      : mal('deixou a pessoa achando que mexer na qualidade adianta');
+    /SAUDÁVEL/.test(veredito.saudavel.txt)
+      ? ok('com 58 de 60, diz que está tudo bem em vez de inventar problema')
+      : mal('inventou problema numa captura boa', veredito.saudavel.txt);
+    (veredito.porCaminho.pediu.length === 2 &&
+     veredito.porCaminho.pediu[0] === 400 && veredito.porCaminho.pediu[1] === 1080)
+      ? ok('desce ao menor tamanho para medir e DEVOLVE o tamanho de antes',
+           veredito.porCaminho.pediu.join('p -> ') + 'p')
+      : mal('não devolveu o tamanho original', JSON.stringify(veredito.porCaminho.pediu));
+    (veredito.porCaminho.degrau === 0)
+      ? ok('e não deixa o socorro marcado depois de um teste')
+      : mal('o teste deixou o socorro sujo', String(veredito.porCaminho.degrau));
+    (veredito.estadoDoBotao.ligado && /Descobrir/.test(veredito.estadoDoBotao.rotulo))
+      ? ok('o botão volta ao normal no fim', veredito.estadoDoBotao.rotulo)
+      : mal('o botão ficou travado', JSON.stringify(veredito.estadoDoBotao));
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');
