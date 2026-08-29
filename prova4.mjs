@@ -691,6 +691,122 @@ async function principal() {
                     : mal('passou a dar alarme falso com a tela parada');
     !balanca.boa ? ok('captura boa segue sem alarme') : mal('alarme falso com captura boa');
 
+    /* ============ 18. reagir ao descompressor fraco do outro lado ============ */
+    console.log('\n=== 18. O Frag reage quando o amigo cai para software? ===');
+    const fraco = await A.evaluate(() => ({
+      pegaFallback: descompressorFraco('ExternalDecoder (WMFVideoDecoder) (fallback from: ExternalDecoder (D3D11VideoDecoder))'),
+      pegaFfmpeg:   descompressorFraco('FFmpegVideoDecoder'),
+      pegaLibvpx:   descompressorFraco('libvpx'),
+      aceitaHw:     !descompressorFraco('ExternalDecoder (D3D11VideoDecoder)'),
+      aceitaVazio:  !descompressorFraco(''),
+    }));
+    (fraco.pegaFallback && fraco.pegaFfmpeg && fraco.pegaLibvpx)
+      ? ok('reconhece descompressão por software (fallback, ffmpeg, libvpx)')
+      : mal('não reconheceu um descompressor fraco', JSON.stringify(fraco));
+    (fraco.aceitaHw && fraco.aceitaVazio)
+      ? ok('não confunde hardware nem campo vazio com software')
+      : mal('deu falso positivo em hardware', JSON.stringify(fraco));
+
+    const reagiu = await A.evaluate(async () => {
+      const p = [...pares.values()][0];
+      const antes = p.porqueTamanho;
+      // simula o recado que quem recebe manda quando o navegador dele desiste
+      p.canal.onmessage({ data: JSON.stringify({ t:'dec',
+        v:'ExternalDecoder (WMFVideoDecoder) (fallback from: ExternalDecoder (D3D11VideoDecoder))' }) });
+      await new Promise(r => setTimeout(r, 400));
+      const comFraco = { fraco: p.decDeleFraco, porque: p.porqueTamanho };
+      p.canal.onmessage({ data: JSON.stringify({ t:'dec', v:'ExternalDecoder (D3D11VideoDecoder)' }) });
+      await new Promise(r => setTimeout(r, 400));
+      return { antes, comFraco, depois: { fraco: p.decDeleFraco, porque: p.porqueTamanho } };
+    });
+    info('assinatura com o descompressor fraco: ' + reagiu.comFraco.porque);
+    reagiu.comFraco.fraco ? ok('quem manda registra que o descompressor dele desistiu')
+                          : mal('o recado do descompressor não chegou');
+    /descompressor dele está em software/.test(reagiu.comFraco.porque)
+      ? ok('e manda imagem menor, com assinatura própria', reagiu.comFraco.porque)
+      : mal('não reduziu a imagem para aliviar a descompressão', reagiu.comFraco.porque);
+    (!reagiu.depois.fraco && !/software/.test(reagiu.depois.porque))
+      ? ok('e desfaz sozinho quando ele volta para a placa de vídeo')
+      : mal('ficou preso na redução depois da volta', JSON.stringify(reagiu.depois));
+
+    /* O caso legítimo: VP9 descomprime por software SEMPRE, em qualquer
+       máquina. Encolher a imagem por causa disso, com tudo indo bem,
+       seria punir quem escolheu VP9 sem nenhum problema acontecendo. */
+    const vp9 = await A.evaluate(async () => {
+      const p = [...pares.values()][0];
+      p.quandoSaude = 0; p.saudeSeguida = 0;      // ninguém reclamando
+      p.canal.onmessage({ data: JSON.stringify({ t:'dec', v:'libvpx' }) });
+      await new Promise(r => setTimeout(r, 300));
+      const calmo = { fraco: p.decDeleFraco, porque: p.porqueTamanho };
+
+      // agora o mesmo software, mas com o amigo reclamando de travada
+      p.quandoSaude = Date.now(); p.saudeSeguida = 2;
+      p.decDele = '';                              // força reavaliar
+      p.canal.onmessage({ data: JSON.stringify({ t:'dec', v:'libvpx' }) });
+      await new Promise(r => setTimeout(r, 300));
+      const sofrendo = { fraco: p.decDeleFraco, porque: p.porqueTamanho };
+
+      p.quandoSaude = 0; p.saudeSeguida = 0;
+      p.canal.onmessage({ data: JSON.stringify({ t:'dec', v:'ExternalDecoder (D3D11VideoDecoder)' }) });
+      await new Promise(r => setTimeout(r, 300));
+      return { calmo, sofrendo };
+    });
+    (!vp9.calmo.fraco && !/software/.test(vp9.calmo.porque))
+      ? ok('software sozinho NÃO encolhe a imagem (VP9 é sempre software)')
+      : mal('puniu quem usa VP9 sem nada de errado acontecer', JSON.stringify(vp9.calmo));
+    vp9.sofrendo.fraco
+      ? ok('mas software COM o amigo reclamando de travada, aí sim reage')
+      : mal('não reagiu com software e travada juntos', JSON.stringify(vp9.sofrendo));
+
+    /* ============ 19. separar as vozes no fone ============ */
+    console.log('\n=== 19. As vozes podem ficar em lados diferentes? ===');
+    const vozes = await B.evaluate(() => {
+      const p = [...pares.values()][0];
+      const temSeletor = !!document.getElementById('sel-espacial');
+      const padraoDesligado = cfg.espacial === false;
+
+      /* O amplificador (que é quem carrega o controle de lado) só é ligado
+         a partir de DUAS pessoas do outro lado — com uma só, separar não
+         significa nada e não vale expor o áudio a um caminho a mais.
+         Então o teste precisa de um segundo amigo para o caminho existir. */
+      const falso = { id:'zzz', audio:{}, lado:{ pan:{ value:0 } } };
+      pares.set('zzz', falso);
+      cfg.espacial = true; aplicarVolume(); espalharVozes();
+      const temLado = !!p.lado;
+      const dois = [p.lado ? p.lado.pan.value : null, falso.lado.pan.value];
+
+      // tirando o segundo, quem sobra volta para o meio
+      pares.delete('zzz');
+      espalharVozes();
+      const umSo = p.lado ? p.lado.pan.value : null;
+
+      // e desligar devolve todo mundo ao meio
+      pares.set('zzz', falso);
+      cfg.espacial = true; espalharVozes();
+      cfg.espacial = false; espalharVozes();
+      const desligado = [p.lado ? p.lado.pan.value : null, falso.lado.pan.value];
+
+      pares.delete('zzz');
+      return { temSeletor, padraoDesligado, umSo, dois, desligado, temLado };
+    });
+    info('um só: ' + vozes.umSo + ' | dois: ' + JSON.stringify(vozes.dois) +
+         ' | desligado: ' + JSON.stringify(vozes.desligado));
+    vozes.temSeletor ? ok('a opção existe nos ajustes') : mal('o seletor não foi criado');
+    vozes.padraoDesligado ? ok('vem desligado por padrão, como decidido')
+                          : mal('veio ligado por padrão');
+    vozes.temLado ? ok('o caminho de áudio ganhou o controle de lado')
+                  : mal('o StereoPanner não foi criado');
+    (vozes.umSo === 0)
+      ? ok('com uma pessoa só, a voz fica no meio')
+      : mal('espalhou com uma pessoa só', String(vozes.umSo));
+    (vozes.dois[0] !== null && vozes.dois[0] !== vozes.dois[1] &&
+     Math.abs(vozes.dois[0]) <= 0.61 && Math.abs(vozes.dois[1]) <= 0.61)
+      ? ok('com dois, cada um vai para um lado', JSON.stringify(vozes.dois))
+      : mal('não separou as duas vozes', JSON.stringify(vozes.dois));
+    (vozes.desligado[0] === 0 && vozes.desligado[1] === 0)
+      ? ok('desligar devolve todo mundo ao meio')
+      : mal('não desfez a separação', JSON.stringify(vozes.desligado));
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

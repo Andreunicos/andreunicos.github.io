@@ -960,6 +960,20 @@ body.sem-tela .divisor{display:none}
     </button>
     <p class="ajuda" id="turn-resultado" style="margin-top:8px"></p>
 
+    <label class="campo" style="margin-top:12px">
+      <span>Separar as vozes no fone</span>
+      <select id="sel-espacial">
+        <option value="nao">Não — todo mundo no meio (padrão)</option>
+        <option value="sim">Sim — cada um num lado, como num jogo</option>
+      </select>
+    </label>
+    <p class="ajuda" style="margin-top:0">
+      Com três ou mais pessoas, põe cada voz num ponto diferente entre o ouvido esquerdo e o
+      direito. Quando duas pessoas falam juntas no meio do tiroteio, dá para separar quem é quem.
+      Não gasta banda nenhuma. <b>Fica desligado por padrão</b> porque manda o som por um caminho
+      diferente dentro do navegador, e esse caminho tem mais jeitos de dar errado.
+    </p>
+
     <div class="secao">Volume geral</div>
     <label class="campo">
       <span>Todo mundo: <b id="lbl-vol" style="color:var(--azul)">100%</b></span>
@@ -1104,6 +1118,7 @@ const cfg = {
   codec:'auto', auto:true, turn:'', site:'', versaoAjustes:0,
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
   clipe:30, clipeSempre:false, prioridade:'fps', desenho:'normal', latencia:'estavel',
+  espacial:false,
 };
 
 function lerAjustes(){
@@ -1918,7 +1933,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '4.5 — 29/08 18:40';
+const VERSAO = '4.6 — 29/08 22:05';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -1940,6 +1955,7 @@ function novoPar(id){
     conhece:null,
     // o que ela pede: o tamanho da janela dela, e se sumiu da vista
     larguraQueQuer:0, sumiu:false, avisei:0, pedido:null,
+    decDele:'', decDeleFraco:false, decMeu:'', avisouDec:false,
   };
   pares.set(id,p);
   return p;
@@ -2140,6 +2156,21 @@ function abrirCanal(par){
     else if(d.t==='ice') receberIce(par, d.v);
     else if(d.t==='ponte') aoPonte(d);
     else if(d.t==='quero'){ par.larguraQueQuer=Math.max(240,Math.min(3840,Number(d.v)||0)); aplicarPerfilVideo(par); }
+    else if(d.t==='dec'){
+      par.decDele = String(d.v||'').slice(0,120);
+      // desistiu da placa = prova; software sofrendo = prova; software
+      // e nada acontecendo = seguir a vida
+      const sofrendo = (Date.now()-(par.quandoSaude||0)) < 15000 && (par.saudeSeguida||0) >= 2;
+      const fraco = descompressorDesistiu(par.decDele) ||
+                    (descompressorFraco(par.decDele) && sofrendo);
+      if(fraco !== !!par.decDeleFraco){
+        par.decDeleFraco = fraco;
+        marcar(fraco
+          ? 'o descompressor do amigo desistiu da placa ('+par.decDele+') — mandando imagem menor'
+          : 'o descompressor do amigo voltou para a placa de vídeo');
+        aplicarPerfilVideo(par);
+      }
+    }
     else if(d.t==='pedido'){
       const q = String(d.v||'');
       par.pedido = (q==='liso') ? 'liso' : null;
@@ -3039,7 +3070,10 @@ function ligarAmplificador(par){
     par.fonteAudio = est.ctx.createMediaStreamSource(par.audio.srcObject);
     par.ganho = est.ctx.createGain();
     par.fonteAudio.connect(par.ganho);
-    par.ganho.connect(est.ctx.destination);
+    // o "lado" é opcional: navegador sem StereoPanner continua funcionando
+    par.lado = est.ctx.createStereoPanner ? est.ctx.createStereoPanner() : null;
+    if(par.lado){ par.ganho.connect(par.lado); par.lado.connect(est.ctx.destination); }
+    else par.ganho.connect(est.ctx.destination);
     // o elemento continua tocando (é ele que faz o áudio fluir), mas
     // calado: quem sai pelas caixas agora é o amplificador
     par.audio.volume = 0;
@@ -3052,11 +3086,33 @@ function ligarAmplificador(par){
   }
 }
 
+/* ---------------------------------------------------------------------
+ * CADA VOZ NUM LUGAR
+ * ---------------------------------------------------------------------
+ * Duas pessoas falando ao mesmo tempo no meio de um tiroteio viram uma
+ * papa só quando as duas saem do mesmo ponto. Separando no campo
+ * estéreo, o ouvido faz o trabalho sozinho — é de graça e não gasta um
+ * bit a mais de internet.
+ *
+ * Só vale a partir de duas pessoas do outro lado: com uma só, o lugar
+ * certo é o meio.
+ * ------------------------------------------------------------------ */
+function espalharVozes(){
+  const lista = [...pares.values()].filter(p=>p.lado);
+  const n = lista.length;
+  lista.forEach((p,i)=>{
+    const alvo = (!cfg.espacial || n<2) ? 0 : (-0.6 + (1.2*i/(n-1)));
+    try{ p.lado.pan.value = alvo; }catch{}
+  });
+}
+
 function aplicarVolume(){
   pares.forEach(p=>{
     if(!p.audio) return;
     const v = est.surdo ? 0 : (cfg.volume/100) * ((p.volume==null?100:p.volume)/100);
-    if(v>1 && !p.ganho) ligarAmplificador(p);
+    // a separação também precisa do amplificador: é ele que tem o caminho
+    // de áudio por dentro do navegador
+    if((v>1 || (cfg.espacial && pares.size>=2)) && !p.ganho) ligarAmplificador(p);
     if(p.ganho){
       // O navegador põe o AudioContext para dormir sozinho de vez em
       // quando. Se isso acontecer com o amplificador ligado, o som some
@@ -3073,6 +3129,7 @@ function aplicarVolume(){
 
 /* Uma lista com um controle de volume por pessoa, como no Discord. */
 function pintarVolumes(){
+  espalharVozes();
   const caixa=$('volumes'); if(!caixa) return;
   caixa.innerHTML='';
   if(!pares.size){
@@ -3204,6 +3261,9 @@ async function aplicarPerfilVideo(par){
   };
 
   if(par.pedido==='liso') pesar(1.5, 'ele pediu mais fluidez');
+  // descompressão por software custa por pixel: metade da largura é um
+  // quarto do trabalho, e isso vale para qualquer codec
+  if(par.decDeleFraco) pesar(2, 'o descompressor dele está em software');
   pesar(a.degrauBanda||1, 'pouca banda');
   pesar(a.degrauFps||1,   'compressor sem fôlego');
   if(n>=4)       pesar(2,   n+' pessoas recebendo');
@@ -3973,6 +4033,56 @@ function marcar(txt){
 /* A regra que separa "captura capada" de "tela parada", sozinha para
    poder ser testada: captura capada fica CRAVADA num número; tela parada
    oscila muito e sobe assim que algo se mexe. */
+/* ---------------------------------------------------------------------
+ * O DESCOMPRESSOR DO OUTRO LADO DESISTIU DA PLACA DE VÍDEO
+ * ---------------------------------------------------------------------
+ * Isto veio de um caderninho real: o navegador do amigo tentou
+ * descomprimir pela placa, falhou, e caiu para software. Ele largou 649
+ * quadros e congelou por quase um segundo — com a rede impecável, perda
+ * zero e ping de 1 ms.
+ *
+ * Quem manda não enxerga isso: o "decoderImplementation" mora nas
+ * estatísticas de quem RECEBE. Então quem recebe passa a contar.
+ *
+ * A reação é de propósito CONSERVADORA: mandar uma imagem menor. Custo
+ * de descompressão por software cresce com o número de pixels, então
+ * metade da largura é aproximadamente um quarto do trabalho — e isso
+ * vale para qualquer codec, sem renegociar nada e sem soluço.
+ *
+ * NÃO trocamos de codec sozinhos. Seria um chute: não dá para saber se o
+ * hardware dele aceita H265 ou AV1, a troca custa uma renegociação
+ * visível no meio da partida, e se o novo codec também cair para
+ * software o Frag entra num vaivém pior que o problema. O usuário é
+ * avisado e escolhe.
+ * ------------------------------------------------------------------ */
+function descompressorFraco(impl){
+  const t = String(impl||'');
+  if(!t) return false;
+  return /fallback/i.test(t) || /ffmpeg|libvpx|dav1d|openh264/i.test(t);
+}
+
+/* ---------------------------------------------------------------------
+ * "É SOFTWARE" NÃO É A MESMA COISA QUE "DEU ERRADO"
+ * ---------------------------------------------------------------------
+ * A primeira versão desta reação encolhia a imagem sempre que o outro
+ * lado descomprimia por software. Os testes pegaram o erro na hora: em
+ * navegador sem placa de vídeo TUDO é software, e a imagem encolhia sem
+ * motivo nenhum.
+ *
+ * E há um caso legítimo pior: VP9 descomprime por software SEMPRE
+ * (libvpx), em qualquer máquina. Alguém que escolhesse VP9 ia levar uma
+ * imagem pela metade para o resto da vida, sem nada de errado
+ * acontecendo.
+ *
+ * O sinal forte é outro: o navegador escrever "fallback from" quer dizer
+ * que ele TENTOU a placa e desistiu — aí sim algo quebrou. Fora isso, só
+ * vale reagir se o software estiver de fato sofrendo, e disso a gente já
+ * sabe pelos avisos de travada que ele manda.
+ * ------------------------------------------------------------------ */
+function descompressorDesistiu(impl){
+  return /fallback/i.test(String(impl||''));
+}
+
 function capturaSuspeita(H, alvo){
   if(!H || H.length<30 || !alvo) return false;
   const firme = (Math.max(...H) - Math.min(...H)) <= 5;
@@ -4314,7 +4424,8 @@ function montarRegistro(extra){
   }
   dz('escolhido: '+p.a+'p a '+p.fps+' fps | prioridade: '+(cfg.prioridade==='nitidez'?'nitidez':'fluidez')+
      ' | compressão: '+cfg.codec+' | imagem: '+cfg.latencia);
-  dz('desenho: '+cfg.desenho+' | clipe sempre pronto: '+(cfg.clipeSempre?'LIGADO':'desligado'));
+  dz('desenho: '+cfg.desenho+' | clipe sempre pronto: '+(cfg.clipeSempre?'LIGADO':'desligado')+
+     ' | vozes separadas: '+(cfg.espacial?'sim':'não'));
   if(!cfg.auto){
     dz('');
     dz('!!! O AJUSTE AUTOMÁTICO ESTÁ DESLIGADO. Nada do mecanismo de qualidade rodou nesta');
@@ -4537,6 +4648,21 @@ async function atualizarNumeros(){
       if((dCong>0 || dLarg>3) && Date.now()-(par.avisouSaude||0) > 3000){
         par.avisouSaude = Date.now();
         enviar(par, {t:'saude', v:{ c:dCong, l:dLarg }});
+      }
+
+      /* Quem manda não tem como ver o descompressor de quem recebe.
+         Então quem recebe avisa — uma vez só, quando muda. */
+      const impl = String(ev.decoderImplementation||'');
+      if(impl && impl!==par.decMeu){
+        par.decMeu = impl;
+        enviar(par, {t:'dec', v:impl.slice(0,120)});
+        if(descompressorDesistiu(impl) && !par.avisouDec){
+          par.avisouDec = true;
+          marcar('seu navegador desistiu da placa de vídeo para descomprimir: '+impl);
+          recado('Seu navegador não conseguiu usar a placa de vídeo para descomprimir e caiu '+
+                 'para um caminho mais lento — é isso que faz a imagem travar. Atualize o driver '+
+                 'da placa e confira se a aceleração por hardware está ligada no navegador.','mal');
+        }
       }
     }
 
@@ -6590,6 +6716,13 @@ $('vol').value=cfg.volume; $('lbl-vol').textContent=cfg.volume+'%';
 $('sel-codec').value=cfg.codec||'auto';
 $('sel-clipe').value=String(cfg.clipe||30);
 $('sel-prioridade').value=cfg.prioridade||'fps';
+$('sel-espacial').value = cfg.espacial ? 'sim' : 'nao';
+$('sel-espacial').onchange=()=>{
+  cfg.espacial = $('sel-espacial').value==='sim'; guardarAjustes();
+  aplicarVolume(); espalharVozes();
+  recado(cfg.espacial ? 'Vozes separadas no fone (vale com 3 pessoas ou mais).'
+                      : 'Todo mundo de volta ao meio.','ok');
+};
 $('sel-latencia').value=cfg.latencia||'estavel';
 $('in-clipe-sempre').checked=!!cfg.clipeSempre;
 $('in-canvas').checked = cfg.desenho==='canvas';
