@@ -1933,7 +1933,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '4.6 — 29/08 22:05';
+const VERSAO = '4.7 — 29/08 23:40';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -1955,7 +1955,7 @@ function novoPar(id){
     conhece:null,
     // o que ela pede: o tamanho da janela dela, e se sumiu da vista
     larguraQueQuer:0, sumiu:false, avisei:0, pedido:null,
-    decDele:'', decDeleFraco:false, decMeu:'', avisouDec:false,
+    decDele:'', decDeleFraco:false, decMeu:'', avisouDec:false, podeDescomprimir:null,
   };
   pares.set(id,p);
   return p;
@@ -2158,6 +2158,7 @@ function abrirCanal(par){
     else if(d.t==='quero'){ par.larguraQueQuer=Math.max(240,Math.min(3840,Number(d.v)||0)); aplicarPerfilVideo(par); }
     else if(d.t==='dec'){
       par.decDele = String(d.v||'').slice(0,120);
+      if(Array.isArray(d.pode)) par.podeDescomprimir = d.pode.map(x=>String(x).slice(0,12)).slice(0,10);
       // desistiu da placa = prova; software sofrendo = prova; software
       // e nada acontecendo = seguir a vida
       const sofrendo = (Date.now()-(par.quandoSaude||0)) < 15000 && (par.saudeSeguida||0) >= 2;
@@ -2169,6 +2170,7 @@ function abrirCanal(par){
           ? 'o descompressor do amigo desistiu da placa ('+par.decDele+') — mandando imagem menor'
           : 'o descompressor do amigo voltou para a placa de vídeo');
         aplicarPerfilVideo(par);
+        oferecerResgate();
       }
     }
     else if(d.t==='pedido'){
@@ -2894,10 +2896,31 @@ function pintarNoCanvas(q){
   const passo=()=>{
     if(!q.isConnected || cfg.desenho!=='canvas'){ q.pintando=false; return; }
     if(v.videoWidth){
-      if(c.width!==v.videoWidth || c.height!==v.videoHeight){
-        c.width=v.videoWidth; c.height=v.videoHeight;
-      }
-      try{ g.drawImage(v,0,0,c.width,c.height); }catch{}
+      /* ---------------------------------------------------------------------
+       * PINTAR DO TAMANHO QUE APARECE, NÃO DO TAMANHO QUE CHEGA
+       * ---------------------------------------------------------------------
+       * Aqui o quadro era criado com a largura do VÍDEO — 1920x1080 — e
+       * pintado inteiro 60 vezes por segundo, para depois o navegador
+       * encolher tudo por CSS até os ~660 px que realmente aparecem na
+       * tela. Ou seja: oito vezes mais pixels do que alguém chega a ver,
+       * a cada quadro, na mesma fila do resto da página.
+       *
+       * A sugestão que recebi para isto foi trocar por WebGL. Não dá:
+       * este modo existe exatamente para placa de vídeo com defeito, e
+       * WebGL usa o mesmo driver que já falhou — seria a saída de
+       * emergência dependendo daquilo de que ela está fugindo.
+       *
+       * Pintar do tamanho certo resolve o mesmo problema sem depender de
+       * nada. O dobro da densidade da tela é o teto (telas retina), e
+       * nunca aumenta a imagem além do que chegou.
+       * ------------------------------------------------------------------ */
+      const dpr  = Math.min(window.devicePixelRatio||1, 2);
+      const cabe = Math.max(2, Math.round((c.clientWidth||v.videoWidth)*dpr));
+      const enc  = Math.min(1, cabe / v.videoWidth);
+      const larg = Math.max(2, Math.round(v.videoWidth*enc));
+      const alt  = Math.max(2, Math.round(v.videoHeight*enc));
+      if(c.width!==larg || c.height!==alt){ c.width=larg; c.height=alt; }
+      try{ g.drawImage(v,0,0,larg,alt); }catch{}
     }
     if(typeof v.requestVideoFrameCallback==='function') v.requestVideoFrameCallback(passo);
     else requestAnimationFrame(passo);
@@ -2993,6 +3016,61 @@ function mostrarTela(par){
   if(cfg.desenho==='canvas') pintarNoCanvas($('q-p-'+par.id));
   arrumarPalco(); pintarGente();
 }
+/* ---------------------------------------------------------------------
+ * O RESGATE DE CODEC — a máquina detecta, você decide
+ * ---------------------------------------------------------------------
+ * Me pediram para trocar de codec sozinho quando o descompressor do
+ * amigo desiste da placa. Não faço, e o motivo é o próprio caderninho
+ * dele: no log que recebi, o amigo listava H264, VP9 e VP8 — e mais
+ * nada. Uma troca automática não teria para onde ir, e teria custado uma
+ * renegociação visível no meio da partida para nada.
+ *
+ * Pior: se o codec novo também cair para software, o Frag entra num
+ * vaivém entre dois codecs ruins, cada troca cobrando um soluço. Um
+ * mecanismo que "conserta" e desconserta sozinho é pior que o defeito.
+ *
+ * Então a máquina faz a parte que ela faz bem — perceber que desistiu,
+ * conferir o que o outro navegador aceita, escolher o candidato certo —
+ * e a decisão de gastar um soluço fica com quem está jogando. Um clique,
+ * e o botão só existe quando há mesmo para onde ir.
+ * ------------------------------------------------------------------ */
+function oferecerResgate(){
+  const q = $('q-eu');
+  const acoes = q && q.querySelector('.quadro-acoes');
+  const velho = $('btn-resgate');
+  if(!acoes){ if(velho) velho.remove(); return; }
+
+  const alvo = [...pares.values()]
+    .map(p => ({ p, c: p.decDeleFraco ? codecDeResgate(p) : null }))
+    .find(x => x.c);
+
+  if(!alvo){
+    if(velho){ velho.remove(); acoes.style.opacity=''; }
+    return;
+  }
+  const rotulo = '🛟 Tentar '+alvo.c.toUpperCase()+' com '+(alvo.p.nome||'ele');
+  if(velho){ velho.textContent = rotulo; velho.dataset.codec = alvo.c; return; }
+
+  const b = document.createElement('button');
+  b.id='btn-resgate'; b.type='button';
+  b.textContent = rotulo; b.dataset.codec = alvo.c;
+  b.onclick = async (e)=>{
+    e.stopPropagation();
+    const c = b.dataset.codec;
+    cfg.codec = c;
+    const sel = $('sel-codec'); if(sel) sel.value = c;
+    guardarAjustes();
+    marcar('resgate: trocando a compressão para '+c.toUpperCase()+
+           ' porque o descompressor dele desistiu no codec atual');
+    recado('Trocando para '+c.toUpperCase()+'… Se a imagem sumir do lado dele, '+
+           'volte para Automática em Ajustes > Rede.','');
+    await trocarCodecAgora();
+  };
+  acoes.appendChild(b);
+  // os botões do quadro só aparecem no hover; este precisa ser visto
+  acoes.style.opacity = '1';
+}
+
 function quadroLocal(stream){
   const q=montarQuadro('eu','você está transmitindo',true,pararTela);
   const v=$('v-eu');
@@ -4079,6 +4157,35 @@ function descompressorFraco(impl){
  * vale reagir se o software estiver de fato sofrendo, e disso a gente já
  * sabe pelos avisos de travada que ele manda.
  * ------------------------------------------------------------------ */
+/* O temCodec olha o que esta máquina consegue COMPRIMIR. Para saber se
+   vale trocar de codec com alguém, o que importa é o contrário: o que o
+   navegador DELE consegue descomprimir. Só ele sabe disso, então ele
+   conta junto com o aviso do descompressor. */
+function possoDescomprimir(){
+  try{
+    const c = RTCRtpReceiver.getCapabilities('video');
+    if(!c || !c.codecs) return [];
+    const nomes = new Set();
+    c.codecs.forEach(x=>{
+      const m = String(x.mimeType||'').toLowerCase().split('/')[1];
+      if(m && m!=='rtx' && m!=='red' && m!=='ulpfec') nomes.add(m);
+    });
+    return [...nomes].slice(0,10);
+  }catch{ return []; }
+}
+
+/* Existe algum codec que EU comprimo e ELE descomprime, diferente do que
+   está dando errado agora? Ordem de preferência pelo que tem mais chance
+   de rodar na placa de vídeo dele. */
+function codecDeResgate(par){
+  const dele = par.podeDescomprimir || [];
+  if(!dele.length) return null;
+  for(const c of ['h265','av1','vp9','h264']){
+    if(c!==cfg.codec && dele.indexOf(c)>=0 && temCodec(c)) return c;
+  }
+  return null;
+}
+
 function descompressorDesistiu(impl){
   return /fallback/i.test(String(impl||''));
 }
@@ -4324,6 +4431,7 @@ function resumoDoRegistro(){
      * e o navegador não avisa ninguém quando desiste. Agora avisa.
      * ------------------------------------------------------------------ */
     const dec = (L.filter(l=>l.recDec).pop()||{}).recDec || '';
+    R.push('eu descomprimo   : '+(possoDescomprimir().join(', ')||'?'));
     if(dec){
       R.push('descompressor     : '+dec);
       if(/fallback/i.test(dec)){
@@ -4655,7 +4763,7 @@ async function atualizarNumeros(){
       const impl = String(ev.decoderImplementation||'');
       if(impl && impl!==par.decMeu){
         par.decMeu = impl;
-        enviar(par, {t:'dec', v:impl.slice(0,120)});
+        enviar(par, {t:'dec', v:impl.slice(0,120), pode:possoDescomprimir()});
         if(descompressorDesistiu(impl) && !par.avisouDec){
           par.avisouDec = true;
           marcar('seu navegador desistiu da placa de vídeo para descomprimir: '+impl);

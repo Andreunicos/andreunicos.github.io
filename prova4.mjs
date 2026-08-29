@@ -807,6 +807,88 @@ async function principal() {
       ? ok('desligar devolve todo mundo ao meio')
       : mal('não desfez a separação', JSON.stringify(vozes.desligado));
 
+    /* ============ 20. o modo canvas pinta do tamanho que aparece ============ */
+    console.log('\n=== 20. O modo canvas parou de pintar 1920 num quadro pequeno? ===');
+    const pintura = await B.evaluate(async () => {
+      cfg.desenho = 'canvas'; aplicarModoDesenho();
+      await new Promise(r => setTimeout(r, 1200));
+      const c = document.querySelector('#palco canvas.pintura');
+      const v = document.querySelector('#palco video');
+      const r = c ? { canvas: c.width, tela: Math.round(c.clientWidth),
+                      video: v ? v.videoWidth : 0 } : null;
+      cfg.desenho = 'normal'; aplicarModoDesenho();
+      return r;
+    });
+    if (!pintura) mal('o canvas do modo desenho não apareceu');
+    else {
+      info('vídeo ' + pintura.video + 'px | quadro na tela ' + pintura.tela +
+           'px | canvas pintado ' + pintura.canvas + 'px');
+      /* A regra é "o menor entre o que chega e o que aparece", e ela vale
+         nos dois sentidos: um vídeo grande numa janela pequena é pintado
+         no tamanho da janela; um vídeo pequeno numa janela grande NÃO é
+         esticado, porque esticar não acrescenta nenhum pixel de verdade
+         e custaria caro à toa. */
+      const teto = Math.min(pintura.video, pintura.tela * 2);
+      (Math.abs(pintura.canvas - teto) <= 4)
+        ? ok('pinta o menor entre o vídeo e a tela',
+             pintura.canvas + 'px (vídeo ' + pintura.video + ', tela ' + pintura.tela + ')')
+        : mal('não respeitou o menor dos dois', pintura.canvas + 'px, esperado ~' + teto);
+      (pintura.canvas <= pintura.video)
+        ? ok('e nunca estica um vídeo pequeno')
+        : mal('esticou o vídeo à toa', pintura.canvas + ' > ' + pintura.video);
+    }
+
+    /* ============ 21. o resgate de codec ============ */
+    console.log('\n=== 21. O resgate de codec só aparece quando há para onde ir? ===');
+    const resgate = await A.evaluate(async () => {
+      const p = [...pares.values()][0];
+      const guarda = { fraco: p.decDeleFraco, pode: p.podeDescomprimir, codec: cfg.codec };
+      cfg.codec = 'h264';
+
+      // (a) descompressor bom -> nenhum botão
+      p.decDeleFraco = false; p.podeDescomprimir = ['h264','h265','av1'];
+      oferecerResgate();
+      const bom = !!document.getElementById('btn-resgate');
+
+      // (b) desistiu, e ele descomprime H265 -> botão
+      p.decDeleFraco = true;
+      oferecerResgate();
+      const b = document.getElementById('btn-resgate');
+      const comSaida = b ? b.textContent : null;
+
+      // (c) desistiu, mas ele SÓ tem o codec que já está dando errado
+      p.podeDescomprimir = ['h264','vp8'];
+      const antes = document.getElementById('btn-resgate');
+      if (antes) antes.remove();
+      oferecerResgate();
+      const semSaida = !!document.getElementById('btn-resgate');
+
+      // (d) o que ele lista de verdade
+      const meus = possoDescomprimir();
+
+      const sobrou = document.getElementById('btn-resgate');
+      if (sobrou) sobrou.remove();
+      p.decDeleFraco = guarda.fraco; p.podeDescomprimir = guarda.pode; cfg.codec = guarda.codec;
+      return { bom, comSaida, semSaida, meus };
+    });
+    info('este navegador descomprime: ' + JSON.stringify(resgate.meus));
+    !resgate.bom ? ok('descompressor saudável não gera botão nenhum')
+                 : mal('ofereceu resgate sem precisar');
+    /* Qual codec ele oferece depende do que ESTE navegador comprime: em
+       headless não há H265, então a escolha certa passa a ser AV1. O que
+       tem de valer sempre é: oferece algo, não é o codec que já está
+       dando errado, e é algo que o amigo consegue descomprimir. */
+    (resgate.comSaida && !/H264/.test(resgate.comSaida) &&
+     /H265|AV1|VP9/.test(resgate.comSaida))
+      ? ok('desistiu e há para onde ir: oferece um codec que os DOIS aguentam', resgate.comSaida)
+      : mal('não ofereceu um resgate válido', String(resgate.comSaida));
+    !resgate.semSaida
+      ? ok('desistiu mas não há para onde ir: NÃO oferece (era o furo da troca automática)')
+      : mal('ofereceu uma troca que não levaria a lugar nenhum');
+    (Array.isArray(resgate.meus) && resgate.meus.length > 0)
+      ? ok('sabe dizer o que este navegador consegue descomprimir', resgate.meus.join(', '))
+      : mal('não conseguiu ler as capacidades de descompressão');
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');
