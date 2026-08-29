@@ -1379,6 +1379,85 @@ async function principal() {
            folgaJanela.bemMenor.encolher + 'x — ' + folgaJanela.bemMenor.porque)
       : mal('deixou de economizar quando valia a pena', JSON.stringify(folgaJanela.bemMenor));
 
+    /* ============ 36. o socorro da captura ============ */
+    console.log('\n=== 36. Quando o Windows entrega menos quadros, ele socorre — e sabe desistir? ===');
+    const socorroCap = await A.evaluate(async () => {
+      const faixa = est.streamTela.getVideoTracks()[0];
+      const pedidos = [];
+      faixa.applyConstraints = async (c) => { pedidos.push(c.height.ideal); };
+      cfg.qualidade = '1080-60-8';
+      cfg.socorroCaptura = true;
+
+      const encher = (v) => { est.histFonte = new Array(34).fill(v); };
+      const jaEsperou = () => { est.socorro.quando = Date.now() - 60000; };
+      const rodar = async () => { jaEsperou(); await socorrerCaptura(); };
+
+      /* --- caso 1: sufocada, e capturar menor RENDE --- */
+      zerarSocorroCaptura(); pedidos.length = 0;
+      encher(30);                                  // 30 de 60, cravado
+      await rodar();
+      const desceu = { degrau: est.socorro.degrau, fase: est.socorro.fase,
+                       pediu: pedidos.slice() };
+      encher(52);                                  // rendeu muito
+      await rodar();
+      const manteve = { degrau: est.socorro.degrau, desistiu: est.socorro.desistiu,
+                        pediu: pedidos.slice() };
+
+      /* --- caso 2: sufocada, e capturar menor NÃO rende --- */
+      zerarSocorroCaptura(); pedidos.length = 0;
+      encher(30);
+      await rodar();
+      const desceu2 = est.socorro.degrau;
+      encher(31);                                  // praticamente igual
+      await rodar();
+      const voltou = { degrau: est.socorro.degrau, desistiu: est.socorro.desistiu,
+                       pediu: pedidos.slice() };
+      encher(30);
+      await rodar();
+      const naoInsiste = est.socorro.degrau;
+
+      /* --- caso 3: captura saudável, não encosta em nada --- */
+      zerarSocorroCaptura(); pedidos.length = 0;
+      encher(58);
+      await rodar();
+      const saudavel = { degrau: est.socorro.degrau, mexeu: pedidos.length };
+
+      /* --- caso 4: desligado no painel, não faz nada --- */
+      cfg.socorroCaptura = false;
+      zerarSocorroCaptura(); pedidos.length = 0;
+      encher(30);
+      await rodar();
+      const desligado = { degrau: est.socorro.degrau, mexeu: pedidos.length };
+      cfg.socorroCaptura = true;
+
+      return { desceu, manteve, desceu2, voltou, naoInsiste, saudavel, desligado,
+               base: est.tamBaseCaptura };
+    });
+    info('desceu para ' + JSON.stringify(socorroCap.desceu.pediu) + 'p | ' +
+         'ao não render pediu ' + JSON.stringify(socorroCap.voltou.pediu) + 'p');
+    (socorroCap.desceu.degrau === 1 && socorroCap.desceu.pediu[0] === 720)
+      ? ok('tela entregando 30 de 60: capta em 720p para medir se rende')
+      : mal('não socorreu uma captura sufocada', JSON.stringify(socorroCap.desceu));
+    (socorroCap.desceu.fase === 'medindo')
+      ? ok('e fica MEDINDO em vez de dar o resultado por certo')
+      : mal('não entrou em medição', socorroCap.desceu.fase);
+    (socorroCap.manteve.degrau === 1 && !socorroCap.manteve.desistiu)
+      ? ok('subiu de 30 para 52: mantém o tamanho menor')
+      : mal('desfez uma troca que deu certo', JSON.stringify(socorroCap.manteve));
+    (socorroCap.voltou.degrau === 0 && socorroCap.voltou.pediu.join(',') === '720,1080')
+      ? ok('NÃO rendeu (30 -> 31): volta sozinho ao tamanho cheio — é isto que impede '+
+           'trocar nitidez por nada')
+      : mal('ficou com a imagem pior sem ter ganhado quadros', JSON.stringify(socorroCap.voltou));
+    (socorroCap.voltou.desistiu && socorroCap.naoInsiste === 0)
+      ? ok('e não fica insistindo no que já provou que não funciona')
+      : mal('voltou a insistir', JSON.stringify({ d: socorroCap.voltou.desistiu, n: socorroCap.naoInsiste }));
+    (socorroCap.saudavel.degrau === 0 && socorroCap.saudavel.mexeu === 0)
+      ? ok('com a tela entregando 58 de 60, não encosta em nada')
+      : mal('mexeu numa captura que estava boa', JSON.stringify(socorroCap.saudavel));
+    (socorroCap.desligado.degrau === 0 && socorroCap.desligado.mexeu === 0)
+      ? ok('e obedece quando você desliga o ajuste')
+      : mal('mexeu mesmo desligado', JSON.stringify(socorroCap.desligado));
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

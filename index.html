@@ -879,6 +879,14 @@ body.sem-tela .divisor{display:none}
     </label>
     <p class="ajuda" style="margin-top:0">Em vez de travar, a imagem baixa um pouco e volta sozinha. Deixe ligado.</p>
 
+    <label class="chk" style="margin-top:14px">
+      <input id="in-socorro-captura" type="checkbox" checked>
+      <span>Socorrer os quadros quando a placa de vídeo não der conta</span>
+    </label>
+    <p class="ajuda" style="margin-top:0">Se o Windows entregar bem menos quadros do que você pediu,
+      capturo num tamanho menor e <b>meço</b> se rendeu. Se não render pelo menos 15%, volto ao
+      tamanho cheio sozinho — não troco nitidez por nada.</p>
+
     <div class="secao">Deu problema?</div>
     <label class="chk" style="margin-bottom:11px">
       <input id="in-canvas" type="checkbox">
@@ -1195,7 +1203,7 @@ const cfg = {
   codec:'auto', auto:true, turn:'', site:'', versaoAjustes:0,
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
   clipe:30, clipeSempre:false, prioridade:'fps', desenho:'normal', latencia:'estavel',
-  espacial:false, portao:12,
+  espacial:false, portao:12, socorroCaptura:true,
 };
 
 function lerAjustes(){
@@ -2011,7 +2019,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '5.1 — 29/08 20:40';
+const VERSAO = '5.2 — 29/08 21:30';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3733,8 +3741,119 @@ async function aplicarPerfilVideo(par){
  * menor faz o compressor achar que pode crescer, o que faria capturar
  * maior de novo, e assim para sempre.
  * ------------------------------------------------------------------ */
+/* ---------------------------------------------------------------------
+ * SOCORRO DA CAPTURA — quando o Windows não entrega os quadros
+ * ---------------------------------------------------------------------
+ * Este é o caso mais frustrante do projeto, e o mais difícil de explicar,
+ * porque não é culpa de nada que eu faça: a tela entrega 34 quadros de 60
+ * e eu mando os 34. No caderninho isso aparece com três números iguais —
+ * "fonte" = "enc" = "fps". Se fosse o compressor, "enc" seria menor que
+ * "fonte". Se fosse a rede, "fps" seria menor que "enc".
+ *
+ * Até aqui eu só DETECTAVA e avisava: ponha o jogo em janela sem borda,
+ * ligue o HAGS. Continua sendo o melhor conserto — mas é fora daqui, e
+ * quem está no meio de uma partida não quer sair para mexer no Windows.
+ *
+ * O que dá para fazer DAQUI: copiar a tela custa por pixel, e essa cópia
+ * disputa a mesma placa de vídeo que está rodando o jogo. Capturar em
+ * 720p em vez de 1080p é 45% do trabalho. Se a captura está sufocada por
+ * falta de placa, isso devolve quadros de verdade.
+ *
+ * SE. E é por isso que este mecanismo MEDE em vez de supor: desce um
+ * degrau, espera doze segundos, e compara a mediana de antes com a de
+ * depois. Se não rendeu pelo menos 15%, a captura não estava presa em
+ * pixel nenhum — o gargalo era outro — e aí ele VOLTA ao tamanho cheio e
+ * não insiste mais nesta transmissão.
+ *
+ * Essa volta é o coração da coisa. Trocar nitidez por nada é o pior
+ * negócio possível, e é exatamente o que aconteceria se eu partisse do
+ * palpite de que "menor sempre ajuda". Sem medir eu não teria como saber
+ * a diferença — e o André ficaria com a imagem pior e o mesmo problema.
+ * ------------------------------------------------------------------ */
+const ESCADA_CAPTURA = [1, 1.5, 2, 2.7];    // 1080p -> 720p -> 540p -> 400p
+
+function medianaDe(H){
+  if(!H || !H.length) return 0;
+  const o = H.slice().sort((a,b)=>a-b);
+  return o[Math.floor(o.length/2)];
+}
+
+function zerarSocorroCaptura(){
+  est.socorro = { degrau:0, fase:'parado', quando:0, antes:0, desistiu:false };
+  est.tamBaseCaptura = null;
+}
+
+async function aplicarDegrauCaptura(n){
+  const faixa = est.streamTela && est.streamTela.getVideoTracks()[0];
+  if(!faixa || !faixa.applyConstraints) return false;
+  if(!est.tamBaseCaptura){
+    const t = tamanhoDaCaptura();
+    if(!t) return false;
+    est.tamBaseCaptura = t;          // o tamanho cheio, para saber voltar
+  }
+  const d = ESCADA_CAPTURA[n] || 1;
+  const b = est.tamBaseCaptura;
+  // pares: codificador nenhum gosta de largura ímpar
+  const l = Math.round(b.l/d/2)*2, a = Math.round(b.a/d/2)*2;
+  const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  try{
+    await faixa.applyConstraints({ width:{ideal:l,max:l}, height:{ideal:a,max:a},
+                                   frameRate:{ideal:p.fps}, resizeMode:'none' });
+  }catch(e){ console.warn('socorro captura',e); return false; }
+  if(est.socorro) est.socorro.degrau = n;
+  // o histórico de antes é de outro tamanho: comparar os dois seria
+  // misturar duas medições diferentes na mesma média
+  est.histFonte = []; est.olhouCaptura = 0;
+  pares.forEach(x=>{ x.perfilAplicado = null; });
+  await reequilibrarVideo();
+  return true;
+}
+
+async function socorrerCaptura(){
+  if(!est.streamTela || cfg.socorroCaptura===false) return;
+  if(!est.socorro) zerarSocorroCaptura();
+  const s = est.socorro;
+  const H = est.histFonte || [];
+  if(H.length < 12) return;
+  const agora = medianaDe(H);
+
+  /* já desci um degrau e estou esperando para ver se rendeu */
+  if(s.fase==='medindo'){
+    if(Date.now()-s.quando < 12000) return;
+    s.fase='parado'; s.quando = Date.now();
+    const ganho = s.antes>0 ? (agora-s.antes)/s.antes : 0;
+    if(ganho >= 0.15){
+      marcar('capturar menor rendeu: '+s.antes+' -> '+agora+' quadros por segundo');
+      recado('A tela estava sufocada. Baixei o tamanho da captura e os quadros subiram de '+
+             s.antes+' para '+agora+' por segundo.','ok');
+    }else{
+      marcar('capturar menor NÃO rendeu ('+s.antes+' -> '+agora+
+             ') — o gargalo é outro, voltei ao tamanho cheio');
+      s.desistiu = true;
+      await aplicarDegrauCaptura(0);
+      s.quando = Date.now();
+    }
+    return;
+  }
+
+  if(s.desistiu) return;
+  if(s.degrau >= ESCADA_CAPTURA.length-1) return;
+  if(Date.now()-s.quando < 15000) return;
+  // capturaSuspeita exige 30 amostras: são uns 25 segundos de convicção
+  // antes de mexer em qualquer coisa
+  if(!capturaSuspeita(H, perfilReal().fps)) return;
+
+  s.antes = agora; s.quando = Date.now(); s.fase='medindo';
+  if(!await aplicarDegrauCaptura(s.degrau+1)){ s.fase='parado'; s.desistiu=true; return; }
+  marcar('a tela só entrega '+agora+' de '+perfilReal().fps+
+         ' quadros — capturando menor para medir se rende');
+}
+
 async function cuidarDaCaptura(){
   if(!est.streamTela) return;
+  // o socorro mede e manda: enquanto ele estiver com a régua na mão,
+  // esta função não mexe no tamanho, senão os dois se atropelam
+  if(est.socorro && est.socorro.degrau > 0) return;
   const faixa = est.streamTela.getVideoTracks()[0];
   if(!faixa || !faixa.applyConstraints) return;
   const gente = [...pares.values()].filter(x=>x.senderVideo && x.conectado);
@@ -3886,6 +4005,7 @@ async function pegarTela(){
     }
   }
   est.capturaEm=1; est.capturaFirme=0;
+  zerarSocorroCaptura();
   est.falhasDaTela=falhas;
   marcar('comecei a transmitir ('+p.a+'p a '+p.fps+' fps pedidos, para '+quantosRecebem()+')');
   if(!foi){
@@ -3967,6 +4087,7 @@ async function conferirDeNovo(){
 
 async function pararTela(){
   est.avisouCaptura=false; est.histFonte=[]; est.olhouCaptura=0;
+  zerarSocorroCaptura();
   const indo=est.streamTela;
   if(!indo) return;
   est.streamTela=null;
@@ -4751,6 +4872,9 @@ function montarRegistro(extra){
   }
   dz('escolhido: '+p.a+'p a '+p.fps+' fps | prioridade: '+(cfg.prioridade==='nitidez'?'nitidez':'fluidez')+
      ' | compressão: '+cfg.codec+' | imagem: '+cfg.latencia);
+  if(est.socorro && est.socorro.degrau>0)
+    dz('captura socorrida: capturando 1/'+ESCADA_CAPTURA[est.socorro.degrau]+
+       ' do tamanho porque a placa não dava conta'+(est.socorro.desistiu?' (e voltou)':''));
   dz('desenho: '+cfg.desenho+' | clipe sempre pronto: '+(cfg.clipeSempre?'LIGADO':'desligado')+
      ' | vozes separadas: '+(cfg.espacial?'sim':'não')+
      ' | corte da voz: '+(cfg.portao||12));
@@ -5189,6 +5313,7 @@ async function atualizarNumeros(){
 
   // FPS sempre à vista enquanto você transmite: é o número que importa
   cuidarDaCaptura();
+  socorrerCaptura();
 
   // o caderninho se alimenta do que já foi colhido aqui em cima
   for(const x of porPessoa) anotarLinha(x);
@@ -6436,7 +6561,10 @@ async function montarDiagnostico(){
   dz('--- ajustes ---');
   dz('modo de desenho: '+cfg.desenho);
   dz('codec: '+cfg.codec+' | qualidade: '+cfg.qualidade+' | prioridade: '+cfg.prioridade+
-     ' | automático: '+cfg.auto+' | clipe sempre: '+cfg.clipeSempre);
+     ' | automático: '+cfg.auto+' | clipe sempre: '+cfg.clipeSempre+
+     ' | socorro da captura: '+(cfg.socorroCaptura!==false)+
+     (est.socorro ? (' (degrau '+est.socorro.degrau+', '+est.socorro.fase+
+                     (est.socorro.desistiu?', desistiu':'')+')') : ''));
   dz('tem H264: '+temCodec('h264')+' | tem VP9: '+temCodec('vp9')+' | tem VP8: '+temCodec('vp8'));
   dz('retransmissor próprio: '+((cfg.turn||'').trim()?'sim':'não'));
   dz('');
@@ -7056,6 +7184,8 @@ $('sel-qualidade').onchange=async(e)=>{
         width:{ideal:p.l,max:p.l}, height:{ideal:p.a,max:p.a}, frameRate:{ideal:p.fps},
       });
     }catch(err){ console.warn('reajustar captura',err); }
+    // escolha na mão vence a medição: recomeça a avaliação do zero
+    zerarSocorroCaptura();
     pares.forEach(zerarAuto);
     await reequilibrarVideo();
     recado('Agora em '+p.a+'p a '+p.fps+' fps.','ok');
@@ -7353,6 +7483,11 @@ $('in-clipe-sempre').onchange=()=>{
   else recado('Clipe sempre pronto desligado. Seu jogo agradece.','ok');
 };
 $('in-auto').onchange=()=>{ cfg.auto=$('in-auto').checked; guardarAjustes(); };
+$('in-socorro-captura').checked = cfg.socorroCaptura!==false;
+$('in-socorro-captura').onchange=()=>{
+  cfg.socorroCaptura=$('in-socorro-captura').checked; guardarAjustes();
+  if(!cfg.socorroCaptura && est.socorro && est.socorro.degrau>0) aplicarDegrauCaptura(0);
+};
 const guardarTurn=()=>{ cfg.turn = linhaDoRetransmissor(); guardarAjustes(); };
 $('in-turn-url').onchange = $('in-turn-user').onchange = $('in-turn-senha').onchange = guardarTurn;
 $('btn-turn').onclick = async ()=>{
