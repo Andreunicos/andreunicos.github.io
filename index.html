@@ -1899,7 +1899,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '4.2 — 28/08 21:00';
+const VERSAO = '4.3 — 29/08 10:20';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3333,7 +3333,25 @@ async function cuidarDaCaptura(){
   const menorEncolhe = Math.min(...gente.map(x=>x.encolherAtual||1));
   const total = agora * menorEncolhe;
 
-  const alvo = total >= 2 ? 2 : (total < 1.4 ? 1 : agora);
+  /* Aqui morava um caminho só de ida, achado relendo o código.
+     Depois de reduzir a captura pela metade, o compressor não precisa
+     mais encolher nada — então "menorEncolhe" volta para 1 e o total
+     fica cravado em 2 (que é a própria captura reduzida). Como a conta
+     era "total >= 2 -> continua em 2", a captura NUNCA voltava ao
+     tamanho cheio na mesma sessão: a internet melhorava, a banda sobrava,
+     e a imagem seguia pela metade até fechar a aba.
+     A volta precisa de regra própria, porque a evidência de que dá para
+     voltar não aparece no mesmo número que mandou descer. */
+  const folgado = menorEncolhe === 1 &&
+                  gente.every(x => !x.apertado && (x.perda||0) < 1);
+  est.capturaFolgada = folgado ? (est.capturaFolgada||0)+1 : 0;
+
+  let alvo;
+  if(agora > 1 && est.capturaFolgada >= 60) alvo = 1;   // um minuto de calma: tenta voltar
+  else if(total >= 2)                        alvo = 2;
+  else if(total < 1.4 && agora === 1)         alvo = 1;
+  else                                        alvo = agora;
+
   if(alvo === agora){ est.capturaFirme = 0; return; }
   if((est.capturaFirme = (est.capturaFirme||0)+1) < 30) return;  // 30s de convicção
   est.capturaFirme = 0;
@@ -3344,6 +3362,7 @@ async function cuidarDaCaptura(){
     await faixa.applyConstraints({ width:{ideal:l,max:l}, height:{ideal:h,max:h},
                                    frameRate:{ideal:p.fps}, resizeMode:'none' });
     est.capturaEm = alvo;
+    est.capturaFolgada = 0;
     // o encolhimento mudou de casa: sai do compressor, entra na captura
     pares.forEach(x=>{ if(x.auto){ x.auto.degrauBanda=1; x.auto.degrauFps=1; } x.perfilAplicado=null; });
     marcar('passei a capturar em '+h+'p — ninguém precisa de mais que isso agora');
@@ -3950,6 +3969,9 @@ function anotarLinha(x){
     recL: x.ev ? (x.ev.frameWidth||0) : 0,
     recA: x.ev ? (x.ev.frameHeight||0) : 0,
     recPerdidos: x.ev ? (x.ev.packetsLost||0) : 0,
+    chaves:  x.par.chavesNoSegundo|0,
+    socorro: x.par.socorroNoSegundo|0,
+    fila:    x.par.filaMs|0,
     pint:     x.par.pacing ? x.par.pacing.fps : 0,
     pintPior: x.par.pacing ? x.par.pacing.pior : 0,
     pintBur:  x.par.pacing ? x.par.pacing.buraco : 0,
@@ -3992,6 +4014,35 @@ function resumoDoRegistro(){
     if(fonte.length) R.push('a tela entregou   : média '+Math.round(conta(fonte.map(v=>({v})),o=>o.v))+
                             ' | pior '+Math.min(...fonte));
   }
+  /* Estes três explicam travada de quem TRANSMITE, que é um problema
+     diferente de "a imagem está pequena" e não aparecia em lugar nenhum. */
+  const tx = L.filter(l=>l.fps>0);
+  if(tx.length){
+    const segundos = tx.length;
+    const chaves  = tx.reduce((a,l)=>a+(l.chaves||0),0);
+    const socorro = tx.reduce((a,l)=>a+(l.socorro||0),0);
+    const filas   = tx.map(l=>l.fila||0).filter(v=>v>0);
+    R.push('');
+    R.push('--- por que a transmissão TRAVA (não é o mesmo que ficar pequena) ---');
+    R.push('quadros-chave     : '+chaves+' em '+segundos+'s'+
+           (chaves ? ' (um a cada '+(segundos/chaves).toFixed(1)+'s)' : '')+
+           ' — cada um é uma rajada que trava a imagem');
+    if(chaves/segundos*60 > 12)
+      R.push('  >>> ISSO É MUITO. Numa cena estável o normal é menos de 4 por minuto.');
+    R.push('socorro do amigo  : '+socorro+' pedidos de quadro-chave'+
+           (socorro ? ' — ele está perdendo pacote e pedindo tudo de novo' : ' (nenhum, ótimo)'));
+    if(socorro > 3)
+      R.push('  >>> CICLO RUIM: ele perde, pede tudo de novo, chega uma rajada, ele perde outra vez.');
+    if(filas.length){
+      const ord = filas.slice().sort((a,b)=>a-b);
+      const media = Math.round(filas.reduce((a,b)=>a+b,0)/filas.length);
+      R.push('fila de envio     : média '+media+' ms | 1% pior '+
+             ord[Math.floor(ord.length*0.99)]+' ms | pior '+ord[ord.length-1]+' ms');
+      if(media > 60)
+        R.push('  >>> A SAÍDA NÃO ESTÁ DANDO CONTA: os pedaços estão esperando na fila para sair.');
+    }
+  }
+
   const pings = L.map(l=>l.ping).filter(v=>v>0);
   if(pings.length) R.push('ping              : média '+Math.round(conta(pings.map(v=>({v})),o=>o.v))+
                           ' ms | pior '+Math.max(...pings)+' ms');
@@ -4233,6 +4284,43 @@ async function atualizarNumeros(){
     if(ms>piorPing) piorPing=ms;
     const perda = eco&&eco.fractionLost!=null ? eco.fractionLost*100 : 0;
     par.perda = perda;
+    /* ---------------------------------------------------------------------
+     * A TRAVADA DE QUEM TRANSMITE TEM TRÊS CAUSAS, E NENHUMA APARECIA
+     * ---------------------------------------------------------------------
+     * O caderninho contava quadros e banda, que descrevem o REGIME. Uma
+     * travada não é regime, é um instante — e os três instantes que
+     * produzem travada em quem transmite são estes:
+     *
+     * 1. QUADRO-CHAVE. É a imagem inteira, sem depender de nenhuma
+     *    anterior, e por isso é muitas vezes maior que um quadro comum.
+     *    Quando sai um, a fila de envio entope e a imagem trava. Numa
+     *    cena estável eles deviam ser raros.
+     *
+     * 2. PEDIDO DE SOCORRO DE QUEM ASSISTE (PLI/FIR). Quando ele perde
+     *    pacote e não consegue mais montar a imagem, pede um quadro-chave.
+     *    Isso vira um ciclo cruel: perdeu -> pede -> chega uma rajada ->
+     *    perde de novo. É a cara de "fica caindo constantemente".
+     *
+     * 3. FILA DE ENVIO. Quanto tempo cada pedaço esperou antes de sair.
+     *    É a medida mais direta de travada que existe do lado de cá: se
+     *    subiu, a saída não está dando conta, e não adianta olhar para a
+     *    média de quadros porque ela continua bonita.
+     * ------------------------------------------------------------------ */
+    if(sv){
+      const dPac = (sv.packetsSent||0) - (par.pacotesAntes||0);
+      const dEsp = (sv.totalPacketSendDelay||0) - (par.esperaAntes||0);
+      par.pacotesAntes = sv.packetsSent||0;
+      par.esperaAntes  = sv.totalPacketSendDelay||0;
+      par.filaMs = (dPac>0 && dEsp>=0) ? Math.round(dEsp/dPac*1000) : 0;
+
+      const chaves = sv.keyFramesEncoded||0;
+      par.chavesNoSegundo = chaves - (par.chavesAntes||0);
+      par.chavesAntes = chaves;
+      const socorro = (sv.pliCount||0) + (sv.firCount||0);
+      par.socorroNoSegundo = socorro - (par.socorroAntes||0);
+      par.socorroAntes = socorro;
+    }
+
     const apertadoDele = !!(sv && sv.qualityLimitationReason==='bandwidth');
     // o orçamento (aplicarPerfilVideo) roda fora daqui e precisa saber se
     // existe aperto agora e há quanto tempo foi o último

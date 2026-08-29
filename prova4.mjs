@@ -405,6 +405,69 @@ async function principal() {
     caros.temPulso ? ok('o pulso da página entrou no caderninho')
                    : mal('o pulso não apareceu no caderninho');
 
+    /* ============ 10d. os números da travada de quem transmite ============ */
+    console.log('\n=== 10d. O caderninho explica travada de quem TRANSMITE? ===');
+    const trava = await A.evaluate(() => {
+      const p = [...pares.values()][0];
+      const txt = montarRegistro();
+      return {
+        temSecao: txt.includes('por que a transmissão TRAVA'),
+        citaChave: txt.includes('quadros-chave'),
+        citaSocorro: txt.includes('socorro do amigo'),
+        citaFila: txt.includes('fila de envio'),
+        mediuFila: typeof p.filaMs === 'number',
+        mediuChaves: typeof p.chavesAntes === 'number',
+        linhaTemCampos: (() => {
+          const l = registro.linhas[registro.linhas.length - 1] || {};
+          return 'chaves' in l && 'socorro' in l && 'fila' in l;
+        })(),
+      };
+    });
+    trava.temSecao ? ok('a seção da travada entrou no caderninho') : mal('a seção não apareceu');
+    (trava.citaChave && trava.citaSocorro && trava.citaFila)
+      ? ok('conta as três causas: quadro-chave, socorro do amigo e fila de envio')
+      : mal('faltou alguma das três causas', JSON.stringify(trava));
+    (trava.mediuFila && trava.mediuChaves)
+      ? ok('as medidas estão sendo colhidas de verdade')
+      : mal('as medidas não foram colhidas', JSON.stringify(trava));
+    trava.linhaTemCampos ? ok('o segundo-a-segundo guarda os três')
+                         : mal('o segundo-a-segundo não guardou os campos novos');
+
+    /* ============ 10e. a captura consegue voltar ao tamanho cheio ============ */
+    console.log('\n=== 10e. Depois de reduzir a captura, ela volta? ===');
+    const volta = await A.evaluate(async () => {
+      const espiao = [];
+      const pt = MediaStreamTrack.prototype, oc = pt.applyConstraints;
+      pt.applyConstraints = function (c) { espiao.push(c); return Promise.resolve(); };
+      const p = [...pares.values()][0];
+      const guardado = { enc: p.encolherAtual, ap: p.apertado, pe: p.perda };
+
+      // cenário: captura já reduzida pela metade, e tudo calmo
+      p.encolherAtual = 1; p.apertado = false; p.perda = 0;
+      est.capturaEm = 2; est.capturaFolgada = 0; est.capturaFirme = 0;
+      for (let i = 0; i < 95; i++) await cuidarDaCaptura();
+      const pediu = espiao.length ? (espiao[0].width && espiao[0].width.max) : 0;
+
+      // mesmo cenário, mas com a rede apertada: NÃO pode tentar voltar
+      espiao.length = 0;
+      p.apertado = true;
+      est.capturaEm = 2; est.capturaFolgada = 0; est.capturaFirme = 0;
+      for (let i = 0; i < 95; i++) await cuidarDaCaptura();
+      const comAperto = espiao.length;
+
+      pt.applyConstraints = oc;
+      p.encolherAtual = guardado.enc; p.apertado = guardado.ap; p.perda = guardado.pe;
+      est.capturaEm = 1; est.capturaFolgada = 0; est.capturaFirme = 0;
+      return { pediu, comAperto };
+    });
+    info('pediu voltar para ' + volta.pediu + 'px de largura | tentativas com aperto: ' + volta.comAperto);
+    (volta.pediu === 1920)
+      ? ok('depois de um minuto de calma ela volta ao tamanho cheio', '1920px')
+      : mal('a captura continua num caminho só de ida', 'pediu ' + volta.pediu);
+    (volta.comAperto === 0)
+      ? ok('com a rede apertada ela NÃO tenta voltar')
+      : mal('tentou voltar no meio de um aperto', volta.comAperto + ' tentativas');
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');
