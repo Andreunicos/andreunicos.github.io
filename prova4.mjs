@@ -1390,10 +1390,13 @@ async function principal() {
 
       const encher = (v) => { est.histFonte = new Array(34).fill(v); };
       const jaEsperou = () => { est.socorro.quando = Date.now() - 60000; };
+      // a base tem que ser FIXADA aqui: testes anteriores podem ter deixado a
+      // captura ja reduzida, e ai os numeros deste teste virariam loteria
+      const preparar = () => { zerarSocorroCaptura(); est.tamBaseCaptura = {l:1920,a:1080}; pedidos.length = 0; };
       const rodar = async () => { jaEsperou(); await socorrerCaptura(); };
 
       /* --- caso 1: sufocada, e capturar menor RENDE --- */
-      zerarSocorroCaptura(); pedidos.length = 0;
+      preparar();
       encher(30);                                  // 30 de 60, cravado
       await rodar();
       const desceu = { degrau: est.socorro.degrau, fase: est.socorro.fase,
@@ -1404,7 +1407,7 @@ async function principal() {
                         pediu: pedidos.slice() };
 
       /* --- caso 2: sufocada, e capturar menor NÃO rende --- */
-      zerarSocorroCaptura(); pedidos.length = 0;
+      preparar();
       encher(30);
       await rodar();
       const desceu2 = est.socorro.degrau;
@@ -1417,14 +1420,14 @@ async function principal() {
       const naoInsiste = est.socorro.degrau;
 
       /* --- caso 3: captura saudável, não encosta em nada --- */
-      zerarSocorroCaptura(); pedidos.length = 0;
+      preparar();
       encher(58);
       await rodar();
       const saudavel = { degrau: est.socorro.degrau, mexeu: pedidos.length };
 
       /* --- caso 4: desligado no painel, não faz nada --- */
       cfg.socorroCaptura = false;
-      zerarSocorroCaptura(); pedidos.length = 0;
+      preparar();
       encher(30);
       await rodar();
       const desligado = { degrau: est.socorro.degrau, mexeu: pedidos.length };
@@ -1457,6 +1460,112 @@ async function principal() {
     (socorroCap.desligado.degrau === 0 && socorroCap.desligado.mexeu === 0)
       ? ok('e obedece quando você desliga o ajuste')
       : mal('mexeu mesmo desligado', JSON.stringify(socorroCap.desligado));
+
+    /* ============ 37. 480p a 120 quadros ============ */
+    console.log('\n=== 37. Dá para pedir 480p a 120 quadros? ===');
+    const p120 = await A.evaluate(async () => {
+      const opcoes = [...document.querySelectorAll('#sel-qualidade option')].map(o => o.value);
+      const perfil = PERFIS['480-120-5'];
+      const antes = cfg.qualidade;
+      cfg.qualidade = '480-120-5';
+      const real = perfilReal();
+      const p = [...pares.values()][0];
+      const a = autoDe(p); a.degrauBanda = 1; a.degrauFps = 1;
+      p.larguraQueQuer = 0; p.pedido = null; p.decDeleFraco = false;
+      p.perfilAplicado = null;
+      await aplicarPerfilVideo(p);
+      const e = (p.senderVideo.getParameters().encodings || [])[0] || {};
+      cfg.qualidade = antes; p.perfilAplicado = null;
+      await aplicarPerfilVideo(p);
+      return { opcoes, perfil, real: { l: real.l, fps: real.fps },
+               pediuQuadros: e.maxFramerate, encolheu: e.scaleResolutionDownBy };
+    });
+    info('perfil: ' + JSON.stringify(p120.perfil) + ' | pediu ao compressor: ' +
+         p120.pediuQuadros + ' quadros');
+    (p120.perfil && p120.perfil.fps === 120 && p120.perfil.a === 480)
+      ? ok('o perfil 480p a 120 existe')
+      : mal('o perfil não foi criado', JSON.stringify(p120.perfil));
+    p120.opcoes.includes('480-120-5')
+      ? ok('e aparece na lista de qualidade', p120.opcoes.join(' · '))
+      : mal('não aparece para escolher', JSON.stringify(p120.opcoes));
+    (p120.real.fps === 120)
+      ? ok('a conta do tamanho real mantém os 120 (não capa em 60 no caminho)')
+      : mal('perdeu os 120 quadros no caminho', String(p120.real.fps));
+    (p120.pediuQuadros === 120)
+      ? ok('e o compressor recebe o pedido de 120 quadros, não 60')
+      : mal('o compressor foi pedido em outra taxa', String(p120.pediuQuadros));
+    (p120.real.l === 854)
+      ? ok('numa captura de 1920 ele usa os 854 do perfil, que é menor')
+      : mal('largura errada', String(p120.real.l));
+
+    /* ============ 38. a prévia que para de ser desenhada ============ */
+    console.log('\n=== 38. Parar de desenhar a própria tela tira quadros de quem assiste? ===');
+    const previa = await A.evaluate(async () => {
+      const v = document.getElementById('v-eu');
+      const q = document.getElementById('q-eu');
+      const p = [...pares.values()][0];
+      const saiu = async () => {
+        const rel = await p.pc.getStats();
+        let n = 0; rel.forEach(x => { if (x.type === 'outbound-rtp' && x.kind === 'video') n = x.framesSent || 0; });
+        return n;
+      };
+      cfg.previaEconomica = true;
+      espiarPrevia();
+      const acordada = { tem: !!v.srcObject, classe: q.classList.contains('sem-previa') };
+
+      const quadrosAntes = await saiu();
+      pararDeDesenharPrevia();
+      const dormindo = { tem: !!v.srcObject, marcada: est.previaDormindo,
+                         classe: q.classList.contains('sem-previa') };
+      await new Promise(r => setTimeout(r, 2500));
+      const quadrosDepois = await saiu();
+
+      // o clipe tem que continuar tendo de onde gravar mesmo sem a prévia
+      pararDeDesenharPrevia();
+      const clipeDormindo = comecarBuffer();
+      const fonteDormindo = clipe.alvo;
+      pararBuffer();
+
+      espiarPrevia();
+      const voltou = { tem: !!v.srcObject, marcada: est.previaDormindo,
+                       classe: q.classList.contains('sem-previa') };
+
+      // e obedece o ajuste: desligado, não agenda nada
+      cfg.previaEconomica = false;
+      agendarEconomiaDaPrevia();
+      const desligado = est.relogioPrevia;
+      cfg.previaEconomica = true;
+      agendarEconomiaDaPrevia();
+      const ligado = est.relogioPrevia;
+      clearTimeout(est.relogioPrevia);
+
+      return { acordada, dormindo, voltou, quadrosAntes, quadrosDepois, clipeDormindo,
+               fonteDormindo, agendouDesligado: desligado !== null, agendouLigado: ligado !== null };
+    });
+    info('quadros enviados: ' + previa.quadrosAntes + ' -> ' + previa.quadrosDepois +
+         ' (com a prévia adormecida)');
+    (previa.acordada.tem && !previa.acordada.classe)
+      ? ok('começa desenhando, para você ver que a captura deu certo')
+      : mal('não estava desenhando no começo', JSON.stringify(previa.acordada));
+    (!previa.dormindo.tem && previa.dormindo.marcada && previa.dormindo.classe)
+      ? ok('passados os 6 segundos, larga a imagem e mostra o aviso no lugar')
+      : mal('continuou desenhando', JSON.stringify(previa.dormindo));
+    (previa.quadrosDepois > previa.quadrosAntes + 20)
+      ? ok('e a transmissão seguiu inteira enquanto isso — quem assiste não perde nada',
+           (previa.quadrosDepois - previa.quadrosAntes) + ' quadros enviados com a prévia desligada')
+      : mal('parar de desenhar aqui parou de mandar para os outros',
+            previa.quadrosAntes + ' -> ' + previa.quadrosDepois);
+    (previa.voltou.tem && !previa.voltou.marcada && !previa.voltou.classe)
+      ? ok('um clique traz a imagem de volta')
+      : mal('não dá para espiar de novo', JSON.stringify(previa.voltou));
+    (previa.clipeDormindo && /sua tela/.test(previa.fonteDormindo || ''))
+      ? ok('e o clipe continua tendo de onde gravar: vai direto na captura, não na prévia',
+           'fonte: ' + previa.fonteDormindo)
+      : mal('a prévia adormecida deixou o clipe sem fonte',
+            JSON.stringify({ ligou: previa.clipeDormindo, fonte: previa.fonteDormindo }));
+    (!previa.agendouDesligado && previa.agendouLigado)
+      ? ok('e o ajuste manda: desligado não agenda nada, ligado agenda')
+      : mal('ignorou o ajuste', JSON.stringify({ d: previa.agendouDesligado, l: previa.agendouLigado }));
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');

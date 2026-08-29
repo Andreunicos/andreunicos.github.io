@@ -515,6 +515,15 @@ body.sem-tela .divisor{display:none}
  * para a placa e esquece — zero repintura. O anel é o mesmo aos olhos;
  * o que mudou foi quem faz o trabalho.
  * ------------------------------------------------------------------ */
+/* A prévia adormecida: o quadro continua lá, com o botão de parar e o
+   aviso de que está no ar — só a imagem é que não é desenhada. */
+.quadro.sem-previa video{visibility:hidden}
+.quadro.sem-previa{cursor:pointer}
+.quadro.sem-previa::after{
+  content:'sua tela está indo · não desenho aqui para poupar FPS — clique para ver';
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:0 18px;line-height:1.5;
+  font-size:13px;color:var(--fraco);background:#0b0d12;pointer-events:none}
 .av{transition:border-color .22s,box-shadow .22s,transform .22s;position:relative}
 .av::after{
   content:'';position:absolute;inset:-2px;border-radius:inherit;
@@ -860,6 +869,7 @@ body.sem-tela .divisor{display:none}
     <label class="campo">
       <span>Qualidade do que VOCÊ transmite</span>
       <select id="sel-qualidade">
+        <option value="480-120-5">480p 120fps — fluidez máxima</option>
         <option value="720-30-3">720p 30fps — leve</option>
         <option value="1080-30-5">1080p 30fps</option>
         <option value="1080-60-8" selected>1080p 60fps — recomendado</option>
@@ -883,6 +893,14 @@ body.sem-tela .divisor{display:none}
       <input id="in-socorro-captura" type="checkbox" checked>
       <span>Socorrer os quadros quando a placa de vídeo não der conta</span>
     </label>
+    <label class="chk" style="margin-top:14px">
+      <input id="in-previa-economica" type="checkbox" checked>
+      <span>Parar de desenhar a minha própria tela enquanto transmito</span>
+    </label>
+    <p class="ajuda" style="margin-top:0">Depois de 6 segundos — tempo de você ver que deu certo — eu paro
+      de redesenhar a sua tela aqui dentro. Ela continua indo normalmente para os outros; o que some é só
+      a cópia que aparecia para você, que custava placa de vídeo à toa. <b>Clique no quadro para ver de novo.</b></p>
+
     <p class="ajuda" style="margin-top:0">Se o Windows entregar bem menos quadros do que você pediu,
       capturo num tamanho menor e <b>meço</b> se rendeu. Se não render pelo menos 15%, volto ao
       tamanho cheio sozinho — não troco nitidez por nada.</p>
@@ -1172,6 +1190,12 @@ const RTC = ()=>({
 });
 
 const PERFIS = {
+  /* 480p a 120: a troca mais extrema que o app oferece — um quarto dos
+     pixels do 1080p e o DOBRO dos quadros. Faz sentido em jogo rápido,
+     onde ver o movimento vale mais que ler texto pequeno.
+     Só entrega 120 de verdade se o monitor for de 120 Hz ou mais: a
+     captura não inventa quadro que a tela nunca desenhou. */
+  '480-120-5': {l:854, a:480, fps:120,mbps:5},
   '720-30-3':  {l:1280,a:720, fps:30,mbps:3},
   '1080-30-5': {l:1920,a:1080,fps:30,mbps:5},
   '1080-60-8': {l:1920,a:1080,fps:60,mbps:8},
@@ -1203,7 +1227,7 @@ const cfg = {
   codec:'auto', auto:true, turn:'', site:'', versaoAjustes:0,
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
   clipe:30, clipeSempre:false, prioridade:'fps', desenho:'normal', latencia:'estavel',
-  espacial:false, portao:12, socorroCaptura:true,
+  espacial:false, portao:12, socorroCaptura:true, previaEconomica:true,
 };
 
 function lerAjustes(){
@@ -2019,7 +2043,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '5.2 — 29/08 21:30';
+const VERSAO = '5.3 — 29/08 22:45';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3226,13 +3250,67 @@ function oferecerResgate(){
   acoes.style.opacity = '1';
 }
 
+/* ---------------------------------------------------------------------
+ * A SUA PRÓPRIA TELA, DESENHADA DE VOLTA NA SUA PRÓPRIA TELA
+ * ---------------------------------------------------------------------
+ * O André perguntou se o site não pode "puxar mais placa" para segurar
+ * 60 quadros. Não pode: não existe jeito de uma página pedir prioridade
+ * de placa de vídeo ou de processador — o navegador proíbe de propósito,
+ * senão qualquer anúncio faria isso.
+ *
+ * Mas dá para PARAR DE GASTAR. E o maior desperdício estava aqui: o
+ * quadro "você está transmitindo" desenha a sua tela de volta na sua
+ * tela, 60 vezes por segundo, em 1687x756 — para te mostrar exatamente
+ * aquilo que você já está olhando. Cada quadro desses é uma textura
+ * subindo para a mesma placa que está rodando o jogo.
+ *
+ * Só que a prévia não é enfeite: é ela que separa "não capturou" de
+ * "capturou e não mandou". Sem ela, um problema de captura e um problema
+ * de envio ficam indistinguíveis — foi por isso que ela existe.
+ *
+ * Então ela aparece por SEIS SEGUNDOS, que é tudo que você precisa para
+ * ver que deu certo, e depois para de ser desenhada. Um clique traz de
+ * volta por mais seis. A transmissão não passa por aqui: quem manda os
+ * quadros é a faixa, direto para o compressor. Desligar o desenho não
+ * tira um quadro sequer de quem assiste.
+ * ------------------------------------------------------------------ */
+const SEGUNDOS_DE_PREVIA = 6;
+
 function quadroLocal(stream){
   const q=montarQuadro('eu','você está transmitindo',true,pararTela);
   const v=$('v-eu');
   v.srcObject=stream;
   v.play().catch(()=>{});
   if(cfg.desenho==='canvas') pintarNoCanvas(q);
+  q.onclick = (ev)=>{ if(!ev.target.closest('.quadro-acoes')) espiarPrevia(); };
+  agendarEconomiaDaPrevia();
   arrumarPalco();
+}
+
+function agendarEconomiaDaPrevia(){
+  clearTimeout(est.relogioPrevia);
+  est.relogioPrevia = null;
+  if(cfg.previaEconomica===false || cfg.desenho==='canvas') return;
+  est.relogioPrevia = setTimeout(pararDeDesenharPrevia, SEGUNDOS_DE_PREVIA*1000);
+}
+
+function pararDeDesenharPrevia(){
+  const q=$('q-eu'), v=$('v-eu');
+  if(!q || !v || !est.streamTela) return;
+  v.srcObject=null;
+  q.classList.add('sem-previa');
+  est.previaDormindo = true;
+  marcar('parei de desenhar a minha própria tela para poupar placa de vídeo');
+}
+
+function espiarPrevia(){
+  const q=$('q-eu'), v=$('v-eu');
+  if(!q || !v || !est.streamTela || !est.previaDormindo) return;
+  v.srcObject=est.streamTela;
+  v.play().catch(()=>{});
+  q.classList.remove('sem-previa');
+  est.previaDormindo = false;
+  agendarEconomiaDaPrevia();
 }
 function apagarImagem(q){
   if(!q) return;
@@ -4087,6 +4165,7 @@ async function conferirDeNovo(){
 
 async function pararTela(){
   est.avisouCaptura=false; est.histFonte=[]; est.olhouCaptura=0;
+  clearTimeout(est.relogioPrevia); est.previaDormindo=false;
   zerarSocorroCaptura();
   const indo=est.streamTela;
   if(!indo) return;
@@ -4875,6 +4954,9 @@ function montarRegistro(extra){
   if(est.socorro && est.socorro.degrau>0)
     dz('captura socorrida: capturando 1/'+ESCADA_CAPTURA[est.socorro.degrau]+
        ' do tamanho porque a placa não dava conta'+(est.socorro.desistiu?' (e voltou)':''));
+  dz('prévia da própria tela: '+(cfg.previaEconomica===false?'sempre desenhando (custa placa)':
+     'para depois de '+SEGUNDOS_DE_PREVIA+'s')+
+     (est.previaDormindo?' — está adormecida agora':''));
   dz('desenho: '+cfg.desenho+' | clipe sempre pronto: '+(cfg.clipeSempre?'LIGADO':'desligado')+
      ' | vozes separadas: '+(cfg.espacial?'sim':'não')+
      ' | corte da voz: '+(cfg.portao||12));
@@ -6182,23 +6264,48 @@ function misturarAudio(){
   }catch(e){ console.warn('mistura',e); return null; }
 }
 
+/* ---------------------------------------------------------------------
+ * DE ONDE O CLIPE TIRA A IMAGEM
+ * ---------------------------------------------------------------------
+ * Duas coisas erradas aqui, e a prova do clipe pegou as duas.
+ *
+ * A primeira nasceu agora: se a prévia da minha própria tela está
+ * adormecida (para poupar placa), o <video> dela não tem imagem nenhuma
+ * e o clipe ficava sem fonte. A correção é melhor do que remendo: a
+ * MINHA tela vem da CAPTURA, não do desenho na página. É a mesma imagem
+ * sem passar por um segundo desenho, e existe independente da prévia
+ * estar sendo mostrada ou não.
+ *
+ * A segunda já estava aqui antes e ninguém tinha visto: ele pegava o
+ * PRIMEIRO quadro do palco e, se aquele não tivesse imagem, DESISTIA —
+ * em vez de tentar o próximo. Bastava um amigo cujo vídeo ainda não
+ * tinha chegado estar na frente para o clipe inteiro não ligar.
+ * ------------------------------------------------------------------ */
 function telaParaGravar(){
-  // prioridade: a primeira tela que está aparecendo no palco
-  const q = $('palco').querySelector('.quadro:not(.saindo)');
-  if(!q) return null;
-  const v = q.querySelector('video');
-  if(!v || !v.srcObject) return null;
-  const tag = q.querySelector('.quadro-tag span:last-child');
-  return { video:v, nome: tag ? tag.textContent : 'tela' };
+  // a ordem continua sendo a do palco; o que muda é não desistir cedo
+  for(const q of $('palco').querySelectorAll('.quadro:not(.saindo)')){
+    if(q.id==='q-eu' && est.streamTela)
+      return { stream: est.streamTela, nome:'a sua tela' };
+    const v = q.querySelector('video');
+    if(!v || !v.srcObject) continue;
+    const tag = q.querySelector('.quadro-tag span:last-child');
+    return { video:v, nome: tag ? tag.textContent : 'tela' };
+  }
+  return null;
 }
 
 function fluxoParaGravar(){
   const alvo = telaParaGravar();
   if(!alvo) return null;
-  let bruto;
-  try{ bruto = alvo.video.captureStream ? alvo.video.captureStream() : alvo.video.mozCaptureStream(); }
-  catch{ return null; }
-  const v = bruto.getVideoTracks()[0];
+  let v;
+  if(alvo.stream){
+    v = alvo.stream.getVideoTracks()[0];      // a minha tela, direto da captura
+  }else{
+    let bruto;
+    try{ bruto = alvo.video.captureStream ? alvo.video.captureStream() : alvo.video.mozCaptureStream(); }
+    catch{ return null; }
+    v = bruto.getVideoTracks()[0];
+  }
   if(!v) return null;
   const juntos = new MediaStream([v]);
   clipe.destino = misturarAudio();
@@ -7483,6 +7590,12 @@ $('in-clipe-sempre').onchange=()=>{
   else recado('Clipe sempre pronto desligado. Seu jogo agradece.','ok');
 };
 $('in-auto').onchange=()=>{ cfg.auto=$('in-auto').checked; guardarAjustes(); };
+$('in-previa-economica').checked = cfg.previaEconomica!==false;
+$('in-previa-economica').onchange=()=>{
+  cfg.previaEconomica=$('in-previa-economica').checked; guardarAjustes();
+  if(cfg.previaEconomica) agendarEconomiaDaPrevia();
+  else { clearTimeout(est.relogioPrevia); espiarPrevia(); }
+};
 $('in-socorro-captura').checked = cfg.socorroCaptura!==false;
 $('in-socorro-captura').onchange=()=>{
   cfg.socorroCaptura=$('in-socorro-captura').checked; guardarAjustes();
