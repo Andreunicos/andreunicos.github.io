@@ -930,16 +930,35 @@ body.sem-tela .divisor{display:none}
       É o endereço que vai dentro do link que você manda pro seu amigo. Deixe vazio para usar o padrão.
     </p>
 
-    <label class="campo" style="margin-top:12px">
-      <span>Retransmissor próprio (opcional)</span>
-      <textarea id="in-turn" rows="2" placeholder="turn:servidor:3478|usuario|senha" style="font-size:12px"></textarea>
-    </label>
+    <div class="secao">Retransmissor (só se a conexão não fechar)</div>
     <p class="ajuda" style="margin-top:0">
-      O Frag <b>não vem com nenhum</b>: os públicos gratuitos que existiam saíram do ar, e endereço
-      morto na lista só atrasa a conexão de todo mundo. Você só precisa disto se a conexão não fechar
-      de jeito nenhum com alguém — acontece em internet de celular, de prédio e de empresa. Uma conta
-      grátis na Metered dá 20 GB por mês e resolve. Uma linha por servidor. Vale para a próxima conexão.
+      Em algumas redes — celular, prédio, empresa, e boa parte da fibra brasileira — os dois
+      computadores <b>não conseguem se achar direto</b>. Aí só resta alguém no meio passando os
+      pacotes. O Frag não vem com nenhum, porque endereço morto na lista atrasa a conexão de todo
+      mundo. <b>Você só precisa disto se o autoteste reclamar.</b>
     </p>
+    <p class="ajuda" style="margin-top:6px">
+      Como conseguir um de graça: crie uma conta em
+      <a href="https://www.metered.ca/tools/openrelay/" target="_blank" rel="noopener">metered.ca</a>
+      (20 GB por mês, sem cartão). Ela te mostra um endereço, um usuário e uma senha — copie os três
+      para os campos abaixo e clique em <b>Testar</b>.
+    </p>
+    <label class="campo" style="margin-top:10px">
+      <span>Endereço</span>
+      <input id="in-turn-url" type="text" placeholder="turn:servidor.com:3478" autocomplete="off">
+    </label>
+    <label class="campo" style="margin-top:8px">
+      <span>Usuário</span>
+      <input id="in-turn-user" type="text" autocomplete="off">
+    </label>
+    <label class="campo" style="margin-top:8px">
+      <span>Senha</span>
+      <input id="in-turn-senha" type="text" autocomplete="off">
+    </label>
+    <button id="btn-turn" class="b b-cinza b-largo" type="button" style="margin-top:10px">
+      Testar o retransmissor
+    </button>
+    <p class="ajuda" id="turn-resultado" style="margin-top:8px"></p>
 
     <div class="secao">Volume geral</div>
     <label class="campo">
@@ -1899,7 +1918,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '4.3 — 29/08 10:20';
+const VERSAO = '4.4 — 29/08 15:10';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -1920,7 +1939,7 @@ function novoPar(id){
     // como carteiro em vez do servidor público
     conhece:null,
     // o que ela pede: o tamanho da janela dela, e se sumiu da vista
-    larguraQueQuer:0, sumiu:false, avisei:0,
+    larguraQueQuer:0, sumiu:false, avisei:0, pedido:null,
   };
   pares.set(id,p);
   return p;
@@ -2121,6 +2140,19 @@ function abrirCanal(par){
     else if(d.t==='ice') receberIce(par, d.v);
     else if(d.t==='ponte') aoPonte(d);
     else if(d.t==='quero'){ par.larguraQueQuer=Math.max(240,Math.min(3840,Number(d.v)||0)); aplicarPerfilVideo(par); }
+    else if(d.t==='pedido'){
+      const q = String(d.v||'');
+      par.pedido = (q==='liso') ? 'liso' : null;
+      marcar('o amigo pediu imagem mais '+(q==='liso'?'FLUIDA':'NÍTIDA'));
+      /* "está borrado" não força nada: só libera a escada para tentar
+         subir já, em vez de esperar os doze segundos de calma.
+         Antes isto escrevia em a.folgado — que é RECALCULADO a cada
+         segundo a partir de outra coisa. O pedido durava menos de um
+         segundo e sumia sem deixar rastro. Marca de tempo resolve:
+         ninguém recalcula um instante que já passou. */
+      if(q==='nitido') par.quandoNitido = Date.now();
+      aplicarPerfilVideo(par);
+    }
     else if(d.t==='sumi'){ par.sumiu=!!d.v; aplicarPerfilVideo(par); }
     else if(d.t==='saude'){
       const v = d.v||{}, quando = Date.now();
@@ -2183,7 +2215,7 @@ async function prepararMidia(par){
   }
 
   await bitrateAudio(par.senderMic,128000);
-  await prioridadeAlta(par.senderMic);
+  await prioridadeDeRede(par.senderMic, PRIORIDADE.voz);
 
   // se você já está transmitindo, quem chega depois entra vendo
   if(est.streamTela){
@@ -2738,7 +2770,7 @@ function mostrarReligando(par, ligado){
 /* =====================================================================
  * QUADROS DE VÍDEO
  * =================================================================== */
-function montarQuadro(id, titulo, aoVivo, aoParar){
+function montarQuadro(id, titulo, aoVivo, aoParar, par){
   let q=$('q-'+id);
   if(q){
     // pode estar a caminho da saída: segura o relógio e traz de volta
@@ -2770,6 +2802,33 @@ function montarQuadro(id, titulo, aoVivo, aoParar){
     parar.type='button'; parar.className='parar'; parar.textContent='⏹ Parar de transmitir';
     parar.onclick=(e)=>{ e.stopPropagation(); aoParar(); };
     acoes.appendChild(parar);
+  }
+
+  /* ---------------------------------------------------------------------
+   * QUEM ASSISTE É QUEM SABE SE ESTÁ BOM
+   * ---------------------------------------------------------------------
+   * Até aqui o amigo só comunicava a largura da janela dele, e mesmo
+   * isso era automático. Ele não tinha como dizer "tá travando" — quem
+   * decidia tudo era quem transmite, que é justamente quem NÃO está
+   * vendo o resultado.
+   *
+   * Dois botões, e cada um manda um recado pelo canal de dados. Não é
+   * um ajuste fino: é o amigo apontando a direção, e o resto do
+   * mecanismo continua fazendo o trabalho.
+   * ------------------------------------------------------------------ */
+  if(par){
+    const pedir=(qual, rotulo, aviso)=>{
+      const b=document.createElement('button');
+      b.type='button'; b.textContent=rotulo;
+      b.onclick=(e)=>{
+        e.stopPropagation();
+        enviar(par,{t:'pedido', v:qual});
+        recado(aviso,'ok');
+      };
+      acoes.appendChild(b);
+    };
+    pedir('liso',   '🌊 Está travando',  'Avisei — ele vai mandar uma imagem menor e mais fluida.');
+    pedir('nitido', '🔍 Está borrado',   'Avisei — ele vai tentar mandar mais nítido.');
   }
 
   // duplo clique no vídeo faz o que todo mundo já tenta fazer por instinto
@@ -2892,7 +2951,7 @@ function pacingDe(par){
 }
 
 function mostrarTela(par){
-  montarQuadro('p-'+par.id, 'tela de '+(par.nome||'seu amigo'), true);
+  montarQuadro('p-'+par.id, 'tela de '+(par.nome||'seu amigo'), true, null, par);
   const v = $('v-p-'+par.id);
   if(v.srcObject !== par.fluxo) v.srcObject = par.fluxo;
   // alguns navegadores não começam a tocar sozinhos mesmo com autoplay
@@ -3144,6 +3203,7 @@ async function aplicarPerfilVideo(par){
     if(quanto > encolher) encolher = quanto;
   };
 
+  if(par.pedido==='liso') pesar(1.5, 'ele pediu mais fluidez');
   pesar(a.degrauBanda||1, 'pouca banda');
   pesar(a.degrauFps||1,   'compressor sem fôlego');
   if(n>=4)       pesar(2,   n+' pessoas recebendo');
@@ -3293,7 +3353,7 @@ async function aplicarPerfilVideo(par){
     e.maxBitrate = teto;
     e.maxFramerate = fps;
     e.scaleResolutionDownBy = encolher;
-    e.networkPriority='high'; e.priority='high';
+    e.networkPriority=PRIORIDADE.imagem; e.priority=PRIORIDADE.imagem;
     e.scalabilityMode = camadas;
     par2.degradationPreference = degrada;
     try{
@@ -3463,6 +3523,8 @@ async function pegarTela(){
         await par.senderTelaAudio.replaceTrack(aud);
         // agora que a faixa existe, o ajuste de qualidade pega
         await bitrateAudio(par.senderTelaAudio,128000);
+        par.prioridadesOk = false;   // faixa nova, confere tudo outra vez
+        await prioridadeDeRede(par.senderTelaAudio, PRIORIDADE.somDoJogo);
       }
       foi++;
     }catch(e){
@@ -3675,13 +3737,15 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
      por um minuto inteiro. Insistir é barato; insistir sempre no mesmo
      ritmo é que sai caro. */
   if(a.quandoSubiu && Date.now()-a.quandoSubiu > 60000) a.esperaSubida = 15000;
-  const espera = a.esperaSubida || 15000;
-  if(a.folgado>=12 && a.degrauBanda>1 && Date.now()-(a.quandoDegrau||0)>espera){
+  // quem assiste pediu mais nitidez há pouco: vale mais que a paciência
+  const pediuNitido = (Date.now() - (par.quandoNitido||0)) < 30000;
+  const espera = pediuNitido ? 3000 : (a.esperaSubida || 15000);
+  if((a.folgado>=12 || pediuNitido) && a.degrauBanda>1 && Date.now()-(a.quandoDegrau||0)>espera){
     const i = Math.max(0, DEGRAUS.indexOf(a.degrauBanda));
     const acima = DEGRAUS[Math.max(0, i-1)];
     if(acima !== a.degrauBanda){
       a.degrauBanda = acima; a.quandoDegrau = Date.now(); a.folgado = 0;
-      a.quandoSubiu = Date.now();
+      a.quandoSubiu = Date.now(); par.quandoNitido = 0;
       a.degrauQuer = acima; a.degrauFirme = 0;
       a.degrau = Math.max(a.degrauBanda, a.degrauFps);
       marcar('escada da BANDA: subindo para '+acima+'x — o teto era MEU, não o da rede'+
@@ -3972,6 +4036,7 @@ function anotarLinha(x){
     chaves:  x.par.chavesNoSegundo|0,
     socorro: x.par.socorroNoSegundo|0,
     fila:    x.par.filaMs|0,
+    desc:    x.par.descompasso|0,
     pint:     x.par.pacing ? x.par.pacing.fps : 0,
     pintPior: x.par.pacing ? x.par.pacing.pior : 0,
     pintBur:  x.par.pacing ? x.par.pacing.buraco : 0,
@@ -4086,6 +4151,16 @@ function resumoDoRegistro(){
     /* Chegar e ser desenhado são coisas diferentes, e é a segunda que
        você enxerga. Quando estes números divergem do de cima, o problema
        não é a rede nem quem transmite: é a hora de desenhar aqui. */
+    const descs = rec.map(l=>l.desc).filter(v=>v!==0);
+    if(descs.length){
+      const md = Math.round(descs.reduce((a,b)=>a+b,0)/descs.length);
+      const pior = descs.reduce((a,b)=>Math.abs(b)>Math.abs(a)?b:a, 0);
+      R.push('som x imagem      : '+(md>0?'som '+md+' ms na frente':md<0?'imagem '+(-md)+' ms na frente':'em dia')+
+             ' | pior '+pior+' ms');
+      if(Math.abs(md) > 120)
+        R.push('  >>> DÁ PARA PERCEBER: acima de uns 120 ms o ouvido nota o som fora da imagem.');
+    }
+
     const pint = rec.map(l=>l.pint).filter(v=>v>0);
     if(pint.length){
       const piores = rec.map(l=>l.pintPior).filter(v=>v>0);
@@ -4268,17 +4343,42 @@ async function atualizarNumeros(){
   for(const par of gente){
     const rel=await par.pc.getStats().catch(()=>null);
     if(!rel) continue;
-    let sv=null,ev=null,pardeIce=null,eco=null,fonte=null; const cs=new Map();
+    let sv=null,ev=null,ea=null,pardeIce=null,eco=null,fonte=null; const cs=new Map();
     rel.forEach(s=>{ if(s.type==='codec') cs.set(s.id,s.mimeType); });
     rel.forEach(s=>{
       if(s.type==='media-source'&&s.kind==='video') fonte=s;
       if(s.type==='outbound-rtp'&&s.kind==='video'&&s.bytesSent) sv=s;
       if(s.type==='inbound-rtp'&&s.kind==='video'&&s.bytesReceived) ev=s;
+      if(s.type==='inbound-rtp'&&s.kind==='audio'&&s.bytesReceived) ea=s;
       if(s.type==='remote-inbound-rtp'&&s.kind==='video') eco=s;
       if(s.type==='candidate-pair'&&s.state==='succeeded'&&s.nominated) pardeIce=s;
     });
+    /* ---------------------------------------------------------------------
+     * O SOM ESTÁ NA FRENTE DA IMAGEM?
+     * ---------------------------------------------------------------------
+     * O amortecedor de vídeo chega a segurar 400 ms conforme o ping. O
+     * áudio não segura nada. Se a sincronia não estiver compensando,
+     * você OUVE o tiro antes de VER o tiro — e num jogo isso é péssimo.
+     *
+     * Eu suspeitava disso e não tinha como afirmar. O navegador informa
+     * quando cada faixa vai ser tocada; a diferença entre as duas é a
+     * resposta, em milissegundos. Positivo = som adiantado.
+     * ------------------------------------------------------------------ */
+    /* O "estimatedPlayoutTimestamp" seria o ideal, mas não existe em
+       todos os navegadores — no Chrome daqui ele vem vazio. O que existe
+       nos dois lados é quanto tempo cada faixa espera na fila antes de
+       ser tocada, e é disso que o descompasso é feito: se a imagem
+       espera 200 ms e o som espera 20, o som sai 180 ms na frente. */
+    const espera1 = (x)=> (x && x.jitterBufferEmittedCount > 0)
+      ? (x.jitterBufferDelay||0)/x.jitterBufferEmittedCount*1000 : null;
+    const eV = espera1(ev), eA = espera1(ea);
+    if(eV!=null && eA!=null) par.descompasso = Math.round(eV - eA);
+    else if(ev && ea && ev.estimatedPlayoutTimestamp && ea.estimatedPlayoutTimestamp)
+      par.descompasso = Math.round(ea.estimatedPlayoutTimestamp - ev.estimatedPlayoutTimestamp);
+
     const ms = pardeIce ? Math.round((pardeIce.currentRoundTripTime||0)*1000) : 0;
     par.ping = ms;
+    arrumarPrioridades(par);
     par.pacing = pacingDe(par);
     ajustarAmortecedor(par);
     if(ms>piorPing) piorPing=ms;
@@ -4815,14 +4915,63 @@ function preferirCodec(pc){
   }catch(e){ console.warn('codec',e); }
 }
 
-/* Vídeo com prioridade alta na rede e sem enfileirar quadros à toa. */
-async function prioridadeAlta(sender){
+/* ---------------------------------------------------------------------
+ * QUEM CEDE PRIMEIRO QUANDO A INTERNET APERTA
+ * ---------------------------------------------------------------------
+ * Quando a linha aperta, o navegador reparte a banda PESANDO pela
+ * prioridade de cada faixa. Aqui a voz e o vídeo estavam os dois em
+ * "alta" — ou seja, empatados. Um vídeo de 8 Mbps disputando de igual
+ * para igual com uma voz de 128 kbps.
+ *
+ * Isso é o avesso do que um app de jogar com amigos precisa. A imagem
+ * tem um sistema inteiro de adaptação e aguenta ceder; a voz não tem
+ * nada e é a última coisa que pode quebrar — dá para jogar vendo uma
+ * imagem feia, não dá para jogar sem ouvir o amigo.
+ *
+ * A escada, do que resiste ao que cede:
+ *   voz          alta   — nunca pode picotar
+ *   som do jogo  média  — importa, mas menos que se entender
+ *   imagem       baixa  — é a maior gastadora e a que mais aguenta
+ * ------------------------------------------------------------------ */
+const PRIORIDADE = { voz:'high', somDoJogo:'medium', imagem:'low' };
+
+/* ---------------------------------------------------------------------
+ * A CHAMADA QUE FALHAVA CALADA
+ * ---------------------------------------------------------------------
+ * Isto só apareceu porque o teste foi LER o valor depois de escrever.
+ *
+ * O setParameters do microfone era chamado enquanto a vaga ainda não
+ * estava negociada. Ele estourava, o catch engolia, e ninguém ficava
+ * sabendo. Resultado: a voz nunca esteve em prioridade alta — ficou o
+ * projeto inteiro no padrão do navegador, que é o MAIS BAIXO de todos.
+ * Ou seja, o contrário exato do que estava escrito no código.
+ *
+ * A lição é maior que o conserto: escrever um ajuste e nunca reler é
+ * confiar num "deu certo" que ninguém verificou. Aqui a escrita é
+ * conferida, e enquanto não bater ela é refeita a cada segundo.
+ * ------------------------------------------------------------------ */
+async function arrumarPrioridades(par){
+  if(par.prioridadesOk) return;
+  const bate = (snd, nivel)=>{
+    if(!snd || !snd.track) return true;         // faixa que não existe não conta
+    try{
+      const e=(snd.getParameters().encodings||[])[0]||{};
+      return e.networkPriority===nivel;
+    }catch{ return false; }
+  };
+  await prioridadeDeRede(par.senderMic, PRIORIDADE.voz);
+  await prioridadeDeRede(par.senderTelaAudio, PRIORIDADE.somDoJogo);
+  par.prioridadesOk = bate(par.senderMic, PRIORIDADE.voz) &&
+                      bate(par.senderTelaAudio, PRIORIDADE.somDoJogo);
+}
+
+async function prioridadeDeRede(sender, nivel){
   if(!sender) return;
   try{
     const p=sender.getParameters();
     p.encodings=p.encodings&&p.encodings.length?p.encodings:[{}];
-    p.encodings[0].networkPriority='high';
-    p.encodings[0].priority='high';
+    p.encodings[0].networkPriority=nivel;
+    p.encodings[0].priority=nivel;
     await sender.setParameters(p);
   }catch{}
 }
@@ -5719,6 +5868,63 @@ async function resumoParaOAmigo(){
  * pessoas viraria um texto que ninguém lê, e o resumo é onde as
  * respostas moram.
  * ------------------------------------------------------------------ */
+/* ---------------------------------------------------------------------
+ * TESTAR O RETRANSMISSOR DE VERDADE
+ * ---------------------------------------------------------------------
+ * Até aqui dava para digitar qualquer coisa no campo e só descobrir que
+ * estava errado na próxima vez que a conexão falhasse — que é o pior
+ * momento possível para descobrir.
+ *
+ * O teste é definitivo e leva segundos: abre uma conexão que SÓ pode
+ * usar retransmissor e vê se aparece um endereço do tipo "relay". Se
+ * aparecer, o retransmissor respondeu e está funcionando. Se não
+ * aparecer, ele não serve — e isso fica sabido agora, não na hora do
+ * jogo com o amigo esperando.
+ * ------------------------------------------------------------------ */
+function linhaDoRetransmissor(){
+  const u = ($('in-turn-url').value||'').trim();
+  if(!u) return '';
+  const us = ($('in-turn-user').value||'').trim();
+  const se = ($('in-turn-senha').value||'').trim();
+  return us ? (u+'|'+us+'|'+se) : u;
+}
+
+function testarRetransmissor(){
+  const linha = linhaDoRetransmissor();
+  if(!linha) return Promise.resolve({ok:false, txt:'Preencha o endereço primeiro.'});
+  const [u,us,se] = linha.split('|');
+  if(!/^turns?:/i.test(u))
+    return Promise.resolve({ok:false, txt:'O endereço precisa começar com turn: ou turns: — foi isso que a Metered te deu?'});
+
+  return new Promise(res=>{
+    let pc;
+    try{
+      pc = new RTCPeerConnection({
+        iceServers:[ us ? {urls:u, username:us, credential:se||''} : {urls:u} ],
+        iceTransportPolicy:'relay',      // proíbe qualquer caminho direto
+      });
+    }catch(e){ return res({ok:false, txt:'Endereço inválido: '+(e&&e.message||e)}); }
+
+    let respondeu=false;
+    const acabar=(r)=>{ try{ pc.close(); }catch{} res(r); };
+    const prazo = setTimeout(()=>acabar(respondeu ? {ok:true,txt:'Funcionou.'} : {ok:false,
+      txt:'O retransmissor não respondeu em 8 segundos. Confira o endereço, o usuário e a senha — '+
+          'e se a conta ainda tem cota do mês.'}), 8000);
+
+    pc.onicecandidate = (ev)=>{
+      if(ev.candidate && / typ relay /.test(ev.candidate.candidate)){
+        respondeu = true;
+        clearTimeout(prazo);
+        acabar({ok:true, txt:'Funcionou — o retransmissor respondeu. Vale para a próxima conexão.'});
+      }
+    };
+    pc.createDataChannel('teste');
+    pc.createOffer().then(o=>pc.setLocalDescription(o)).catch(e=>{
+      clearTimeout(prazo); acabar({ok:false, txt:'Não consegui nem começar o teste: '+(e&&e.message||e)});
+    });
+  });
+}
+
 async function responderCaderninho(par){
   let txt='';
   try{
@@ -6297,7 +6503,14 @@ $('in-clipe-sempre').checked=!!cfg.clipeSempre;
 $('in-canvas').checked = cfg.desenho==='canvas';
 aplicarModoDesenho();
 $('in-auto').checked=cfg.auto!==false;
-$('in-turn').value=cfg.turn||'';
+(function(){
+  // o formato guardado continua sendo "turn:host|usuario|senha", para não
+  // quebrar quem já tinha configurado antes desta tela existir
+  const [u,us,se] = String(cfg.turn||'').split(/\n/)[0].split('|');
+  $('in-turn-url').value   = u  || '';
+  $('in-turn-user').value  = us || '';
+  $('in-turn-senha').value = se || '';
+})();
 $('in-site').value=cfg.site||'';
 $('in-site').onchange=()=>{ cfg.site=$('in-site').value.trim(); guardarAjustes();
   if(sala.ligada && sala.dono && $('sala-link')) $('sala-link').value=linkDaSala(); };
@@ -6323,7 +6536,20 @@ $('in-clipe-sempre').onchange=()=>{
   else recado('Clipe sempre pronto desligado. Seu jogo agradece.','ok');
 };
 $('in-auto').onchange=()=>{ cfg.auto=$('in-auto').checked; guardarAjustes(); };
-$('in-turn').onchange=()=>{ cfg.turn=$('in-turn').value; guardarAjustes(); };
+const guardarTurn=()=>{ cfg.turn = linhaDoRetransmissor(); guardarAjustes(); };
+$('in-turn-url').onchange = $('in-turn-user').onchange = $('in-turn-senha').onchange = guardarTurn;
+$('btn-turn').onclick = async ()=>{
+  const b=$('btn-turn'), saida=$('turn-resultado');
+  guardarTurn();
+  b.disabled=true; b.textContent='Testando…';
+  saida.textContent='Abrindo uma conexão que só pode passar pelo retransmissor…';
+  let r;
+  try{ r = await testarRetransmissor(); }
+  catch(e){ r = {ok:false, txt:'O teste falhou: '+(e&&e.message||e)}; }
+  b.disabled=false; b.textContent='Testar o retransmissor';
+  saida.textContent = (r.ok?'✅ ':'❌ ')+r.txt;
+  saida.style.color = r.ok ? 'var(--verde)' : 'var(--vermelho)';
+};
 $('btn-tecla').textContent = cfg.tecla ? 'Tecla: '+cfg.nomeTecla : 'clique e aperte a tecla';
 $('bloco-ptt').hidden = cfg.fala!=='ptt';
 $('chat-linhas').innerHTML='<p class="chat-vazio">Nada por aqui ainda.<br>Aperte <b>T</b> a qualquer momento para abrir o chat.</p>';

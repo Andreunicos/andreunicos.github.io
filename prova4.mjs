@@ -468,6 +468,117 @@ async function principal() {
       ? ok('com a rede apertada ela NÃO tenta voltar')
       : mal('tentou voltar no meio de um aperto', volta.comAperto + ' tentativas');
 
+    /* ============ 12. a escada de prioridade ============ */
+    console.log('\n=== 12. A voz para de disputar com o vídeo? ===');
+    const prio = await A.evaluate(() => {
+      const p = [...pares.values()][0];
+      const ler = (snd) => {
+        if (!snd) return null;
+        const e = (snd.getParameters().encodings || [])[0] || {};
+        return e.networkPriority || null;
+      };
+      return { voz: ler(p.senderMic), imagem: ler(p.senderVideo),
+               tabela: { ...PRIORIDADE } };
+    });
+    info('voz: ' + prio.voz + ' | imagem: ' + prio.imagem + ' | tabela: ' + JSON.stringify(prio.tabela));
+    (prio.tabela.voz === 'high' && prio.tabela.somDoJogo === 'medium' && prio.tabela.imagem === 'low')
+      ? ok('a escada está declarada: voz > som do jogo > imagem')
+      : mal('a escada de prioridade está errada', JSON.stringify(prio.tabela));
+    (prio.voz === 'high' && prio.imagem === 'low')
+      ? ok('aplicada de verdade nas faixas', 'voz high, imagem low')
+      : mal('a prioridade não chegou nas faixas', JSON.stringify(prio));
+    (prio.voz !== prio.imagem)
+      ? ok('voz e imagem deixaram de estar empatadas')
+      : mal('voz e imagem continuam com a mesma prioridade');
+
+    /* ============ 13. quem assiste tem voz ============ */
+    console.log('\n=== 13. Quem assiste consegue pedir? ===');
+    const botoes = await B.evaluate(() => {
+      const q = document.querySelector('#palco .quadro[id^="q-p-"]');
+      const txts = q ? [...q.querySelectorAll('.quadro-acoes button')].map(b => b.textContent) : [];
+      return { txts, temTravando: txts.some(t => /travando/i.test(t)),
+               temBorrado: txts.some(t => /borrado/i.test(t)) };
+    });
+    info('botões no quadro do amigo: ' + JSON.stringify(botoes.txts));
+    (botoes.temTravando && botoes.temBorrado)
+      ? ok('os dois pedidos aparecem no quadro de quem assiste')
+      : mal('os botões de pedido não apareceram', JSON.stringify(botoes.txts));
+
+    const chegou = await B.evaluate(async () => {
+      const q = document.querySelector('#palco .quadro[id^="q-p-"]');
+      const b = [...q.querySelectorAll('.quadro-acoes button')].find(x => /travando/i.test(x.textContent));
+      b.click();
+      return true;
+    }).then(() => espera(1500)).then(() => A.evaluate(() => {
+      const p = [...pares.values()][0];
+      return { pedido: p.pedido, porque: p.porqueTamanho || '' };
+    }));
+    info('do lado de quem transmite: pedido=' + chegou.pedido + ' | ' + chegou.porque);
+    (chegou.pedido === 'liso')
+      ? ok('o pedido chegou em quem transmite')
+      : mal('o pedido não chegou', JSON.stringify(chegou));
+    /a fluidez|fluidez/i.test(chegou.porque)
+      ? ok('e pesou na conta do tamanho, com assinatura', chegou.porque)
+      : mal('o pedido não influenciou o tamanho', chegou.porque);
+
+    const soltou = await B.evaluate(async () => {
+      const q = document.querySelector('#palco .quadro[id^="q-p-"]');
+      const b = [...q.querySelectorAll('.quadro-acoes button')].find(x => /borrado/i.test(x.textContent));
+      b.click();
+      return true;
+    }).then(() => espera(1500)).then(() => A.evaluate(() => {
+      const p = [...pares.values()][0];
+      return { pedido: p.pedido, quandoNitido: p.quandoNitido || 0 };
+    }));
+    (soltou.pedido === null && soltou.quandoNitido > 0)
+      ? ok('"está borrado" solta o pedido e libera a escada para subir já')
+      : mal('o pedido de nitidez não teve efeito', JSON.stringify(soltou));
+
+    /* ============ 14. o teste do retransmissor ============ */
+    console.log('\n=== 14. Dá para testar o retransmissor antes de precisar dele? ===');
+    const turn = await A.evaluate(async () => {
+      const campos = ['in-turn-url', 'in-turn-user', 'in-turn-senha'].every(i => !!document.getElementById(i));
+      const botao = !!document.getElementById('btn-turn');
+      document.getElementById('in-turn-url').value = '';
+      const vazio = await testarRetransmissor();
+      document.getElementById('in-turn-url').value = 'http://nao-e-turn.com';
+      const errado = await testarRetransmissor();
+      document.getElementById('in-turn-url').value = 'turn:127.0.0.1:3478';
+      document.getElementById('in-turn-user').value = 'u';
+      document.getElementById('in-turn-senha').value = 'p';
+      const linha = linhaDoRetransmissor();
+      document.getElementById('in-turn-url').value = '';
+      document.getElementById('in-turn-user').value = '';
+      document.getElementById('in-turn-senha').value = '';
+      return { campos, botao, vazio, errado, linha };
+    });
+    (turn.campos && turn.botao)
+      ? ok('três campos separados e um botão, em vez de uma linha crua')
+      : mal('a tela do retransmissor não foi trocada', JSON.stringify(turn));
+    (!turn.vazio.ok && /Preencha/i.test(turn.vazio.txt))
+      ? ok('campo vazio dá recado claro', turn.vazio.txt)
+      : mal('não avisou sobre o campo vazio', JSON.stringify(turn.vazio));
+    (!turn.errado.ok && /turn:/i.test(turn.errado.txt))
+      ? ok('endereço fora do formato é recusado na hora, sem esperar 8s')
+      : mal('aceitou um endereço que não é turn:', JSON.stringify(turn.errado));
+    (turn.linha === 'turn:127.0.0.1:3478|u|p')
+      ? ok('monta o formato antigo, então quem já tinha configurado não perde nada', turn.linha)
+      : mal('o formato guardado mudou', turn.linha);
+
+    /* ============ 15. som x imagem ============ */
+    console.log('\n=== 15. O Frag mede se o som está na frente da imagem? ===');
+    const sinc = await B.evaluate(() => {
+      const p = [...pares.values()][0];
+      const l = registro.linhas[registro.linhas.length - 1] || {};
+      return { temCampo: 'desc' in l, valor: p.descompasso,
+               mediu: typeof p.descompasso === 'number' };
+    });
+    info('descompasso medido: ' + sinc.valor + ' ms');
+    sinc.temCampo ? ok('o descompasso entra no segundo-a-segundo')
+                  : mal('o campo do descompasso não foi gravado');
+    sinc.mediu ? ok('o Frag consegue medir som x imagem', sinc.valor + ' ms')
+               : mal('não conseguiu medir o descompasso');
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');
