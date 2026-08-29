@@ -357,7 +357,7 @@ async function principal() {
           : mal('o anexo não entrou no texto final');
 
     /* ============ 10b. o pulso da própria página ============ */
-    console.log('\n=== 10b. O Frag mede se ELE MESMO está engasgando? ===');
+    console.log('\n=== 10b. O Bigas Voice mede se ELE MESMO está engasgando? ===');
     const pulsoT = await B.evaluate(() => {
       const p = resumoDoPulso();
       return { ligado: pulso.ligado, amostras: pulso.quadros.length,
@@ -391,7 +391,7 @@ async function principal() {
         sujoCita: sujo.txt.includes('MODO CANVAS') && sujo.txt.includes('CLIPE SEMPRE'),
         semprePõe: limpo.txt.includes('desenho: normal') &&
                    limpo.txt.includes('clipe sempre pronto: desligado'),
-        temPulso: limpo.txt.includes('a PÁGINA do Frag está acompanhando'),
+        temPulso: limpo.txt.includes('a PÁGINA do Bigas Voice está acompanhando'),
       };
     });
     (caros.limpoLista === 0 && caros.sujoLista === 2)
@@ -566,7 +566,7 @@ async function principal() {
       : mal('o formato guardado mudou', turn.linha);
 
     /* ============ 15. som x imagem ============ */
-    console.log('\n=== 15. O Frag mede se o som está na frente da imagem? ===');
+    console.log('\n=== 15. O Bigas Voice mede se o som está na frente da imagem? ===');
     const sinc = await B.evaluate(() => {
       const p = [...pares.values()][0];
       const l = registro.linhas[registro.linhas.length - 1] || {};
@@ -576,7 +576,7 @@ async function principal() {
     info('descompasso medido: ' + sinc.valor + ' ms');
     sinc.temCampo ? ok('o descompasso entra no segundo-a-segundo')
                   : mal('o campo do descompasso não foi gravado');
-    sinc.mediu ? ok('o Frag consegue medir som x imagem', sinc.valor + ' ms')
+    sinc.mediu ? ok('o Bigas Voice consegue medir som x imagem', sinc.valor + ' ms')
                : mal('não conseguiu medir o descompasso');
 
     /* ============ 16. o caderninho lido com o log REAL do André ============ */
@@ -619,14 +619,14 @@ async function principal() {
         recDec: 'ExternalDecoder (WMFVideoDecoder) (fallback from: ExternalDecoder (D3D11VideoDecoder))' }));
       const desistiu = resumoDoRegistro().join('\n');
 
-      // (f) quem reduziu a captura: o Frag, não o monitor.
+      // (f) quem reduziu a captura: o Bigas Voice, não o monitor.
       // A captura de verdade neste teste é 1920x1080, então é preciso
       // fingir uma menor para as duas frases poderem aparecer.
       registro.linhas.length = 0;
       const gTam = window.tamanhoDaCaptura;
       window.tamanhoDaCaptura = () => ({ l: 960, a: 540 });
       est.capturaEm = 2;
-      const notaFrag = montarRegistro();
+      const notaDoFrag = montarRegistro();
       est.capturaEm = 1;
       const notaTela = montarRegistro();
       window.tamanhoDaCaptura = gTam;
@@ -646,7 +646,7 @@ async function principal() {
         culpaRede: /perde pacote/.test(socorroComPerda),
         naoDizPerda: !/perdendo pacote/.test(socorroSemPerda),
         viuDesistencia: /DESISTIU DA PLACA DE VÍDEO/.test(desistiu),
-        assumeAReducao: /o Frag reduziu a captura/.test(notaFrag),
+        assumeAReducao: /o Bigas Voice reduziu a captura/.test(notaDoFrag),
         culpaTelaQuandoEhTela: /sua tela entrega/.test(notaTela),
         gritaSemAuto: /AJUSTE AUTOMÁTICO ESTÁ DESLIGADO/.test(semAuto),
         caladoComAuto: !/AJUSTE AUTOMÁTICO ESTÁ DESLIGADO/.test(comAuto),
@@ -663,8 +663,8 @@ async function principal() {
                    : mal('deixou de apontar a rede quando havia perda');
     real.viuDesistencia ? ok('grita quando o descompressor dele larga a placa de vídeo')
                         : mal('a desistência do hardware continua escondida');
-    real.assumeAReducao ? ok('assume que foi o Frag que reduziu a captura, em vez de culpar a tela')
-                        : mal('continua culpando o monitor por uma decisão do Frag');
+    real.assumeAReducao ? ok('assume que foi o Bigas Voice que reduziu a captura, em vez de culpar a tela')
+                        : mal('continua culpando o monitor por uma decisão do Bigas Voice');
     real.culpaTelaQuandoEhTela ? ok('e continua apontando a tela quando a tela É o limite')
                                : mal('parou de avisar quando o limite é mesmo da tela');
     (real.gritaSemAuto && real.caladoComAuto)
@@ -692,7 +692,7 @@ async function principal() {
     !balanca.boa ? ok('captura boa segue sem alarme') : mal('alarme falso com captura boa');
 
     /* ============ 18. reagir ao descompressor fraco do outro lado ============ */
-    console.log('\n=== 18. O Frag reage quando o amigo cai para software? ===');
+    console.log('\n=== 18. O Bigas Voice reage quando o amigo cai para software? ===');
     const fraco = await A.evaluate(() => ({
       pegaFallback: descompressorFraco('ExternalDecoder (WMFVideoDecoder) (fallback from: ExternalDecoder (D3D11VideoDecoder))'),
       pegaFfmpeg:   descompressorFraco('FFmpegVideoDecoder'),
@@ -1003,7 +1003,7 @@ async function principal() {
       : mal('a ordem embaralhou', JSON.stringify(barra.ordem));
 
     /* ============ 25. a tela não apaga com vídeo rolando ============ */
-    console.log('\n=== 25. O Frag segura a tela acesa enquanto tem vídeo? ===');
+    console.log('\n=== 25. O Bigas Voice segura a tela acesa enquanto tem vídeo? ===');
     const travaTela = await B.evaluate(async () => {
       // o navegador de teste pode nem ter a API; o que importa é a REGRA
       const p = [...pares.values()][0];
@@ -1084,6 +1084,139 @@ async function principal() {
         ? ok('um mesmo nível de som conta como fala ou não, conforme o corte')
         : mal('o corte não está sendo usado na decisão', JSON.stringify(portao));
     }
+
+    /* ============ 28. o nome novo, sem quebrar o protocolo ============ */
+    console.log('\n=== 28. Virou Bigas Voice sem quebrar quem está na versão antiga? ===');
+    const nome = await A.evaluate(async () => {
+      const man = document.querySelector('link[rel=manifest]');
+      let m = null;
+      try { m = JSON.parse(decodeURIComponent(man.href.split(',').slice(1).join(','))); } catch (e) {}
+      return {
+        titulo: document.title,
+        cabecalho: (document.querySelector('h1') || {}).textContent,
+        manifesto: m ? m.name : null,
+        // o que NÃO pode ter mudado, sob pena de não conectar com a v4
+        assunto: (typeof assunto === 'function') ? assunto() : null,
+        canal: [...pares.values()][0] ? [...pares.values()][0].canal.label : null,
+        chaveAjustes: localStorage.getItem('frag') !== null,
+      };
+    });
+    info('canal de dados: "' + nome.canal + '" | assunto no servidor: "' + nome.assunto + '"');
+    (nome.titulo === 'Bigas Voice' && nome.cabecalho === 'Bigas Voice' && nome.manifesto === 'Bigas Voice')
+      ? ok('título, cabeçalho e app instalado dizem Bigas Voice')
+      : mal('o nome não trocou em algum lugar', JSON.stringify(nome));
+    (nome.canal === 'frag')
+      ? ok('o canal de dados manteve o nome antigo (senão a v4 não conecta)')
+      : mal('o canal de dados mudou de nome e quebrou a compatibilidade', String(nome.canal));
+    (nome.assunto && nome.assunto.startsWith('frag2-'))
+      ? ok('o assunto no servidor de sinal continua o mesmo', nome.assunto)
+      : mal('o endereço do servidor de sinal mudou', String(nome.assunto));
+    nome.chaveAjustes
+      ? ok('os ajustes guardados continuam sendo achados')
+      : mal('a chave dos ajustes mudou e todo mundo perderia a configuração');
+
+    /* ============ 29. nenhuma animação cara ============ */
+    console.log('\n=== 29. Alguma animação ainda repinta a tela 60x por segundo? ===');
+    const anim = await A.evaluate(() => {
+      const caras = [];
+      const rodando = [];
+      for (const folha of document.styleSheets) {
+        let regras; try { regras = folha.cssRules; } catch (e) { continue; }
+        for (const r of regras) {
+          if (r.type === CSSRule.KEYFRAMES_RULE) {
+            let txt = '';
+            for (const q of r.cssRules) txt += q.style.cssText + ';';
+            if (/box-shadow|left:|top:|width:|height:|filter:|margin/.test(txt))
+              caras.push(r.name + ' -> ' + txt.slice(0, 60));
+          }
+          if (r.selectorText && /infinite/.test(r.style.animation || '')) rodando.push(r.selectorText);
+        }
+      }
+      return { caras, rodando };
+    });
+    info('animações em loop: ' + anim.rodando.length);
+    (anim.caras.length === 0)
+      ? ok('nenhum keyframe mexe em sombra, layout ou filtro — só transform e opacity')
+      : mal('ainda há animação cara', anim.caras.join(' | '));
+
+    /* ============ 30. o painel em grupos ============ */
+    console.log('\n=== 30. O painel parou de despejar tudo de uma vez? ===');
+    const painel = await A.evaluate(() => {
+      const corpo = document.querySelector('#painel .painel-corpo');
+      const grupos = [...corpo.querySelectorAll('.grupo')];
+      return {
+        quantos: grupos.length,
+        sobrouSecaoSolta: !!corpo.querySelector(':scope > .secao'),
+        abertos: grupos.filter(g => g.open).map(g => g.querySelector('summary').textContent),
+        fechados: grupos.filter(g => !g.open).length,
+        // os controles têm que continuar existindo e achaveis pelo id
+        idsVivos: ['sel-mic','vol','in-portao','sel-codec','in-turn-url','btn-registro']
+                    .filter(i => !!document.getElementById(i)).length,
+      };
+    });
+    info('grupos: ' + painel.quantos + ' | abertos: ' + JSON.stringify(painel.abertos));
+    (painel.quantos >= 8) ? ok('o painel virou grupos', painel.quantos + ' grupos')
+                          : mal('o painel não foi agrupado', String(painel.quantos));
+    !painel.sobrouSecaoSolta ? ok('nenhuma seção ficou solta fora de grupo')
+                             : mal('sobrou seção fora de grupo');
+    (painel.fechados >= 5) ? ok('a maioria começa fechada', painel.fechados + ' fechados')
+                           : mal('quase tudo continua aberto', String(painel.fechados));
+    (painel.abertos.length >= 3 && painel.abertos.some(t => /Microfone/.test(t)))
+      ? ok('e o que todo mundo mexe começa aberto', painel.abertos.join(', '))
+      : mal('o essencial não ficou aberto', JSON.stringify(painel.abertos));
+    (painel.idsVivos === 6)
+      ? ok('todos os controles sobreviveram à reorganização', painel.idsVivos + '/6')
+      : mal('a reorganização perdeu controles', painel.idsVivos + '/6');
+
+    /* ============ 31. o ponto de status parou de mentir ============ */
+    console.log('\n=== 31. O pontinho olha mais do que o ping? ===');
+    const saude = await A.evaluate(async () => {
+      const p = [...pares.values()][0];
+      const ler = () => ({ classe: document.getElementById('ponto').className,
+                           txt: document.getElementById('saude-txt').textContent,
+                           porque: document.getElementById('ponto').parentElement.title });
+      p.decDeleFraco = false; p.quandoSaude = 0; p.saudeSeguida = 0;
+      await atualizarNumeros();
+      const calmo = ler();
+
+      // ping continua 1 ms, mas o descompressor dele desistiu da placa
+      p.decDeleFraco = true;
+      await atualizarNumeros();
+      const comProblema = ler();
+
+      p.decDeleFraco = false;
+      await atualizarNumeros();
+      const voltou = ler();
+      return { calmo, comProblema, voltou };
+    });
+    info('calmo: ' + saude.calmo.txt + '  [' + saude.calmo.porque + ']');
+    info('com problema: ' + saude.comProblema.txt + '  [' + saude.comProblema.porque + ']');
+    /* Nesta altura da prova o compressor está mesmo limitado por banda —
+       vários testes acima mexeram no teto de propósito. E "internet
+       apertada" É um amarelo legítimo, então exigir verde aqui seria
+       exigir que o indicador mentisse ao contrário.
+       O que prova a correção é o MOVIMENTO: com ping de 1 ms o tempo
+       todo, ele tem que piorar quando a imagem quebra e voltar quando
+       o problema passa. Antes ele ficava verde nos três momentos. */
+    const nivel = (c)=> /ruim/.test(c) ? 2 : /medio/.test(c) ? 1 : 0;
+    const antes = nivel(saude.calmo.classe);
+    const pior  = nivel(saude.comProblema.classe);
+    const fim   = nivel(saude.voltou.classe);
+
+    (pior === 2)
+      ? ok('com o ping em 1 ms MAS o descompressor dele quebrado, fica VERMELHO — era aqui que ele mentia',
+           saude.comProblema.txt)
+      : mal('não ficou vermelho com a imagem quebrada', JSON.stringify(saude.comProblema));
+    (pior > antes)
+      ? ok('o indicador PIOROU com o problema, sem o ping ter mudado nada',
+           saude.calmo.txt + ' -> ' + saude.comProblema.txt)
+      : mal('o problema não mexeu no indicador', JSON.stringify(saude));
+    (fim === antes)
+      ? ok('e voltou ao que era quando o problema passou', saude.voltou.txt)
+      : mal('ficou preso no estado ruim', JSON.stringify(saude.voltou));
+    /apertada|ping|perda|descompressor|quadros|travando|desconectou/.test(saude.comProblema.porque)
+      ? ok('e diz o motivo por extenso ao passar o mouse', saude.comProblema.porque)
+      : mal('não explica o motivo', saude.comProblema.porque);
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');

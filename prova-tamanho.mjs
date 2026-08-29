@@ -4,7 +4,7 @@
  * No caderninho dele a imagem foi cortada a um terço (640x360) com a
  * internet 100% livre e nada segurando. Duas causas somadas:
  *
- *   1. o Frag fazia a conta com 2560x1440 (o que foi PEDIDO) enquanto a
+ *   1. o Bigas Voice fazia a conta com 2560x1440 (o que foi PEDIDO) enquanto a
  *      tela entregava 1920x1080 — pedia banda que nunca foi necessária;
  *   2. encolhia por causa de uma estimativa de banda baixa, e essa
  *      estimativa estava baixa só porque a tela parada manda pouco.
@@ -82,7 +82,7 @@ const FOTO = async () => {
 async function principal() {
   await new Promise(r => servidor.listen(PORTA, r));
   const nav = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
-  /* A janela de quem ASSISTE precisa ser grande: se for pequena, o Frag
+  /* A janela de quem ASSISTE precisa ser grande: se for pequena, o Bigas Voice
      encolhe de propósito (o receptor manda no tamanho) e isso se
      confundiria com o encolhimento por banda, que é o que se quer medir. */
   const faz = async (larg) => { const c = await nav.newContext({ permissions: ['microphone'], viewport: { width: larg, height: Math.round(larg*9/16) } }); await c.addInitScript(TELA_PARADA); return c.newPage(); };
@@ -132,7 +132,7 @@ async function principal() {
     } else {
       info('o amigo pediu ' + fim.querLargura + 'px de largura');
       (fim.degrauBanda === 1 && fim.degrauFps === 1)
-        ? ok('as escadas do Frag NÃO encolheram', 'banda 1x, quadros 1x')
+        ? ok('as escadas do Bigas Voice NÃO encolheram', 'banda 1x, quadros 1x')
         : mal('alguma escada encolheu sem aperto', 'banda '+fim.degrauBanda+', quadros '+fim.degrauFps);
       piorEncolhe === 1
         ? ok('imagem enviada inteira', fim.tamanho)

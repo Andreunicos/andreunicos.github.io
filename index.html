@@ -7,14 +7,14 @@
 <meta name="theme-color" content="#0c0d10">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- O manifesto vai embutido aqui dentro, como endereço "data:". É o que
-     permite instalar o Frag como aplicativo (janela própria, sem abas nem
+     permite instalar o Bigas Voice como aplicativo (janela própria, sem abas nem
      barra de endereço, ícone no menu Iniciar) sem quebrar a regra do
      arquivo único: nenhum arquivo novo, nenhuma biblioteca de fora.
      Sem "#" em lugar nenhum aqui dentro — num endereço "data:" o "#"
      corta o resto fora, então as cores vão em rgb(). -->
-<link rel="manifest" href='data:application/manifest+json,{"name":"Frag","short_name":"Frag","description":"Voz%20e%20tela%20direto%20entre%20amigos","display":"standalone","orientation":"any","start_url":"./","background_color":"rgb(12,13,16)","theme_color":"rgb(91,124,250)","icons":[{"src":"data:image/svg%2Bxml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20512%20512%27%3E%3Crect%20width=%27512%27%20height=%27512%27%20rx=%27110%27%20fill=%27rgb(91,124,250)%27/%3E%3Cpath%20d=%27M300%2060%20170%20280h90l-40%20172%20170-240h-96z%27%20fill=%27rgb(255,255,255)%27/%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml","purpose":"any"}]}'>
+<link rel="manifest" href='data:application/manifest+json,{"name":"Bigas%20Voice","short_name":"Bigas%20Voice","description":"Voz%20e%20tela%20direto%20entre%20amigos","display":"standalone","orientation":"any","start_url":"./","background_color":"rgb(12,13,16)","theme_color":"rgb(91,124,250)","icons":[{"src":"data:image/svg%2Bxml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20512%20512%27%3E%3Crect%20width=%27512%27%20height=%27512%27%20rx=%27110%27%20fill=%27rgb(91,124,250)%27/%3E%3Cpath%20d=%27M300%2060%20170%20280h90l-40%20172%20170-240h-96z%27%20fill=%27rgb(255,255,255)%27/%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml","purpose":"any"}]}'>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='rgb(91,124,250)'/%3E%3Cpath d='M300 60 170 280h90l-40 172 170-240h-96z' fill='rgb(255,255,255)'/%3E%3C/svg%3E">
-<title>Frag</title>
+<title>Bigas Voice</title>
 <style>
 /* =====================================================================
    FRAG — um arquivo, nenhum servidor.
@@ -239,8 +239,14 @@ body.desenho-canvas .controles{background:rgba(18,20,25,.98)}
 }
 .quadro-tag .luz{width:7px;height:7px;border-radius:50%;background:var(--vermelho);animation:pisca 2s infinite}
 @keyframes pisca{50%{opacity:.35}}
-.quadro-acoes{position:absolute;right:12px;top:12px;display:flex;gap:7px;opacity:0;transition:opacity .18s}
-.quadro:hover .quadro-acoes{opacity:1}
+/* Os botões ficavam invisíveis até você passar o mouse — e num segundo
+   monitor você nunca passa o mouse. Então eles se apresentam sozinhos
+   quando o quadro nasce, e depois somem discretamente. Quem usa teclado
+   também precisa vê-los: daí o focus-within. */
+.quadro-acoes{position:absolute;right:12px;top:12px;display:flex;gap:7px;opacity:0;transition:opacity .25s}
+.quadro:hover .quadro-acoes,
+.quadro:focus-within .quadro-acoes,
+.quadro.revelar .quadro-acoes{opacity:1}
 .quadro-acoes button{
   padding:7px 12px;background:rgba(8,9,12,.78);backdrop-filter:blur(10px);
   border:1px solid rgba(255,255,255,.09);border-radius:9px;color:#fff;
@@ -303,6 +309,28 @@ body.desenho-canvas .controles{background:rgba(18,20,25,.98)}
   font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
   color:var(--txt3);margin:24px 0 12px;
 }
+
+/* ---- o painel em grupos que abrem e fecham ---- */
+.grupo{border-top:1px solid var(--linha)}
+.grupo:first-of-type{border-top:0}
+.grupo>summary{
+  cursor:pointer;list-style:none;user-select:none;
+  font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--txt3);padding:17px 0 12px;
+  display:flex;align-items:center;gap:9px;transition:color .16s;
+}
+.grupo>summary::-webkit-details-marker{display:none}
+.grupo>summary:hover{color:var(--txt2)}
+.grupo>summary::after{
+  content:'';margin-left:auto;width:6px;height:6px;flex-shrink:0;
+  border-right:2px solid currentColor;border-bottom:2px solid currentColor;
+  transform:rotate(45deg) translate(-2px,-2px);transition:transform .2s ease;
+}
+.grupo[open]>summary::after{transform:rotate(-135deg)}
+.grupo[open]>summary{color:var(--txt2)}
+.grupo>*:last-child{margin-bottom:18px}
+.grupo-conteudo{animation:abriu .22s ease}
+@keyframes abriu{from{opacity:0;transform:translateY(-6px)}}
 .secao:first-child{margin-top:0}
 
 .medidor{height:9px;background:var(--preto);border:1px solid var(--linha);border-radius:6px;overflow:hidden;margin-bottom:6px;position:relative}
@@ -452,7 +480,11 @@ body.sem-tela .divisor{display:none}
   animation:brilho 4.2s ease-in-out infinite;pointer-events:none;
 }
 .b-verde:disabled::after{animation:none}
-@keyframes brilho{0%,66%{left:-60%}92%,100%{left:120%}}
+/* "left" força o navegador a recalcular o LAYOUT a cada quadro — é a
+   coisa mais cara que uma animação pode fazer. O mesmo brilho, andando
+   por transform, não recalcula nada. O elemento tem 38% da largura do
+   botão e precisa atravessar 180%, daí os 474% dele mesmo. */
+@keyframes brilho{0%,66%{transform:translateX(0)}92%,100%{transform:translateX(474%)}}
 
 .papel{transition:transform .14s cubic-bezier(.2,.7,.3,1),border-color .16s,background .16s}
 .papel:hover{transform:translateY(-2px)}
@@ -470,11 +502,28 @@ body.sem-tela .divisor{display:none}
 @keyframes pop{from{opacity:0;transform:scale(.88)}}
 
 /* ---- quem está falando ---- */
-.av{transition:border-color .22s,box-shadow .22s,transform .22s}
-.av.fala{animation:pulsa 1.6s ease-in-out infinite}
-@keyframes pulsa{
-  0%,100%{box-shadow:0 0 0 3px rgba(63,208,122,.24)}
-  50%{box-shadow:0 0 0 8px rgba(63,208,122,.07)}
+/* ---------------------------------------------------------------------
+ * ANIMAR O QUE A PLACA DE VÍDEO SABE ANIMAR
+ * ---------------------------------------------------------------------
+ * Estas três animações rodavam DURANTE a partida e todas mexiam em
+ * box-shadow. Sombra não pode ser animada pela placa de vídeo: o
+ * navegador repinta o elemento e o fundo atrás dele a cada quadro, 60
+ * vezes por segundo, no meio do jogo. O farol do aviso de transmissão
+ * era o pior: ele roda o tempo INTEIRO em que você está transmitindo.
+ *
+ * transform e opacity são as duas únicas coisas que o navegador entrega
+ * para a placa e esquece — zero repintura. O anel é o mesmo aos olhos;
+ * o que mudou foi quem faz o trabalho.
+ * ------------------------------------------------------------------ */
+.av{transition:border-color .22s,box-shadow .22s,transform .22s;position:relative}
+.av::after{
+  content:'';position:absolute;inset:-2px;border-radius:inherit;
+  border:2px solid var(--verde);opacity:0;pointer-events:none;
+}
+.av.fala::after{animation:anel 1.6s ease-out infinite}
+@keyframes anel{
+  0%       {opacity:.55;transform:scale(1)}
+  70%,100% {opacity:0;  transform:scale(1.55)}
 }
 
 /* ---- quadros de vídeo nascem e morrem, não piscam ---- */
@@ -490,16 +539,29 @@ body.sem-tela .divisor{display:none}
 .cbtn{transition:transform .12s cubic-bezier(.2,.7,.3,1),background .16s,color .16s}
 .cbtn:hover{transform:translateY(-2px)}
 .cbtn:active{transform:translateY(0) scale(.93)}
-.cbtn.destaque.parando{animation:respira 2.6s ease-in-out infinite}
-@keyframes respira{50%{box-shadow:0 0 0 7px rgba(242,86,74,.13)}}
+.cbtn.destaque.parando::after,
+.cbtn.gravando::after{
+  content:'';position:absolute;inset:0;border-radius:inherit;
+  border:2px solid var(--vermelho);opacity:0;pointer-events:none;
+  animation:respira 2.4s ease-out infinite;
+}
+@keyframes respira{
+  0%       {opacity:.45;transform:scale(1)}
+  70%,100% {opacity:0;  transform:scale(1.24)}
+}
 .controles{transition:opacity .25s,transform .25s}
 
 /* ---- o aviso de transmissão pisca como um farol ---- */
 .aviso-tx{animation:sobe .3s cubic-bezier(.2,.7,.3,1)}
-.aviso-tx .luz{animation:farol 1.9s ease-out infinite}
+.aviso-tx .luz{animation:none;position:relative}
+.aviso-tx .luz::after{
+  content:'';position:absolute;inset:0;border-radius:50%;
+  background:var(--vermelho);pointer-events:none;
+  animation:farol 1.9s ease-out infinite;
+}
 @keyframes farol{
-  0%{box-shadow:0 0 0 0 rgba(242,86,74,.55)}
-  70%,100%{box-shadow:0 0 0 10px rgba(242,86,74,0)}
+  0%       {opacity:.55;transform:scale(1)}
+  70%,100% {opacity:0;  transform:scale(3.4)}
 }
 .aviso-tx button{transition:transform .12s,background .16s}
 .aviso-tx button:active{transform:scale(.95)}
@@ -603,7 +665,7 @@ body.sem-tela .divisor{display:none}
 .item span{font-size:12.5px;color:var(--txt2);line-height:1.55}
 .item.esperando .ico{animation:pisca 1.1s infinite}
 .item.mal b{color:#ff9d94} .item.meio b{color:var(--amarelo)} .item.bem b{color:#8fe8b3}
-.cbtn.gravando{background:var(--vermelho);color:#fff;animation:respira 2s ease-in-out infinite}
+.cbtn.gravando{background:var(--vermelho);color:#fff}
 </style>
 </head>
 <body>
@@ -615,7 +677,7 @@ body.sem-tela .divisor{display:none}
       <div class="marca">
         <div class="logo">◈</div>
         <div>
-          <h1>Frag</h1>
+          <h1>Bigas Voice</h1>
           <p>voz e tela direto entre vocês — sem servidor, sem instalar</p>
         </div>
       </div>
@@ -716,9 +778,14 @@ body.sem-tela .divisor{display:none}
     <div class="gente" id="gente"></div>
     <div class="barra-dir">
       <span class="pin" id="pin-fps" hidden><b id="fps-agora">—</b><span style="opacity:.6">fps</span></span>
-      <span class="pin" id="pin-versao" title="versão do Frag"></span>
+      <span class="pin" id="pin-versao" title="versão do Bigas Voice"></span>
       <span class="pin" id="pin-quantos"><span id="quantos">só você</span></span>
-      <span class="pin"><span class="ponto" id="ponto"></span><span id="ping">—</span></span>
+      <span class="pin" title="como está a chamada">
+        <span class="ponto" id="ponto"></span>
+        <span id="saude-txt">tudo certo</span>
+        <span style="opacity:.45">·</span>
+        <span id="ping">—</span>
+      </span>
       <button id="btn-painel" class="b b-cinza" type="button">Qualidade e ajustes</button>
     </div>
   </header>
@@ -784,7 +851,7 @@ body.sem-tela .divisor{display:none}
     <div id="bloco-ptt" hidden>
       <button id="btn-tecla" class="b b-cinza b-largo" type="button">clique e aperte a tecla</button>
       <p class="ajuda" id="ajuda-ptt">
-        Funciona enquanto a janela do Frag estiver em foco. No app instalado
+        Funciona enquanto a janela do Bigas Voice estiver em foco. No app instalado
         funciona com o jogo na frente também.
       </p>
     </div>
@@ -835,7 +902,7 @@ body.sem-tela .divisor{display:none}
     </p>
     <button id="btn-registro" class="b b-cinza b-largo" style="margin-top:12px">📈 Copiar histórico de FPS e ping</button>
     <p class="ajuda" style="margin-top:0">
-      Este é o <b>filme</b>, não a foto: o Frag anota FPS, ping, tamanho da imagem, perda e quem
+      Este é o <b>filme</b>, não a foto: o Bigas Voice anota FPS, ping, tamanho da imagem, perda e quem
       está segurando a qualidade <b>a cada segundo</b>, mais os momentos em que alguma coisa mudou.
       É o que responde "caiu quando, por quanto tempo e por causa de quê". Guarda os últimos 15
       minutos, só na memória — fechou a aba, acabou. Não custa nada: aproveita a medição que o
@@ -851,7 +918,7 @@ body.sem-tela .divisor{display:none}
       <span>Deixar o clipe sempre pronto</span>
     </label>
     <p class="ajuda" style="margin-top:0">
-      <b style="color:var(--amarelo)">Custa processador.</b> Com isso ligado, o Frag comprime a
+      <b style="color:var(--amarelo)">Custa processador.</b> Com isso ligado, o Bigas Voice comprime a
       imagem o tempo todo em segundo plano para poder salvar o que já passou. Se o seu jogo
       está perdendo FPS, deixe <b>desligado</b> — o botão 🎬 continua funcionando, só começa a
       guardar na hora em que você aperta.
@@ -886,9 +953,9 @@ body.sem-tela .divisor{display:none}
       <p class="ajuda" style="margin-top:0">Liga e desliga o microfone de qualquer lugar, mesmo dentro do jogo.</p>
       <label class="chk" style="margin-top:12px">
         <input id="in-windows" type="checkbox">
-        <span>Abrir o Frag junto com o Windows</span>
+        <span>Abrir o Bigas Voice junto com o Windows</span>
       </label>
-      <p class="ajuda" style="margin-top:0">Fechar a janela não encerra a call — o Frag fica do lado do relógio.</p>
+      <p class="ajuda" style="margin-top:0">Fechar a janela não encerra a call — o Bigas Voice fica do lado do relógio.</p>
     </div>
 
     <div class="secao">Rede</div>
@@ -912,7 +979,7 @@ body.sem-tela .divisor{display:none}
     <label class="campo" style="margin-top:12px">
       <span>Imagem de quem você assiste</span>
       <select id="sel-latencia">
-        <option value="estavel">Lisa — o Frag guarda uma folga conforme o ping</option>
+        <option value="estavel">Lisa — o Bigas Voice guarda uma folga conforme o ping</option>
         <option value="minima">Quase sem atraso — o mínimo que ainda anda liso</option>
       </select>
     </label>
@@ -933,7 +1000,7 @@ body.sem-tela .divisor{display:none}
       Para jogo, "manter os quadros". Para mostrar texto ou desenho, "manter a nitidez".
     </p>
     <label class="campo" style="margin-top:12px">
-      <span>Endereço do Frag na internet</span>
+      <span>Endereço do Bigas Voice na internet</span>
       <input id="in-site" type="text" placeholder="https://…" autocomplete="off">
     </label>
     <p class="ajuda" style="margin-top:0">
@@ -944,7 +1011,7 @@ body.sem-tela .divisor{display:none}
     <p class="ajuda" style="margin-top:0">
       Em algumas redes — celular, prédio, empresa, e boa parte da fibra brasileira — os dois
       computadores <b>não conseguem se achar direto</b>. Aí só resta alguém no meio passando os
-      pacotes. O Frag não vem com nenhum, porque endereço morto na lista atrasa a conexão de todo
+      pacotes. O Bigas Voice não vem com nenhum, porque endereço morto na lista atrasa a conexão de todo
       mundo. <b>Você só precisa disto se o autoteste reclamar.</b>
     </p>
     <p class="ajuda" style="margin-top:6px">
@@ -1460,8 +1527,8 @@ const rotuloEnvio=()=>temEndereco()?'link':'código';
    um pedido perdido em toda tentativa de abrir sala. */
 const SINAIS = window.__FRAG_SINAIS ||
   ['https://ntfy.sh','https://ntfy.envs.net','https://ntfy.mzte.de'];
-/* Endereço do SEU Frag na internet. É o que vai dentro do link que você
-   manda pro amigo quando o Frag está rodando como aplicativo (aí não
+/* Endereço do SEU Bigas Voice na internet. É o que vai dentro do link que você
+   manda pro amigo quando o Bigas Voice está rodando como aplicativo (aí não
    existe endereço de página para usar). Dá para trocar em Ajustes > Rede. */
 const SITE = 'https://andreunicos.github.io/';
 
@@ -1532,7 +1599,7 @@ async function decifrar(txt){
  * ---------------------------------------------------------------------
  * Estes servidores são públicos e gratuitos, então têm cota: passou do
  * limite, eles respondem "429, excesso de pedidos" e jogam a mensagem
- * fora. Antes o Frag engolia isso em silêncio — o "olá" simplesmente
+ * fora. Antes o Bigas Voice engolia isso em silêncio — o "olá" simplesmente
  * não saía, e a pessoa ficava olhando "esperando seu amigo abrir o
  * link…" para sempre, esperando alguém que nunca ia ser avisado.
  *
@@ -1617,7 +1684,7 @@ async function prepararSala(id, chaveTxt, dono){
 
   // Todos ao mesmo tempo. Um depois do outro, com 4,5 s de espera cada,
   // dava até 18 segundos de "Criando a sala…" — o primeiro segundo que o
-  // seu amigo vê do Frag, gasto esperando servidor lento responder.
+  // seu amigo vê do Bigas Voice, gasto esperando servidor lento responder.
   const vivas=(await Promise.all(
     SINAIS.map(async b => (await testarBase(b)) ? b : null))).filter(Boolean);
   if(!vivas.length) throw new Error('SEM_SINAL');
@@ -1702,7 +1769,7 @@ async function criarSala(){
       const av=$('aviso-link');
       if(av){
         av.hidden=false;
-        av.innerHTML='Este link só abre em quem <b>já tem o Frag instalado</b>. '+
+        av.innerHTML='Este link só abre em quem <b>já tem o Bigas Voice instalado</b>. '+
           'Para mandar um link que qualquer amigo abre no navegador, coloque o endereço do seu '+
           'site em <b>Ajustes › Rede</b>.';
       }
@@ -1760,7 +1827,7 @@ function ligarPresenca(primeiroTexto){
     bater();
     if(voltas===6 && !pares.size) dizerSala('ninguém aqui ainda — pode deixar esta aba aberta');
     // Vai afrouxando de propósito. De 1,5 em 1,5 segundo, sem parar, o
-    // Frag torrava a cota diária do servidor público em poucos minutos —
+    // Bigas Voice torrava a cota diária do servidor público em poucos minutos —
     // e a partir dali o "olá" não saía mais, calado. Rápido só no começo,
     // que é quando o amigo costuma chegar; depois, de vez em quando; e
     // com alguém já na call, só de meio em meio minuto, para quem chegar
@@ -1823,7 +1890,7 @@ function melhorarAudio(sdp){
  * Toda conexão WebRTC nasce em 300 kbps e sobe devagar. Em tela
  * compartilhada, chegar a um 1080p decente leva de trinta segundos a
  * mais de um minuto — e nesse tempo o amigo já viu a imagem feia e já
- * tirou conclusão sobre o Frag.
+ * tirou conclusão sobre o Bigas Voice.
  *
  * Dá para dizer por onde COMEÇAR. E, ao contrário do melhorarAudio, isto
  * vale no SDP que a gente RECEBE: são instruções que o outro lado dá ao
@@ -1934,7 +2001,7 @@ function iniciarMedidor(){
  * mantém 3 conversas ao mesmo tempo.
  *
  * O preço é a sua internet de SUBIDA: mandar a tela para 3 amigos custa
- * 3 vezes. Por isso o Frag divide a banda escolhida pelo número de
+ * 3 vezes. Por isso o Bigas Voice divide a banda escolhida pelo número de
  * pessoas que estão recebendo, e avisa quando não cabe.
  *
  * Quem faz a proposta para quem? Quem tem o apelido interno "menor" na
@@ -1944,7 +2011,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '4.9 — 29/08 16:10';
+const VERSAO = '5.0 — 29/08 18:00';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2947,6 +3014,10 @@ function montarQuadro(id, titulo, aoVivo, aoParar, par){
   };
 
   q.append(v,tag,acoes);
+  // apresenta os botões por uns segundos e some: dá para descobrir que
+  // eles existem sem ficar poluindo a tela o tempo todo
+  q.classList.add('revelar');
+  setTimeout(()=>q.classList.remove('revelar'), 3400);
   $('palco').appendChild(q);
   return q;
 }
@@ -3101,7 +3172,7 @@ function mostrarTela(par){
  * nada. Uma troca automática não teria para onde ir, e teria custado uma
  * renegociação visível no meio da partida para nada.
  *
- * Pior: se o codec novo também cair para software, o Frag entra num
+ * Pior: se o codec novo também cair para software, o Bigas Voice entra num
  * vaivém entre dois codecs ruins, cada troca cobrando um soluço. Um
  * mecanismo que "conserta" e desconserta sozinho é pior que o defeito.
  *
@@ -3376,7 +3447,7 @@ function quantosRecebem(){
  * O TAMANHO QUE A TELA ENTREGA DE VERDADE
  * ---------------------------------------------------------------------
  * Dá para escolher 1440p num monitor de 1080p. O Windows entrega 1080p,
- * como tem que ser — mas o Frag continuava fazendo a conta com 1440p:
+ * como tem que ser — mas o Bigas Voice continuava fazendo a conta com 1440p:
  * pedia a banda de 1440p, não cabia, e encolhia a imagem para caber numa
  * conta que nunca existiu. Foi assim que uma tela de 1080p, com a
  * internet inteiramente livre, acabou sendo enviada em 640x360.
@@ -3484,7 +3555,7 @@ async function aplicarPerfilVideo(par){
    * O seu upload é UM só e se reparte entre os amigos: é isso o /n do
    * primeiro termo. Mas a banda MEDIDA é por conexão, e as conexões já
    * disputam entre si o mesmo cabo — ela JÁ VEM repartida. Dividir de
-   * novo era contar duas vezes: numa call de três, o Frag pedia um terço
+   * novo era contar duas vezes: numa call de três, o Bigas Voice pedia um terço
    * da qualidade que cabia, justamente quando a call fica cheia. */
   let teto = Math.round((p.mbps*1e6*a.fator)/n);
 
@@ -3499,11 +3570,11 @@ async function aplicarPerfilVideo(par){
    *
    * Então:
    *
-   *     Frag acha que tem pouca banda
+   *     Bigas Voice acha que tem pouca banda
    *        -> baixa o teto
    *           -> a sonda não sobe além do teto
    *              -> o palpite cai
-   *                 -> Frag acha que tem pouca banda      (volta ao começo)
+   *                 -> Bigas Voice acha que tem pouca banda      (volta ao começo)
    *
    * Uma vez que descia, não subia nunca mais, porque a prova de que dava
    * para subir era exatamente a sonda que a gente tinha amordaçado. É o
@@ -3725,7 +3796,7 @@ async function pegarTela(){
       audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},
       // pede o som do sistema junto; deixa você TROCAR a janela
       // compartilhada sem parar e recomeçar a transmissão; e tira a
-      // própria aba do Frag da lista, que só serviria pra fazer espelho
+      // própria aba do Bigas Voice da lista, que só serviria pra fazer espelho
       // de espelho.
       systemAudio:'include',
       surfaceSwitching:'include',
@@ -3948,7 +4019,7 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
    * ---------------------------------------------------------------------
    * O palpite de banda encostou no limite que nós mesmos demos ao
    * compressor, e ninguém está reclamando: sem aperto, sem perda. Isso
-   * não é a rede dizendo "não cabe mais" — é o Frag olhando para o
+   * não é a rede dizendo "não cabe mais" — é o Bigas Voice olhando para o
    * próprio limite e confundindo com a rede.
    *
    * Enquanto isso for verdade, encolher é sempre errado: a imagem menor
@@ -4121,7 +4192,7 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
  * a pergunta seguinte é sempre a mesma: caiu quando, por quanto tempo, e
  * o que estava acontecendo junto? Sem isso a conversa vira adivinhação.
  *
- * Então o Frag vai anotando. E anota DE GRAÇA: ele já pede as estatís-
+ * Então o Bigas Voice vai anotando. E anota DE GRAÇA: ele já pede as estatís-
  * ticas uma vez por segundo para desenhar o painel, e o caderninho só
  * copia o que já veio. Nenhuma medição a mais, nenhum processador a
  * mais — o que seria exatamente o pecado de um medidor de desempenho.
@@ -4133,9 +4204,9 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
  * O PULSO DA PRÓPRIA PÁGINA
  * ---------------------------------------------------------------------
  * Todo o resto do caderninho fala do VÍDEO: o que saiu, o que chegou, o
- * que foi desenhado. Nada dizia se a PÁGINA — o Frag em si — estava
+ * que foi desenhado. Nada dizia se a PÁGINA — o Bigas Voice em si — estava
  * conseguindo acompanhar. E é justamente essa a pergunta quando alguém
- * diz que o Frag come FPS do jogo: se a aba engasga, ela engasga o resto
+ * diz que o Bigas Voice come FPS do jogo: se a aba engasga, ela engasga o resto
  * da máquina junto.
  *
  * Duas medidas, as duas de graça e sem tocar em nada:
@@ -4242,7 +4313,7 @@ function marcar(txt){
  * NÃO trocamos de codec sozinhos. Seria um chute: não dá para saber se o
  * hardware dele aceita H265 ou AV1, a troca custa uma renegociação
  * visível no meio da partida, e se o novo codec também cair para
- * software o Frag entra num vaivém pior que o problema. O usuário é
+ * software o Bigas Voice entra num vaivém pior que o problema. O usuário é
  * avisado e escolhe.
  * ------------------------------------------------------------------ */
 function descompressorFraco(impl){
@@ -4332,7 +4403,7 @@ function anotarLinha(x){
    * QUANDO O PROBLEMA É ANTES DO FRAG
    * ---------------------------------------------------------------------
    * "fonte" é quantos quadros a CAPTURA do sistema entregou — antes de
-   * qualquer coisa que o Frag faça. Se ela entrega 30 quando você pediu
+   * qualquer coisa que o Bigas Voice faça. Se ela entrega 30 quando você pediu
    * 60, nada aqui dentro conserta: o compressor nem foi chamado. No
    * Windows as duas causas comuns são o jogo em tela cheia exclusiva e o
    * agendamento de GPU desligado, e as duas têm conserto de dois
@@ -4353,8 +4424,8 @@ function anotarLinha(x){
     if(capturaSuspeita(H, alvoF) && !est.avisouCaptura){
       est.avisouCaptura = true;
       marcar('a tela entrega '+agora+' quadros FIRMES e você pediu '+alvoF+
-             ' — isso é a captura do Windows, não o envio do Frag');
-      recado('Sua tela entrega só '+agora+' quadros por segundo, antes de o Frag tocar nela. '+
+             ' — isso é a captura do Windows, não o envio do Bigas Voice');
+      recado('Sua tela entrega só '+agora+' quadros por segundo, antes de o Bigas Voice tocar nela. '+
              'Tente o jogo em JANELA SEM BORDA e ligue o "Agendamento de GPU acelerado por '+
              'hardware" nas configurações gráficas do Windows.','mal');
     }
@@ -4428,7 +4499,7 @@ function resumoDoRegistro(){
 
     /* Os três números andando juntos e os três abaixo do alvo querem
        dizer uma coisa só, e ela não estava escrita em lugar nenhum: o
-       gargalo está ANTES do Frag. A tela entregou pouco, então o
+       gargalo está ANTES do Bigas Voice. A tela entregou pouco, então o
        compressor comprimiu pouco, então saiu pouco. Nada aqui dentro
        conserta isso — e ficar olhando banda e codec é procurar no
        lugar errado. */
@@ -4440,7 +4511,7 @@ function resumoDoRegistro(){
         R.push('');
         R.push('>>> O GARGALO É A CAPTURA DA TELA, não a rede nem o envio.');
         R.push('    A tela entregou '+Math.round(mFonte)+' quadros e saíram '+Math.round(mSai)+
-               ' — o Frag mandou tudo que recebeu.');
+               ' — o Bigas Voice mandou tudo que recebeu.');
         R.push('    No Windows isso costuma ser: jogo em TELA CHEIA EXCLUSIVA (troque para');
         R.push('    JANELA SEM BORDA) ou "Agendamento de GPU acelerado por hardware" desligado');
         R.push('    nas configurações de Elementos Gráficos.');
@@ -4608,12 +4679,12 @@ function resumoDoRegistro(){
   const pl = resumoDoPulso();
   if(pl){
     R.push('');
-    R.push('--- a PÁGINA do Frag está acompanhando? ---');
+    R.push('--- a PÁGINA do Bigas Voice está acompanhando? ---');
     R.push('desenhos de tela  : '+pl.fps+' por segundo | 1% pior '+pl.pior+
            ' | maior buraco '+pl.buraco+' ms');
     R.push('linha principal   : '+pl.travas+' travadas, '+pl.msTravado+' ms parada no total');
     if(pl.travas>0 || pl.pior<40)
-      R.push('LEIA              : a aba do Frag engasga sozinha. Quando isso acontece não é a '+
+      R.push('LEIA              : a aba do Bigas Voice engasga sozinha. Quando isso acontece não é a '+
              'rede nem quem transmite — é ESTA máquina, e o jogo sente junto.');
   }
   const cs = ajustesCaros();
@@ -4632,11 +4703,11 @@ function montarRegistro(extra){
   const real = perfilReal();
   /* Esta linha já mentiu num caderninho real. Ela dizia "sua tela entrega
      540p" quando quem tinha reduzido a captura para 540p era o PRÓPRIO
-     Frag, minutos antes, de propósito. Quem lesse ia culpar o monitor e
+     Bigas Voice, minutos antes, de propósito. Quem lesse ia culpar o monitor e
      procurar no lugar errado. Agora ela diz de quem foi a decisão. */
   if(real.encolhido){
     if((est.capturaEm||1) > 1)
-      dz('NOTA: o Frag reduziu a captura para '+real.a+'p de propósito (ninguém precisava de mais). '+
+      dz('NOTA: o Bigas Voice reduziu a captura para '+real.a+'p de propósito (ninguém precisava de mais). '+
          'Você pediu '+p.a+'p — a tela dá conta, a conta é que está sendo feita em '+real.a+'p.');
     else
       dz('ATENÇÃO: você pediu '+p.a+'p mas a sua tela entrega '+real.a+
@@ -4729,7 +4800,7 @@ async function copiarRegistro(){
     });
     const calados = vindas.filter(r=>!r.v).map(r=>r.p.nome||'amigo');
     if(calados.length)
-      A.push('(não respondeu: '+calados.join(', ')+' — Frag antigo do lado dele, ou canal fechado)');
+      A.push('(não respondeu: '+calados.join(', ')+' — Bigas Voice antigo do lado dele, ou canal fechado)');
     if(A.length) anexo = '===== O QUE OS OUTROS VIRAM =====\n\n'+A.join('\n');
   }
 
@@ -4745,6 +4816,51 @@ async function copiarRegistro(){
 /* =====================================================================
  * NÚMEROS DA CHAMADA
  * =================================================================== */
+/* ---------------------------------------------------------------------
+ * O PAINEL EM GRUPOS
+ * ---------------------------------------------------------------------
+ * O painel virou um depósito: microfone, modo de fala, tela, problemas,
+ * clipe, computador, rede, retransmissor, som, vozes, corte da voz. Onze
+ * seções abertas de uma vez, e a pessoa tem que ler tudo para achar o
+ * volume.
+ *
+ * Os grupos são montados AQUI, por código, em vez de eu recortar o HTML
+ * na mão. Não é preguiça: mexer em onze blocos de HTML aninhado é como
+ * se perde um id sem perceber, e id perdido aqui é botão que para de
+ * funcionar em silêncio. Movendo os elementos que já existem, nada se
+ * perde — e se amanhã alguém acrescentar uma seção, ela entra no esquema
+ * sozinha.
+ *
+ * Aberto por padrão fica só o que todo mundo mexe. O resto continua a um
+ * clique, no mesmo lugar de sempre.
+ * ------------------------------------------------------------------ */
+const GRUPOS_ABERTOS = ['Como está a chamada','Microfone','Volume geral','Volume de cada um'];
+
+function agruparPainel(){
+  const corpo = document.querySelector('#painel .painel-corpo');
+  if(!corpo || corpo.dataset.agrupado) return;
+  corpo.dataset.agrupado = '1';
+  let dentro = null;
+  [...corpo.children].forEach(el=>{
+    if(el.classList.contains('secao')){
+      const titulo = (el.textContent||'').trim();
+      const g = document.createElement('details');
+      g.className = 'grupo';
+      if(GRUPOS_ABERTOS.some(t=>titulo.startsWith(t))) g.open = true;
+      const cab = document.createElement('summary');
+      cab.textContent = titulo;
+      g.appendChild(cab);
+      dentro = document.createElement('div');
+      dentro.className = 'grupo-conteudo';
+      g.appendChild(dentro);
+      corpo.insertBefore(g, el);
+      el.remove();
+      return;
+    }
+    if(dentro) dentro.appendChild(el);
+  });
+}
+
 function iniciarNumeros(){ clearInterval(est.loopNum); est.loopNum=setInterval(atualizarNumeros,1000); }
 function pararNumeros(){ clearInterval(est.loopNum); est.loopNum=null; }
 
@@ -4941,7 +5057,54 @@ async function atualizarNumeros(){
   }
 
   $('ping').textContent = piorPing ? piorPing+' ms' : '—';
-  $('ponto').className = 'ponto '+(piorPing<60?'bom':piorPing<130?'medio':'ruim');
+
+  /* ---------------------------------------------------------------------
+   * O ÚNICO INDICADOR SEMPRE VISÍVEL ESTAVA MENTINDO
+   * ---------------------------------------------------------------------
+   * Ele olhava só o ping. Num caderninho real o ping era de 1 ms — os
+   * dois na mesma rede — enquanto a transmissão desmoronava: a tela
+   * entregando metade dos quadros, o amigo largando 649 e o descompressor
+   * dele desistindo da placa. O pontinho ficou VERDE o tempo todo.
+   *
+   * Ping baixo quer dizer que o recado vai rápido, não que a imagem está
+   * boa. Agora ele olha tudo que já é medido e responde a pergunta que a
+   * pessoa realmente faz: está bom?
+   * ------------------------------------------------------------------ */
+  const motivos = [];
+  let nota = 0;                                    // 0 bom, 1 atenção, 2 ruim
+  const pesar2 = (n, txt)=>{ if(n>nota) nota=n; if(n) motivos.push(txt); };
+
+  if(piorPing >= 130) pesar2(2, 'ping alto ('+piorPing+' ms)');
+  else if(piorPing >= 60) pesar2(1, 'ping subindo ('+piorPing+' ms)');
+
+  for(const x of porPessoa){
+    if(!x.par.conectado) pesar2(2, (x.par.nome||'alguém')+' desconectou');
+    if(x.perda > 3)      pesar2(2, 'perda de '+x.perda.toFixed(1)+'%');
+    else if(x.perda > 0.7) pesar2(1, 'perda de '+x.perda.toFixed(1)+'%');
+    if(x.apertado)       pesar2(1, 'internet apertada');
+    if(x.par.decDeleFraco) pesar2(2, 'o descompressor de '+(x.par.nome||'alguém')+' desistiu da placa');
+    if((Date.now()-(x.par.quandoSaude||0)) < 8000 && (x.par.saudeSeguida||0) >= 2)
+      pesar2(2, (x.par.nome||'alguém')+' está travando');
+  }
+  /* A tela entregando pouco conta muito — mas olhar UM segundo aqui era
+     errado, e o teste pegou na hora: tela parada entrega poucos quadros
+     por motivo legítimo, e o pontinho ficaria amarelo só porque nada se
+     mexeu. Quem sabe separar as duas coisas é a regra que já existe, com
+     mediana de trinta amostras e piso. Reusar é melhor que reinventar
+     pior. */
+  if(est.streamTela && capturaSuspeita(est.histFonte||[], perfilReal().fps)){
+    const H = est.histFonte;
+    pesar2(2, 'sua tela só entrega '+H[H.length-1]+' quadros');
+  }
+
+  const classe = nota===0 ? 'bom' : nota===1 ? 'medio' : 'ruim';
+  const pt = $('ponto');
+  pt.className = 'ponto '+classe;
+  const dizer = nota===0 ? 'tudo certo' : nota===1 ? 'dá para melhorar' : 'tem problema';
+  const alvo2 = pt.parentElement;
+  if(alvo2) alvo2.title = dizer + (motivos.length ? ': '+motivos.slice(0,3).join(' · ') : '');
+  const rot = $('saude-txt');
+  if(rot && rot.textContent !== dizer) rot.textContent = dizer;
   // cada pessoa com a sua régua, medida na conexão dela
   for(const x of porPessoa) ajustarQualidade(x.par, x.perda, x.apertado, x.banda, x.fpsComprimido);
 
@@ -4966,6 +5129,24 @@ async function atualizarNumeros(){
     ? relogio(Date.now()-registro.inicio)+' · '+registro.linhas.length+' amostras'
     : '—';
 
+  if(!$('painel').classList.contains('aberto')) return;
+
+  /* ---------------------------------------------------------------------
+   * NÃO DESENHAR O QUE NINGUÉM ESTÁ OLHANDO
+   * ---------------------------------------------------------------------
+   * Daqui para baixo é só a montagem visual do painel de números. Ela
+   * rodava A CADA SEGUNDO enquanto você transmite — ou seja, enquanto
+   * você joga — mesmo com o painel FECHADO. Umas vinte linhas de HTML
+   * montadas e jogadas dentro da página, para ninguém ver.
+   *
+   * Isso só apareceu porque fui medir ONDE o tempo estava indo, em vez
+   * de aceitar a acusação de que o custo estava na barra de pessoas.
+   * Cada peça isolada custava zero; o laço inteiro custava 7 ms. A
+   * diferença estava aqui.
+   *
+   * A COLETA continua todo segundo, sem exceção: é dela que o ajuste
+   * automático se alimenta e ela não pode parar. O que para é o desenho.
+   * ------------------------------------------------------------------ */
   if(!$('painel').classList.contains('aberto')) return;
 
   const h=[];
@@ -5116,7 +5297,7 @@ async function cuidarDoAvisoDeCpu(porPessoa){
     if(um.par.nitidezRuim>=8 && !est.avisouNitidez){
       est.avisouNitidez = true;
       marcar('quadros baixos com prioridade em NITIDEZ — é a escolha que causa isso');
-      recado('Os quadros estão caindo porque o Frag está em "manter a nitidez". '+
+      recado('Os quadros estão caindo porque o Bigas Voice está em "manter a nitidez". '+
              'Em Ajustes, troque para "manter os quadros" se quiser fluidez.','mal');
     }
   }else if(um.par) um.par.nitidezRuim = 0;
@@ -5210,7 +5391,7 @@ async function trocarCodecAgora(){
   await reequilibrarVideo();
 }
 
-/* A lista de atalhos. Existia teclado escondido no Frag desde sempre e
+/* A lista de atalhos. Existia teclado escondido no Bigas Voice desde sempre e
    nada na tela contava isso — atalho que ninguém descobre é atalho que
    não existe. */
 function mostrarAtalhos(){
@@ -5471,7 +5652,7 @@ async function conectar(){
   if(!cod) return erro('Cole a resposta que seu amigo mandou.');
   if(cod===$('meu-codigo').value.trim())
     return erro('Esse é o SEU convite, não a resposta dele. Não dá pra testar sozinho: '+
-      'mande o seu para um amigo, ele cola no Frag dele em "Me chamaram", e te devolve OUTRO. É esse outro que vem aqui.');
+      'mande o seu para um amigo, ele cola no Bigas Voice dele em "Me chamaram", e te devolve OUTRO. É esse outro que vem aqui.');
   $('erro').hidden=true;
   const b=$('btn-conectar'); b.disabled=true; b.textContent='Conectando…';
   try{
@@ -5484,7 +5665,7 @@ async function conectar(){
   }catch(e){
     console.error(e);
     erro(String(e.message)==='TROCADO'
-      ? 'Isso é um convite, não uma resposta. Peça pro seu amigo mandar o que apareceu no passo 2 do Frag dele.'
+      ? 'Isso é um convite, não uma resposta. Peça pro seu amigo mandar o que apareceu no passo 2 do Bigas Voice dele.'
       : 'Essa resposta não serve. Peça pra ele copiar de novo, inteira.');
     b.disabled=false; b.textContent='Conectar';
   }
@@ -5524,7 +5705,7 @@ async function responder(){
 
 function traduzir(e){
   const m=String(e&&e.name||'')+' '+String(e&&e.message||e);
-  if(/CONVITE_ANTIGO/.test(m)) return 'Esse convite foi feito por uma versão antiga do Frag. Peça um convite novo.';
+  if(/CONVITE_ANTIGO/.test(m)) return 'Esse convite foi feito por uma versão antiga do Bigas Voice. Peça um convite novo.';
   if(/NotAllowedError|Permission/i.test(m)) return 'O navegador bloqueou o microfone. Clique no cadeado ao lado do endereço e permita.';
   if(/NotFoundError/i.test(m)) return 'Nenhum microfone encontrado no computador.';
   if(/NotReadableError/i.test(m)) return 'O microfone está sendo usado por outro programa.';
@@ -5533,7 +5714,7 @@ function traduzir(e){
     'Costuma ser rede só com IPv6 ou firewall fechado — tente pela sala (o link), ou coloque um retransmissor em Ajustes > Rede.';
   if(/SEM_CIFRA/.test(m)) return 'Chegou um recado sem a cifra da sala. Ignorei por segurança — peça um link novo.';
   if(/CURTO_DEMAIS|InvalidCharacter|atob/i.test(m)) return 'Esse código está incompleto. Copie de novo, do começo ao fim.';
-  if(/SDP_INCOMPLETO/.test(m)) return 'O navegador não gerou a conexão direito. Feche e abra o Frag de novo.';
+  if(/SDP_INCOMPLETO/.test(m)) return 'O navegador não gerou a conexão direito. Feche e abra o Bigas Voice de novo.';
   return 'Deu erro: '+m;
 }
 
@@ -5543,7 +5724,7 @@ function traduzir(e){
 /* =====================================================================
  * PUSH-TO-TALK
  * ---------------------------------------------------------------------
- * No navegador só dá para escutar a tecla enquanto a janela do Frag
+ * No navegador só dá para escutar a tecla enquanto a janela do Bigas Voice
  * está em foco — com o jogo em tela cheia na frente, o navegador não
  * recebe a tecla. No app instalado existe um gancho de sistema que
  * resolve isso; a página detecta e usa quando está disponível.
@@ -5581,12 +5762,12 @@ function avisarCaixaFechada(){
     const d=document.createElement('div');
     d.id='caixa-fechada'; d.className='caixa-fechada';
     d.innerHTML =
-      '<b>Aqui o Frag não consegue fazer chamada.</b>' +
+      '<b>Aqui o Bigas Voice não consegue fazer chamada.</b>' +
       '<p>Esta página está aberta dentro da moldura de outro site, e o navegador ' +
-      'não libera voz nem tela nessa situação. Não é problema do Frag e não tem ' +
+      'não libera voz nem tela nessa situação. Não é problema do Bigas Voice e não tem ' +
       'ajuste que resolva.</p>' +
-      '<p><b>O que funciona:</b> o aplicativo <b>Frag Direto</b> no computador, ' +
-      'ou o arquivo <b>Frag Web</b> aberto direto no seu Chrome.</p>';
+      '<p><b>O que funciona:</b> o aplicativo <b>Bigas Voice Direto</b> no computador, ' +
+      'ou o arquivo <b>Bigas Voice Web</b> aberto direto no seu Chrome.</p>';
     cx.appendChild(d);
   }
   // some com o que não vai funcionar mesmo
@@ -5649,11 +5830,11 @@ async function testarConexao(){
   // técnico sem sentido para quem lê. Melhor dizer a única coisa que
   // importa e parar por aqui.
   if(onde.caixaFechada){
-    itemTeste('caixa','Onde você abriu o Frag',
+    itemTeste('caixa','Onde você abriu o Bigas Voice',
       'Esta página está dentro da moldura de outro site, e o navegador não libera '+
       'chamada de voz nem captura de tela aí. Todo o resto do teste falharia por causa disso.', 'mal');
     itemTeste('saida1','O que fazer',
-      'Use o aplicativo Frag Direto no computador, ou abra o arquivo "Frag Web" direto no seu Chrome. '+
+      'Use o aplicativo Bigas Voice Direto no computador, ou abra o arquivo "Bigas Voice Web" direto no seu Chrome. '+
       'Nos dois casos funciona normalmente.', 'meio');
     itemTeste('saida2','Para o seu amigo entrar por um link',
       'O link precisa apontar para um site de verdade, com endereço próprio. '+
@@ -5672,7 +5853,7 @@ async function testarConexao(){
   // --- navegador ---
   const temTudo = !!(window.RTCPeerConnection && navigator.mediaDevices && window.crypto && crypto.subtle);
   itemTeste('nav','Navegador', temTudo
-    ? 'Tem tudo o que o Frag precisa.'
+    ? 'Tem tudo o que o Bigas Voice precisa.'
     : (onde.semCifra
         ? 'Esta página está em http:// sem cadeado. Sem cadeado o navegador não empresta a cifra, '+
           'e a sala fica sem proteção. Use https:// ou o app instalado.'
@@ -5710,7 +5891,7 @@ async function testarConexao(){
     itemTeste('mic','Microfone',
     onde.dentroDeMoldura
       ? 'O microfone não foi liberado. Páginas abertas dentro da moldura de outro site quase '+
-        'nunca conseguem microfone — abra o Frag pelo app ou pelo arquivo direto no navegador.'
+        'nunca conseguem microfone — abra o Bigas Voice pelo app ou pelo arquivo direto no navegador.'
       : traduzir(e), 'mal');
   }
 
@@ -5719,7 +5900,7 @@ async function testarConexao(){
   await Promise.all(SINAIS.map(async b=>{ if(await testarBase(b)) vivos.push(b); }));
   itemTeste('sinal','Ponto de encontro do link', vivos.length
     ? vivos.length+' de '+SINAIS.length+' servidores respondendo. O link vai funcionar.'
-    : 'Nenhum respondeu. Aqui o link não vai funcionar — pode ser a rede desta casa, ou o site que hospeda o Frag bloqueando. O modo manual (o do código) continua valendo.',
+    : 'Nenhum respondeu. Aqui o link não vai funcionar — pode ser a rede desta casa, ou o site que hospeda o Bigas Voice bloqueando. O modo manual (o do código) continua valendo.',
     vivos.length>1?'bem':vivos.length?'meio':'mal');
 
   // --- rede ---
@@ -5746,7 +5927,7 @@ async function testarConexao(){
     ? 'Tem retransmissor funcionando. Mesmo nas redes mais fechadas, você conecta.'
     : (temTurnConfig
         ? 'O retransmissor que você colou em Ajustes não respondeu. Confira endereço, usuário e senha.'
-        : 'Você não tem retransmissor configurado, e o Frag não vem com nenhum (os públicos '+
+        : 'Você não tem retransmissor configurado, e o Bigas Voice não vem com nenhum (os públicos '+
           'gratuitos saíram do ar). Enquanto a conexão direta funcionar, tudo bem. Se falhar com '+
           'alguém específico, é aqui que resolve: pegue um grátis (a Metered dá 20 GB por mês) '+
           'e cole em Ajustes > Rede.'),
@@ -5769,7 +5950,7 @@ async function testarConexao(){
  * CLIPE — os últimos segundos, sempre guardados
  * ---------------------------------------------------------------------
  * A ideia é a do "replay buffer": em vez de você lembrar de apertar
- * gravar ANTES da jogada boa, o Frag está sempre gravando os últimos
+ * gravar ANTES da jogada boa, o Bigas Voice está sempre gravando os últimos
  * segundos por cima dos anteriores, na memória. Quando algo acontece,
  * você aperta C e aquilo vira arquivo.
  *
@@ -5979,7 +6160,7 @@ async function salvarClipe(){
     if(novo) clipe.gravadores.push(novo);
 
     if(!blob || !blob.size) return recado('O clipe saiu vazio. Tente de novo em alguns segundos.','mal');
-    const r = await salvarArquivo(blob, nomeDeArquivo('frag-clipe', blob.type));
+    const r = await salvarArquivo(blob, nomeDeArquivo('bigas-voice-clipe', blob.type));
     recado(r.ok ? 'Clipe salvo — '+segundos+'s ('+(blob.size/1048576).toFixed(1)+' MB)' : r.recado, r.ok?'ok':'mal');
   } finally { salvandoClipe=false; $('btn-clipe').disabled=false; }
 }
@@ -6067,7 +6248,7 @@ async function conferirAtualizacao(){
   try{ jaRecarreguei = sessionStorage.getItem('frag-recarga') === nova; }catch{}
 
   if(naChamada() || sala.ligada){
-    recado('Tem uma versão mais nova do Frag ('+nova.split(' ')[0]+'). Recarregue quando terminar.','');
+    recado('Tem uma versão mais nova do Bigas Voice ('+nova.split(' ')[0]+'). Recarregue quando terminar.','');
     return;
   }
   if(jaRecarreguei){
@@ -6196,7 +6377,7 @@ async function montarDiagnostico(){
     }
     dz('  som da tela: '+(a?'sim':'não'));
     // olha a captura ANTES de qualquer envio: se já vem preta daqui, o
-    // problema é o Windows entregando tela preta, não o Frag.
+    // problema é o Windows entregando tela preta, não o Bigas Voice.
     try{
       const teste=document.createElement('video');
       teste.muted=true; teste.playsInline=true; teste.srcObject=est.streamTela;
@@ -6267,7 +6448,7 @@ async function montarDiagnostico(){
   for(const par of pares.values()){
     const r = await pedirDiagnostico(par, 3500);
     dz('--- '+(par.nome||par.id)+' respondeu ---');
-    dz(r || '(não respondeu — versão antiga do Frag ou canal fechado)');
+    dz(r || '(não respondeu — versão antiga do Bigas Voice ou canal fechado)');
     dz('');
   }
 
@@ -6325,7 +6506,7 @@ async function resumoParaOAmigo(){
  * forma de chegar até lá era pedir para ele clicar e colar. Na prática
  * isso nunca acontece: quem está jogando não vai parar para copiar log.
  *
- * O canal de dados já existe e o Frag já usa exatamente isto para o
+ * O canal de dados já existe e o Bigas Voice já usa exatamente isto para o
  * diagnóstico. Então o botão passa a trazer os dois lados de uma vez.
  * Vai só o RESUMO, não o segundo-a-segundo: o segundo-a-segundo de três
  * pessoas viraria um texto que ninguém lê, e o resumo é onde as
@@ -6391,7 +6572,7 @@ function testarRetransmissor(){
 async function responderCaderninho(par){
   let txt='';
   try{
-    txt = ['(Frag '+VERSAO+' — '+(eu.nome||'sem nome')+')']
+    txt = ['(Bigas Voice '+VERSAO+' — '+(eu.nome||'sem nome')+')']
             .concat(resumoDoRegistro()).join('\n');
   }catch(e){ txt='falhou ao montar: '+e; }
   enviar(par,{t:'cad!', v:String(txt).slice(0,8000)});
@@ -6634,9 +6815,9 @@ async function copiar(txt,btn,rot){
 function textoConvite(codigo, ehResposta){
   const quem = cfg.nome ? cfg.nome + ' ' : '';
   return ehResposta
-    ? 'Aceitei! ' + quem + 'Cola isso no teu Frag, no campo 2:\n\n' + codigo
-    : quem + 'te chamou no Frag pra jogar.\n\n' +
-      'Abre o Frag, clica em "Me chamaram" e cola isto:\n\n' + codigo;
+    ? 'Aceitei! ' + quem + 'Cola isso no teu Bigas Voice, no campo 2:\n\n' + codigo
+    : quem + 'te chamou no Bigas Voice pra jogar.\n\n' +
+      'Abre o Bigas Voice, clica em "Me chamaram" e cola isto:\n\n' + codigo;
 }
 
 function mandarNoWhats(codigo, ehResposta){
@@ -6667,7 +6848,7 @@ $('btn-teste-denovo').onclick=testarConexao;
 $('fechar-teste').onclick=$('btn-teste-ok').onclick=()=>{ $('teste').hidden=true; };
 $('btn-sala-copiar').onclick=()=>copiar($('sala-link').value,$('btn-sala-copiar'),'Copiar');
 $('btn-sala-whats').onclick=()=>{
-  const t='Entra na call comigo no Frag — é só clicar:\n\n'+$('sala-link').value;
+  const t='Entra na call comigo no Bigas Voice — é só clicar:\n\n'+$('sala-link').value;
   window.open('https://wa.me/?text='+encodeURIComponent(t),'_blank','noopener');
 };
 $('btn-gerar').onclick=gerarConvite;
@@ -6857,7 +7038,7 @@ window.addEventListener('resize', ()=>{
  *    escondida MESMO quando ela está visível no segundo monitor. Não dá
  *    para saber isso pelo navegador — mas dá para perceber pelo
  *    comportamento: quem fica indo e voltando está de olho na tela. Na
- *    terceira ida e volta rápida, o Frag desiste de economizar e não
+ *    terceira ida e volta rápida, o Bigas Voice desiste de economizar e não
  *    tenta mais nesta sessão.
  * ------------------------------------------------------------------ */
 document.addEventListener('visibilitychange', ()=>{
@@ -6921,7 +7102,7 @@ $('controles').addEventListener('mouseenter',()=>clearTimeout(sumir));
  * O WebRTC precisa de ida E volta — sem servidor não existe link que
  * "entre sozinho". Mas o passo de colar dá para eliminar: o app olha o
  * que está copiado quando ganha o foco e aplica se for um código do
- * Frag. Copiar do WhatsApp e voltar pro Frag já basta.
+ * Bigas Voice. Copiar do WhatsApp e voltar pro Bigas Voice já basta.
  *
  * E se o sistema deixar clicar num link frag://, aí sim fecha sem
  * nenhum passo: o clique cai na janela que já está aberta.
@@ -6974,7 +7155,7 @@ function aplicarCodigoAutomatico(codigo, tipoDica){
   const aviso=document.createElement('p');
   aviso.className='ajuda';
   aviso.style.cssText='padding:0 30px;margin:10px 0 0';
-  aviso.innerHTML='<b style="color:var(--verde)">Dica:</b> copie o código do WhatsApp e volte pro Frag — '+
+  aviso.innerHTML='<b style="color:var(--verde)">Dica:</b> copie o código do WhatsApp e volte pro Bigas Voice — '+
                   'ele reconhece sozinho, você não precisa colar.';
   const alvo=document.querySelector('.sala');
   if(alvo) alvo.appendChild(aviso);
@@ -7041,6 +7222,7 @@ $('sel-prioridade').value=cfg.prioridade||'fps';
   campo.onchange = ()=>{ guardarAjustes(); recado('Ponto de corte da voz em '+cfg.portao+'.','ok'); };
   pintar();
 })();
+agruparPainel();
 $('sel-espacial').value = cfg.espacial ? 'sim' : 'nao';
 $('sel-espacial').onchange=()=>{
   cfg.espacial = $('sel-espacial').value==='sim'; guardarAjustes();
@@ -7114,7 +7296,7 @@ setTimeout(conferirAtualizacao, 4000);
   // link de sala: entra sozinho, sem clicar em nada
   const e=h.match(/^#e=([a-z0-9]+)~([A-Za-z0-9_-]+)/);
   if(e){
-    document.title='Frag — entrando na call…';
+    document.title='Bigas Voice — entrando na call…';
     setTimeout(()=>entrarNaSala(e[1], e[2]), 60);
     return;
   }
@@ -7129,14 +7311,14 @@ setTimeout(conferirAtualizacao, 4000);
   const r=h.match(/^#r=([A-Za-z0-9_-]+)/);
   if(r){
     $('papel-chamo').click();
-    erro('Esta é a resposta do seu amigo, mas ela precisa ser colada na janela do Frag que você já deixou aberta — não numa aba nova. Volte pra aquela janela e cole no campo 2.');
+    erro('Esta é a resposta do seu amigo, mas ela precisa ser colada na janela do Bigas Voice que você já deixou aberta — não numa aba nova. Volte pra aquela janela e cole no campo 2.');
   }
 })();
 
 /* ---------------------------------------------------------------------
  * VOLTAR PRA SALA DEPOIS DE UM F5
  * ---------------------------------------------------------------------
- * Só vale por cinco minutos: passou disso, quem abriu o Frag de novo
+ * Só vale por cinco minutos: passou disso, quem abriu o Bigas Voice de novo
  * provavelmente quer começar do zero, e arrastar a pessoa de volta para
  * uma call que já acabou seria pior do que não fazer nada.
  * ------------------------------------------------------------------ */

@@ -359,7 +359,7 @@ async function principal() {
     (await sumiuEmA()) === false ? ok('voltar cancela a economia') : mal('ficou marcado como sumido');
 
     /* três idas e voltas rápidas = a pessoa está de olho (segundo monitor,
-       ou o Chrome enganado pelo jogo em tela cheia). O Frag desiste. */
+       ou o Chrome enganado pelo jogo em tela cheia). O Bigas Voice desiste. */
     for (let i = 0; i < 3; i++) { await fingirEmB(true); await espera(250); await fingirEmB(false); await espera(250); }
     const desistiu = await B.pg.evaluate(() => ({ naoEconomizar: !!est.naoEconomizar, idas: est.idasEVoltas || 0 }));
     desistiu.naoEconomizar
@@ -394,7 +394,7 @@ async function principal() {
            Math.round(orc.inteiro / 1000) + ' → ' + Math.round(orc.teto / 1000) + ' kbps a ' + orc.encolhe + 'x')
       : mal('orçamento não acompanhou os pixels', JSON.stringify(orc));
     /pouca banda/.test(orc.porque || '')
-      ? ok('o Frag diz por que encolheu', orc.porque)
+      ? ok('o Bigas Voice diz por que encolheu', orc.porque)
       : mal('não explicou o motivo', String(orc.porque));
     // queda severa não pode esperar 13 segundos
     const rapido = await A.pg.evaluate(async () => {
@@ -492,7 +492,7 @@ async function principal() {
         return { nome: j.name, tela: j.display, icones: (j.icons || []).length, inicio: j.start_url };
       } catch (e) { return { erro: String(e.message) }; }
     });
-    (man.nome === 'Frag' && man.tela === 'standalone' && man.icones > 0)
+    (man.nome === 'Bigas Voice' && man.tela === 'standalone' && man.icones > 0)
       ? ok('manifesto embutido válido', man.nome + ', ' + man.tela + ', ' + man.icones + ' ícone')
       : mal('manifesto não serve', JSON.stringify(man));
 
