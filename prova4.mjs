@@ -377,30 +377,29 @@ async function principal() {
     /* ============ 10c. os ajustes caros aparecem no caderninho ============ */
     console.log('\n=== 10c. Os ajustes que custam FPS ficam visíveis? ===');
     const caros = await B.evaluate(() => {
-      const antes = { desenho: cfg.desenho, clipe: cfg.clipeSempre };
-      cfg.desenho = 'normal'; cfg.clipeSempre = false;
+      const antes = cfg.desenho;
+      cfg.desenho = 'normal';
       const limpo = { lista: ajustesCaros().length, txt: montarRegistro() };
-      cfg.desenho = 'canvas'; cfg.clipeSempre = true;
+      cfg.desenho = 'canvas';
       const sujo = { lista: ajustesCaros().length, txt: montarRegistro() };
-      cfg.desenho = antes.desenho; cfg.clipeSempre = antes.clipe;
+      cfg.desenho = antes;
       return {
         limpoLista: limpo.lista,
         sujoLista: sujo.lista,
         limpoAvisa: limpo.txt.includes('AJUSTES CAROS LIGADOS'),
         sujoAvisa: sujo.txt.includes('AJUSTES CAROS LIGADOS'),
-        sujoCita: sujo.txt.includes('MODO CANVAS') && sujo.txt.includes('CLIPE SEMPRE'),
-        semprePõe: limpo.txt.includes('desenho: normal') &&
-                   limpo.txt.includes('clipe sempre pronto: desligado'),
+        sujoCita: sujo.txt.includes('MODO CANVAS'),
+        semprePõe: limpo.txt.includes('desenho: normal'),
         temPulso: limpo.txt.includes('a PÁGINA do Bigas Voice está acompanhando'),
       };
     });
-    (caros.limpoLista === 0 && caros.sujoLista === 2)
-      ? ok('reconhece os dois ajustes caros', '0 limpo, 2 ligados')
+    (caros.limpoLista === 0 && caros.sujoLista === 1)
+      ? ok('reconhece o ajuste caro que sobrou', '0 limpo, 1 ligado')
       : mal('não contou os ajustes caros', JSON.stringify(caros));
     (!caros.limpoAvisa && caros.sujoAvisa && caros.sujoCita)
       ? ok('só grita quando algum está ligado, e diz qual')
       : mal('o aviso de ajuste caro saiu errado', JSON.stringify(caros));
-    caros.semprePõe ? ok('o estado dos dois aparece sempre, ligado ou não')
+    caros.semprePõe ? ok('o estado dele aparece sempre, ligado ou não')
                     : mal('o estado dos ajustes não entrou no caderninho');
     caros.temPulso ? ok('o pulso da página entrou no caderninho')
                    : mal('o pulso não apareceu no caderninho');
@@ -924,40 +923,6 @@ async function principal() {
       ? ok('a chamada não caiu junto', socorro.chamadaDePe)
       : mal('a chamada caiu na troca', socorro.chamadaDePe);
     socorro.temFluxo ? ok('o microfone local voltou a funcionar') : mal('ficou sem microfone');
-
-    /* ============ 23. o clipe sem depender do relógio do JS ============ */
-    console.log('\n=== 23. O clipe é fatiado pelo gravador, não pelo setInterval? ===');
-    const clip = await A.evaluate(async () => {
-      cfg.clipe = 5;                       // alvo curto para o teste andar
-      const ligou = comecarBuffer();
-      if (!ligou) return { erro: 'não consegui ligar o buffer' };
-      // MATA o relógio do JavaScript de propósito: é exatamente o que o
-      // Chrome faz com a aba em segundo plano
-      clearInterval(clipe.relogio); clipe.relogio = null;
-      await new Promise(r => setTimeout(r, 9000));
-      const r = {
-        gravadores: clipe.gravadores.length,
-        pedacos: clipe.gravadores.map(g => g.pedacos.length),
-        semRelogio: clipe.relogio === null,
-      };
-      pararBuffer();
-      return r;
-    });
-    if (clip.erro) mal('o buffer do clipe não ligou', clip.erro);
-    else {
-      info('gravadores: ' + clip.gravadores + ' | pedaços em cada: ' + JSON.stringify(clip.pedacos));
-      clip.semRelogio ? ok('o relógio do JavaScript estava mesmo desligado no teste')
-                      : mal('o teste não conseguiu desligar o relógio');
-      (clip.pedacos.some(n => n > 0))
-        ? ok('o gravador entregou pedaços sozinho, sem relógio nenhum', clip.pedacos.join('+'))
-        : mal('nenhum pedaço saiu sem o setInterval — voltou a depender do relógio');
-      (clip.gravadores >= 2)
-        ? ok('e a troca de gravadores aconteceu pelo ritmo do gravador', clip.gravadores + ' vivos')
-        : ok('ainda no primeiro gravador (alvo pode não ter sido atingido em 9s)');
-      (clip.gravadores <= 2)
-        ? ok('nunca guarda mais de dois gravadores')
-        : mal('acumulou gravadores', String(clip.gravadores));
-    }
 
     /* ============ 24. a barra de pessoas não é mais destruída ============ */
     console.log('\n=== 24. A barra de pessoas sobrevive a um mudo? ===');
@@ -1520,12 +1485,6 @@ async function principal() {
       await new Promise(r => setTimeout(r, 2500));
       const quadrosDepois = await saiu();
 
-      // o clipe tem que continuar tendo de onde gravar mesmo sem a prévia
-      pararDeDesenharPrevia();
-      const clipeDormindo = comecarBuffer();
-      const fonteDormindo = clipe.alvo;
-      pararBuffer();
-
       espiarPrevia();
       const voltou = { tem: !!v.srcObject, marcada: est.previaDormindo,
                        classe: q.classList.contains('sem-previa') };
@@ -1539,8 +1498,8 @@ async function principal() {
       const ligado = est.relogioPrevia;
       clearTimeout(est.relogioPrevia);
 
-      return { acordada, dormindo, voltou, quadrosAntes, quadrosDepois, clipeDormindo,
-               fonteDormindo, agendouDesligado: desligado !== null, agendouLigado: ligado !== null };
+      return { acordada, dormindo, voltou, quadrosAntes, quadrosDepois,
+               agendouDesligado: desligado !== null, agendouLigado: ligado !== null };
     });
     info('quadros enviados: ' + previa.quadrosAntes + ' -> ' + previa.quadrosDepois +
          ' (com a prévia adormecida)');
@@ -1558,14 +1517,46 @@ async function principal() {
     (previa.voltou.tem && !previa.voltou.marcada && !previa.voltou.classe)
       ? ok('um clique traz a imagem de volta')
       : mal('não dá para espiar de novo', JSON.stringify(previa.voltou));
-    (previa.clipeDormindo && /sua tela/.test(previa.fonteDormindo || ''))
-      ? ok('e o clipe continua tendo de onde gravar: vai direto na captura, não na prévia',
-           'fonte: ' + previa.fonteDormindo)
-      : mal('a prévia adormecida deixou o clipe sem fonte',
-            JSON.stringify({ ligou: previa.clipeDormindo, fonte: previa.fonteDormindo }));
     (!previa.agendouDesligado && previa.agendouLigado)
       ? ok('e o ajuste manda: desligado não agenda nada, ligado agenda')
       : mal('ignorou o ajuste', JSON.stringify({ d: previa.agendouDesligado, l: previa.agendouLigado }));
+
+    /* ============ 39. o clipe foi embora inteiro ============ */
+    console.log('\n=== 39. Sobrou algum resto do clipe e da gravação? ===');
+    const semClipe = await A.evaluate(() => {
+      const some = (n) => typeof window[n] === 'undefined';
+      return {
+        // nenhuma função do mecanismo pode ter ficado para trás
+        funcoes: ['comecarBuffer','pararBuffer','salvarClipe','alternarGravacao',
+                  'cuidarDoBuffer','novoGravador','girarGravadores','fluxoParaGravar',
+                  'telaParaGravar','misturarAudio','salvarArquivo','nomeDeArquivo']
+                  .filter(n => !some(n)),
+        // nem os controles na tela
+        botoes: ['btn-clipe','btn-gravar','sel-clipe','in-clipe-sempre']
+                  .filter(i => !!document.getElementById(i)),
+        // nem os ajustes guardados
+        ajustes: ['clipe','clipeSempre'].filter(k => k in cfg),
+        // e o C não pode mais fazer nada
+        atalhos: (document.body.textContent.match(/salva o clipe/g) || []).length,
+        // o que TEM que continuar existindo
+        aindaTem: ['montarRegistro','montarDiagnostico','pegarTela'].filter(n => some(n)),
+      };
+    });
+    (semClipe.funcoes.length === 0)
+      ? ok('nenhuma função do gravador ficou para trás')
+      : mal('sobraram funções do clipe', semClipe.funcoes.join(', '));
+    (semClipe.botoes.length === 0)
+      ? ok('nenhum botão ou ajuste do clipe sobrou na tela')
+      : mal('sobraram controles', semClipe.botoes.join(', '));
+    (semClipe.ajustes.length === 0)
+      ? ok('e nada do clipe continua guardado nos ajustes')
+      : mal('sobraram ajustes guardados', semClipe.ajustes.join(', '));
+    (semClipe.atalhos === 0)
+      ? ok('o atalho saiu da lista de teclas')
+      : mal('a ajuda ainda promete o clipe');
+    (semClipe.aindaTem.length === 0)
+      ? ok('e o que não era do clipe continua de pé (caderninho, diagnóstico, transmissão)')
+      : mal('a remoção levou coisa que não devia', semClipe.aindaTem.join(', '));
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');

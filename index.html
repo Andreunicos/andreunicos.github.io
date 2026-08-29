@@ -813,7 +813,6 @@ body.sem-tela .divisor{display:none}
     <span class="divisor"></span>
     <button id="btn-tela" class="cbtn destaque" type="button">🖥 Compartilhar tela</button>
     <span class="divisor"></span>
-    <button id="btn-clipe" class="cbtn" type="button" title="Salvar os últimos segundos (C)">🎬</button>
     <button id="btn-chat" class="cbtn" type="button" title="Chat (T)">💬<span id="chat-bolinha" class="bolinha-nova" hidden></span></button>
     <button id="btn-config" class="cbtn" type="button" title="Ajustes">⚙</button>
     <button id="btn-sair" class="cbtn" type="button" title="Encerrar" style="background:var(--vermelho);color:#fff">⏻</button>
@@ -937,33 +936,6 @@ body.sem-tela .divisor{display:none}
     <div class="num" style="border:0;padding-top:4px">
       <span>gravando</span><b id="registro-quanto">—</b>
     </div>
-
-    <div class="secao">Clipe e gravação</div>
-    <label class="chk">
-      <input id="in-clipe-sempre" type="checkbox">
-      <span>Deixar o clipe sempre pronto</span>
-    </label>
-    <p class="ajuda" style="margin-top:0">
-      <b style="color:var(--amarelo)">Custa processador.</b> Com isso ligado, o Bigas Voice comprime a
-      imagem o tempo todo em segundo plano para poder salvar o que já passou. Se o seu jogo
-      está perdendo FPS, deixe <b>desligado</b> — o botão 🎬 continua funcionando, só começa a
-      guardar na hora em que você aperta.
-    </p>
-    <label class="campo" style="margin-top:12px">
-      <span>O clipe guarda os últimos</span>
-      <select id="sel-clipe">
-        <option value="15">15 segundos</option>
-        <option value="30" selected>30 segundos</option>
-        <option value="60">60 segundos</option>
-        <option value="120">2 minutos</option>
-      </select>
-    </label>
-    <p class="ajuda" style="margin-top:0">
-      Fica guardado só na memória, andando pra frente o tempo todo. Quando você aperta
-      <b>C</b> (ou o botão 🎬), o que estiver guardado vira arquivo. Nada sai do seu PC.
-    </p>
-    <button id="btn-gravar" class="b b-cinza b-largo" type="button" style="margin-top:10px">⏺ Gravar a call inteira</button>
-    <p class="ajuda" style="margin-top:0" id="ajuda-gravar">Grava do começo ao fim, sem limite de tempo.</p>
 
     <div class="secao" id="secao-pc" hidden>No computador</div>
     <div id="bloco-pc" hidden>
@@ -1226,7 +1198,7 @@ const cfg = {
   fala:'voz', tecla:'KeyV', nomeTecla:'V', volume:100,
   codec:'auto', auto:true, turn:'', site:'', versaoAjustes:0,
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
-  clipe:30, clipeSempre:false, prioridade:'fps', desenho:'normal', latencia:'estavel',
+  prioridade:'fps', desenho:'normal', latencia:'estavel',
   espacial:false, portao:12, socorroCaptura:true, previaEconomica:true,
 };
 
@@ -2043,7 +2015,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '5.3 — 29/08 22:45';
+const VERSAO = '5.4 — 29/08 23:30';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3366,7 +3338,6 @@ async function cuidarDaTravaDeTela(){
 
 function arrumarPalco(){
   cuidarDaTravaDeTela();
-  setTimeout(cuidarDoBuffer,120);
   setTimeout(avisarTamanhos,200);
   const n=$('palco').querySelectorAll('.quadro:not(.saindo)').length;
   $('nada').hidden = n>0;
@@ -4499,8 +4470,6 @@ function ajustesCaros(){
   if(cfg.desenho==='canvas')
     L.push('MODO CANVAS — redesenha o vídeo inteiro na mão, 60x por segundo, '+
            'na mesma fila que o resto da página');
-  if(cfg.clipeSempre)
-    L.push('CLIPE SEMPRE PRONTO — dois gravadores comprimindo sem parar, o tempo todo');
   return L;
 }
 
@@ -4957,7 +4926,7 @@ function montarRegistro(extra){
   dz('prévia da própria tela: '+(cfg.previaEconomica===false?'sempre desenhando (custa placa)':
      'para depois de '+SEGUNDOS_DE_PREVIA+'s')+
      (est.previaDormindo?' — está adormecida agora':''));
-  dz('desenho: '+cfg.desenho+' | clipe sempre pronto: '+(cfg.clipeSempre?'LIGADO':'desligado')+
+  dz('desenho: '+cfg.desenho+
      ' | vozes separadas: '+(cfg.espacial?'sim':'não')+
      ' | corte da voz: '+(cfg.portao||12));
   if(!cfg.auto){
@@ -5062,7 +5031,7 @@ async function copiarRegistro(){
  * O PAINEL EM GRUPOS
  * ---------------------------------------------------------------------
  * O painel virou um depósito: microfone, modo de fala, tela, problemas,
- * clipe, computador, rede, retransmissor, som, vozes, corte da voz. Onze
+ * computador, rede, retransmissor, som, vozes, corte da voz. Dez
  * seções abertas de uma vez, e a pessoa tem que ler tudo para achar o
  * volume.
  *
@@ -5508,7 +5477,6 @@ async function atualizarNumeros(){
               um.sv.qualityLimitationResolutionChanges>6?'medio':'');
     }
     linha('Banda total de subida', total+' kbps');
-    if(cfg.clipeSempre) linha('Clipe sempre pronto','ligado (usa processador)','medio');
   }
 
   for(const x of porPessoa){
@@ -5687,7 +5655,6 @@ function mostrarAtalhos(){
     ['M','liga e desliga o seu microfone'],
     ['D','silencia todo mundo de uma vez'],
     ['T','abre o chat'],
-    ['C','salva o clipe dos últimos segundos'],
     ['Esc','fecha o que estiver aberto'],
     ['?','mostra esta lista'],
     ['duplo clique','tela cheia no vídeo'],
@@ -6233,301 +6200,6 @@ async function testarConexao(){
 
 
 /* =====================================================================
- * CLIPE — os últimos segundos, sempre guardados
- * ---------------------------------------------------------------------
- * A ideia é a do "replay buffer": em vez de você lembrar de apertar
- * gravar ANTES da jogada boa, o Bigas Voice está sempre gravando os últimos
- * segundos por cima dos anteriores, na memória. Quando algo acontece,
- * você aperta C e aquilo vira arquivo.
- *
- * Nada disso sai do seu computador: é a sua própria tela e o áudio que
- * você já está ouvindo, gravados aí mesmo.
- * =================================================================== */
-const clipe = { fluxo:null, gravadores:[], relogio:null, alvo:'', destino:null,
-                fontes:[], tudo:null, pedacosTudo:[] };
-
-/* Junta num único áudio: seu microfone, a voz de cada um e o som do
-   jogo que está sendo transmitido. */
-function misturarAudio(){
-  try{
-    est.ctx = est.ctx || new AudioContext();
-    if(est.ctx.state==='suspended') est.ctx.resume();
-    const destino = est.ctx.createMediaStreamDestination();
-    const juntar=(fluxo)=>{
-      if(!fluxo || !fluxo.getAudioTracks || !fluxo.getAudioTracks().length) return;
-      try{ const n=est.ctx.createMediaStreamSource(fluxo); n.connect(destino); clipe.fontes.push(n); }catch{}
-    };
-    juntar(est.streamMic);
-    if(est.streamTela) juntar(est.streamTela);
-    pares.forEach(p=>{ if(p.audio && p.audio.srcObject) juntar(p.audio.srcObject); });
-    return destino;
-  }catch(e){ console.warn('mistura',e); return null; }
-}
-
-/* ---------------------------------------------------------------------
- * DE ONDE O CLIPE TIRA A IMAGEM
- * ---------------------------------------------------------------------
- * Duas coisas erradas aqui, e a prova do clipe pegou as duas.
- *
- * A primeira nasceu agora: se a prévia da minha própria tela está
- * adormecida (para poupar placa), o <video> dela não tem imagem nenhuma
- * e o clipe ficava sem fonte. A correção é melhor do que remendo: a
- * MINHA tela vem da CAPTURA, não do desenho na página. É a mesma imagem
- * sem passar por um segundo desenho, e existe independente da prévia
- * estar sendo mostrada ou não.
- *
- * A segunda já estava aqui antes e ninguém tinha visto: ele pegava o
- * PRIMEIRO quadro do palco e, se aquele não tivesse imagem, DESISTIA —
- * em vez de tentar o próximo. Bastava um amigo cujo vídeo ainda não
- * tinha chegado estar na frente para o clipe inteiro não ligar.
- * ------------------------------------------------------------------ */
-function telaParaGravar(){
-  // a ordem continua sendo a do palco; o que muda é não desistir cedo
-  for(const q of $('palco').querySelectorAll('.quadro:not(.saindo)')){
-    if(q.id==='q-eu' && est.streamTela)
-      return { stream: est.streamTela, nome:'a sua tela' };
-    const v = q.querySelector('video');
-    if(!v || !v.srcObject) continue;
-    const tag = q.querySelector('.quadro-tag span:last-child');
-    return { video:v, nome: tag ? tag.textContent : 'tela' };
-  }
-  return null;
-}
-
-function fluxoParaGravar(){
-  const alvo = telaParaGravar();
-  if(!alvo) return null;
-  let v;
-  if(alvo.stream){
-    v = alvo.stream.getVideoTracks()[0];      // a minha tela, direto da captura
-  }else{
-    let bruto;
-    try{ bruto = alvo.video.captureStream ? alvo.video.captureStream() : alvo.video.mozCaptureStream(); }
-    catch{ return null; }
-    v = bruto.getVideoTracks()[0];
-  }
-  if(!v) return null;
-  const juntos = new MediaStream([v]);
-  clipe.destino = misturarAudio();
-  if(clipe.destino) clipe.destino.stream.getAudioTracks().forEach(t=>juntos.addTrack(t));
-  return { fluxo:juntos, nome:alvo.nome };
-}
-
-/* MP4 quando o navegador deixa: abre em qualquer lugar no Windows, sem
-   instalar nada. Se não deixar, WebM — que abre no navegador e no VLC. */
-function melhorFormato(){
-  const opcoes=[
-    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-    'video/mp4;codecs=avc1,opus',
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
-  ];
-  for(const t of opcoes){ if(window.MediaRecorder && MediaRecorder.isTypeSupported(t)) return t; }
-  return '';
-}
-const extensaoDe = (tipo)=> /mp4/.test(tipo||'') ? '.mp4' : '.webm';
-
-/* ---------------------------------------------------------------------
- * COMO OS ÚLTIMOS SEGUNDOS FICAM GUARDADOS
- * ---------------------------------------------------------------------
- * O jeito ingênuo é gravar em pedacinhos e jogar fora os antigos. Só que
- * um arquivo de vídeo cortado no meio perde o índice: abre torto, não dá
- * para arrastar a barrinha, e em MP4 nem abre.
- *
- * Então aqui rodam DOIS gravadores ao mesmo tempo, defasados. Cada um
- * grava o dobro do tempo do clipe e é trocado por um novo. Quando você
- * aperta C, o mais velho dos dois sempre tem pelo menos o tempo que você
- * pediu — e ele é ENCERRADO na hora, virando um arquivo inteiro, com
- * índice, duração certa e barrinha que funciona.
- * ------------------------------------------------------------------ */
-function novoGravador(){
-  if(!clipe.fluxo) return null;
-  try{
-    const g = new MediaRecorder(clipe.fluxo, { mimeType: melhorFormato(), videoBitsPerSecond: 4000000 });
-    const item = { rec:g, inicio:Date.now(), pedacos:[] };
-    const alvo = Math.max(5, Number(cfg.clipe)||30);
-
-    /* ---------------------------------------------------------------------
-     * NÃO CONFIAR NO RELÓGIO DO JAVASCRIPT
-     * ---------------------------------------------------------------------
-     * A troca de gravadores era comandada por um setInterval. Só que o
-     * Chrome ESTRANGULA setTimeout e setInterval quando a aba fica em
-     * segundo plano — e uma aba com um jogo em tela cheia na frente está
-     * exatamente nessa situação, que é justamente quando o clipe importa.
-     *
-     * O gravador, esse, não é estrangulado: ele continua gravando no
-     * ritmo dele. Então o relógio passa a ser o dele. Pedindo um pedaço
-     * por segundo, contar pedaços é contar segundos — e isso não depende
-     * de nenhuma fila de tarefas do JavaScript.
-     *
-     * O setInterval continua ali embaixo como rede de segurança, para o
-     * caso de o navegador ignorar o pedaço por segundo.
-     * ------------------------------------------------------------------ */
-    g.ondataavailable = (ev)=>{
-      if(ev.data && ev.data.size) item.pedacos.push(ev.data);
-      const ehOMaisNovo = clipe.gravadores[clipe.gravadores.length-1] === item;
-      if(ehOMaisNovo && item.pedacos.length >= alvo) return girarGravadores();
-      // trava de memória: se tudo mais falhar, ninguém passa de 4x o alvo
-      if(item.pedacos.length > alvo*4) girarGravadores();
-    };
-    g.start(1000);          // um pedaço por segundo, no ritmo do gravador
-    return item;
-  }catch(e){ console.warn('gravador',e); return null; }
-}
-
-function comecarBuffer(){
-  if(clipe.gravadores.length) return true;
-  const alvo = fluxoParaGravar();
-  if(!alvo) return false;
-  clipe.fluxo = alvo.fluxo; clipe.alvo = alvo.nome;
-  const g = novoGravador();
-  if(!g){ clipe.fluxo=null; return false; }
-  clipe.gravadores=[g];
-  clearInterval(clipe.relogio);
-  clipe.relogio = setInterval(girarGravadores, Math.max(5, Number(cfg.clipe)||30)*1000);
-  return true;
-}
-
-function girarGravadores(){
-  if(!clipe.fluxo) return;
-  const g = novoGravador();
-  if(g) clipe.gravadores.push(g);
-  while(clipe.gravadores.length>2){
-    const velho = clipe.gravadores.shift();
-    try{ velho.rec.state!=='inactive' && velho.rec.stop(); }catch{}
-    velho.pedacos.length=0;                 // esse já passou do tempo
-  }
-}
-
-function pararBuffer(){
-  clearInterval(clipe.relogio); clipe.relogio=null;
-  clipe.gravadores.forEach(g=>{ try{ g.rec.state!=='inactive' && g.rec.stop(); }catch{} });
-  clipe.gravadores=[];
-  clipe.fluxo=null;
-  clipe.fontes.forEach(n=>{ try{ n.disconnect(); }catch{} });
-  clipe.fontes=[];
-}
-
-/* ---------------------------------------------------------------------
- * SALVAR O ARQUIVO
- * ---------------------------------------------------------------------
- * No app instalado e em qualquer site normal, um link de download
- * resolve — o arquivo vai direto para a sua pasta de downloads, sem
- * passar por lugar nenhum.
- * ------------------------------------------------------------------ */
-function baixarPorLink(blob, nome){
-  try{
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url; a.download=nome;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 30000);
-    return true;
-  }catch(e){ console.warn('baixar',e); return false; }
-}
-
-async function salvarArquivo(blob, nome){
-  return { ok: baixarPorLink(blob,nome),
-           recado:'Não consegui salvar o arquivo aqui. No app instalado funciona.' };
-}
-
-function nomeDeArquivo(prefixo, tipo){
-  const d=new Date(), z=(n)=>String(n).padStart(2,'0');
-  return prefixo+'-'+d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+'-'+
-         z(d.getHours())+z(d.getMinutes())+z(d.getSeconds())+extensaoDe(tipo);
-}
-
-function encerrar(item){
-  return new Promise(res=>{
-    if(!item || item.rec.state==='inactive') return res(null);
-    item.rec.onstop=()=>res(new Blob(item.pedacos,{type:item.rec.mimeType||'video/webm'}));
-    try{ item.rec.stop(); }catch{ res(null); }
-    setTimeout(()=>res(item.pedacos.length?new Blob(item.pedacos,{type:item.rec.mimeType||'video/webm'}):null), 4000);
-  });
-}
-
-let salvandoClipe=false;
-async function salvarClipe(){
-  if(salvandoClipe) return;
-  if(!clipe.gravadores.length){
-    if(!comecarBuffer()) return recado('Não tem nenhuma tela na chamada para clipar.','mal');
-    return recado(cfg.clipeSempre
-      ? 'Comecei a guardar agora — daqui a alguns segundos o clipe fica cheio.'
-      : 'Comecei a gravar agora. Aperte C de novo quando quiser fechar o clipe. '+
-        '(Para pegar o que JÁ passou, ligue "deixar o clipe sempre pronto" em Ajustes.)','');
-  }
-  const velho = clipe.gravadores[0];
-  const segundos = Math.round((Date.now()-velho.inicio)/1000);
-  if(segundos<3) return recado('Ainda não juntei segundos suficientes. Espere um pouco.','');
-
-  salvandoClipe=true;
-  $('btn-clipe').disabled=true;
-  try{
-    const blob = await encerrar(velho);
-    // o lugar dele volta na hora, para não ficar buraco na gravação
-    clipe.gravadores.shift();
-    const novo = novoGravador();
-    if(novo) clipe.gravadores.push(novo);
-
-    if(!blob || !blob.size) return recado('O clipe saiu vazio. Tente de novo em alguns segundos.','mal');
-    const r = await salvarArquivo(blob, nomeDeArquivo('bigas-voice-clipe', blob.type));
-    recado(r.ok ? 'Clipe salvo — '+segundos+'s ('+(blob.size/1048576).toFixed(1)+' MB)' : r.recado, r.ok?'ok':'mal');
-  } finally { salvandoClipe=false; $('btn-clipe').disabled=false; }
-}
-
-/* Gravação da call inteira, do começo ao fim. */
-function alternarGravacao(){
-  if(clipe.tudo){ try{ clipe.tudo.stop(); }catch{} return; }
-  // Enquanto grava a call inteira, o buffer do clipe sai de cena: dois
-  // gravadores disputando a mesma captura é o que fazia sair arquivo
-  // vazio — e de todo jeito não faz sentido guardar os dois.
-  pararBuffer();
-  const alvo=fluxoParaGravar();
-  if(!alvo) return recado('Não tem nenhuma tela na chamada para gravar.','mal');
-  try{
-    const rec=new MediaRecorder(alvo.fluxo,{ mimeType:melhorFormato(), videoBitsPerSecond:8000000 });
-    clipe.pedacosTudo=[];
-    rec.ondataavailable=(ev)=>{ if(ev.data&&ev.data.size) clipe.pedacosTudo.push(ev.data); };
-    rec.onstop=()=>{
-      const blob=new Blob(clipe.pedacosTudo,{type:rec.mimeType||'video/webm'});
-      clipe.pedacosTudo=[]; clipe.tudo=null;
-      $('btn-gravar').textContent='⏺ Gravar a call inteira';
-      $('btn-gravar').classList.remove('b-vermelho');
-      $('btn-clipe').classList.remove('gravando');
-      if(!blob.size){ recado('A gravação saiu vazia — tente de novo.','mal'); cuidarDoBuffer(); return; }
-      salvarArquivo(blob, nomeDeArquivo('frag-gravacao', blob.type)).then(r=>{
-        recado(r.ok ? 'Gravação salva ('+(blob.size/1048576).toFixed(1)+' MB)' : r.recado, r.ok?'ok':'mal');
-      });
-      cuidarDoBuffer();
-    };
-    // sem fatiar: um arquivo só, com índice e duração certos
-    rec.start();
-    clipe.tudo=rec;
-    $('btn-gravar').textContent='⏹ Parar e salvar';
-    $('btn-gravar').classList.add('b-vermelho');
-    $('btn-clipe').classList.add('gravando');
-    recado('Gravando a call.','ok');
-  }catch(e){ recado('Não consegui gravar: '+(e&&e.name||e),'mal'); }
-}
-
-/* O buffer acompanha o que está na tela: liga quando aparece a primeira
-   imagem e desliga quando não sobra nenhuma. */
-function cuidarDoBuffer(){
-  const tem = !!$('palco').querySelector('.quadro:not(.saindo)');
-  // Só fica guardando se você pediu. Guardar custa processador — dois
-  // gravadores comprimindo em paralelo — e num jogo isso aparece.
-  if(tem && cfg.clipeSempre && !clipe.gravadores.length) comecarBuffer();
-  if((!tem || !cfg.clipeSempre) && clipe.gravadores.length && !clipe.tudo) pararBuffer();
-  $('btn-clipe').disabled = !tem;
-  const b=$('btn-clipe');
-  if(b) b.title = cfg.clipeSempre
-    ? 'Salvar os últimos segundos (C)'
-    : 'Clipe (C) — ligue "deixar sempre pronto" em Ajustes para pegar o que já passou';
-}
-
-
-/* =====================================================================
  * SE ATUALIZAR SOZINHO
  * ---------------------------------------------------------------------
  * O navegador guarda a página e continua servindo a versão velha por
@@ -6668,7 +6340,7 @@ async function montarDiagnostico(){
   dz('--- ajustes ---');
   dz('modo de desenho: '+cfg.desenho);
   dz('codec: '+cfg.codec+' | qualidade: '+cfg.qualidade+' | prioridade: '+cfg.prioridade+
-     ' | automático: '+cfg.auto+' | clipe sempre: '+cfg.clipeSempre+
+     ' | automático: '+cfg.auto+
      ' | socorro da captura: '+(cfg.socorroCaptura!==false)+
      (est.socorro ? (' (degrau '+est.socorro.degrau+', '+est.socorro.fase+
                      (est.socorro.desistiu?', desistiu':'')+')') : ''));
@@ -7262,10 +6934,6 @@ $('in-canvas').onchange=()=>{
   aplicarModoDesenho();
   recado(cfg.desenho==='canvas' ? 'Pintando o vídeo pelo outro caminho.' : 'Voltei ao desenho normal.','ok');
 };
-$('btn-clipe').onclick=salvarClipe;
-$('btn-clipe').disabled=true;
-$('btn-gravar').onclick=alternarGravacao;
-$('sel-clipe').onchange=()=>{ cfg.clipe=Number($('sel-clipe').value); guardarAjustes(); };
 $('btn-mic').onclick=alternarMudo;
 $('btn-surdo').onclick=alternarSurdo;
 $('btn-tela').onclick=alternarTela;
@@ -7322,7 +6990,6 @@ document.addEventListener('keydown',(e)=>{
   if(e.key==='m'||e.key==='M') alternarMudo();
   if(e.key==='d'||e.key==='D') alternarSurdo();
   if(e.key==='t'||e.key==='T'){ e.preventDefault(); abrirChat(); }
-  if(e.key==='c'||e.key==='C'){ e.preventDefault(); salvarClipe(); }
 });
 
 /* ---------------------------------------------------------------------
@@ -7531,7 +7198,6 @@ $('in-ruido').checked=cfg.limpar;
 $('sel-fala').value=cfg.fala;
 $('vol').value=cfg.volume; $('lbl-vol').textContent=cfg.volume+'%';
 $('sel-codec').value=cfg.codec||'auto';
-$('sel-clipe').value=String(cfg.clipe||30);
 $('sel-prioridade').value=cfg.prioridade||'fps';
 (function(){
   const pintar = ()=>{
@@ -7553,7 +7219,6 @@ $('sel-espacial').onchange=()=>{
                       : 'Todo mundo de volta ao meio.','ok');
 };
 $('sel-latencia').value=cfg.latencia||'estavel';
-$('in-clipe-sempre').checked=!!cfg.clipeSempre;
 $('in-canvas').checked = cfg.desenho==='canvas';
 aplicarModoDesenho();
 $('in-auto').checked=cfg.auto!==false;
@@ -7582,12 +7247,6 @@ $('sel-prioridade').onchange=async()=>{
   aplicarDicaDeConteudo();
   await reequilibrarVideo();
   recado(cfg.prioridade==='fps'?'Vou segurar os quadros por segundo.':'Vou segurar a nitidez.','ok');
-};
-$('in-clipe-sempre').onchange=()=>{
-  cfg.clipeSempre=$('in-clipe-sempre').checked; guardarAjustes();
-  cuidarDoBuffer();
-  if(cfg.clipeSempre) recado('Clipe sempre pronto — isso usa processador.','');
-  else recado('Clipe sempre pronto desligado. Seu jogo agradece.','ok');
 };
 $('in-auto').onchange=()=>{ cfg.auto=$('in-auto').checked; guardarAjustes(); };
 $('in-previa-economica').checked = cfg.previaEconomica!==false;
