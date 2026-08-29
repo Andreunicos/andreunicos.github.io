@@ -579,6 +579,118 @@ async function principal() {
     sinc.mediu ? ok('o Frag consegue medir som x imagem', sinc.valor + ' ms')
                : mal('não conseguiu medir o descompasso');
 
+    /* ============ 16. o caderninho lido com o log REAL do André ============ */
+    console.log('\n=== 16. O diagnóstico acerta no caso que aconteceu de verdade? ===');
+    const real = await A.evaluate(() => {
+      const guardadas = registro.linhas.slice();
+      const gAuto = cfg.auto, gCap = est.capturaEm, gQual = cfg.qualidade;
+      cfg.qualidade = '1080-60-8';
+
+      const linha = (o) => Object.assign({
+        t: 0, quem: 'BIG', fps: 31, enc: 30, fonte: 31, larg: 960, alt: 540,
+        kbps: 2000, ping: 1, perda: 0, segura: 'none', porque: '', escB: 1, escF: 1,
+        recFps: 0, recL: 0, recA: 0, recPerdidos: 0, recLargou: 0, recDec: '',
+        congelou: 0, chaves: 0, socorro: 0, fila: 10, desc: 0,
+        pint: 0, pintPior: 0, pintBur: 0,
+      }, o);
+      const encher = (f) => {
+        registro.linhas.length = 0;
+        for (let i = 0; i < 60; i++) registro.linhas.push(linha(f(i)));
+      };
+
+      // (a) o caso dele: tela entregando 31 com alvo 60, rede limpa
+      encher(i => ({ t: i * 1000 }));
+      const gargalo = resumoDoRegistro().join('\n');
+
+      // (b) mesma coisa, mas a tela entregando 58: não pode acusar a captura
+      encher(i => ({ t: i * 1000, fps: 57, enc: 57, fonte: 58 }));
+      const saudavel = resumoDoRegistro().join('\n');
+
+      // (c) socorro com perda ZERO -> é o decodificador dele, não a rede
+      encher(i => ({ t: i * 1000, socorro: i % 8 === 0 ? 1 : 0, perda: 0 }));
+      const socorroSemPerda = resumoDoRegistro().join('\n');
+
+      // (d) socorro COM perda -> aí sim é a rede
+      encher(i => ({ t: i * 1000, socorro: i % 8 === 0 ? 1 : 0, perda: 3 }));
+      const socorroComPerda = resumoDoRegistro().join('\n');
+
+      // (e) o decodificador dele desistiu da placa
+      encher(i => ({ t: i * 1000, recFps: 31, recLargou: i * 10,
+        recDec: 'ExternalDecoder (WMFVideoDecoder) (fallback from: ExternalDecoder (D3D11VideoDecoder))' }));
+      const desistiu = resumoDoRegistro().join('\n');
+
+      // (f) quem reduziu a captura: o Frag, não o monitor.
+      // A captura de verdade neste teste é 1920x1080, então é preciso
+      // fingir uma menor para as duas frases poderem aparecer.
+      registro.linhas.length = 0;
+      const gTam = window.tamanhoDaCaptura;
+      window.tamanhoDaCaptura = () => ({ l: 960, a: 540 });
+      est.capturaEm = 2;
+      const notaFrag = montarRegistro();
+      est.capturaEm = 1;
+      const notaTela = montarRegistro();
+      window.tamanhoDaCaptura = gTam;
+
+      // (g) automático desligado tem que gritar
+      cfg.auto = false; const semAuto = montarRegistro();
+      cfg.auto = true;  const comAuto = montarRegistro();
+
+      registro.linhas.length = 0;
+      guardadas.forEach(l => registro.linhas.push(l));
+      cfg.auto = gAuto; est.capturaEm = gCap; cfg.qualidade = gQual;
+
+      return {
+        acusaCaptura: /O GARGALO É A CAPTURA DA TELA/.test(gargalo),
+        naoAcusaAtoa: !/O GARGALO É A CAPTURA DA TELA/.test(saudavel),
+        culpaMaquina: /NÃO é a rede/.test(socorroSemPerda),
+        culpaRede: /perde pacote/.test(socorroComPerda),
+        naoDizPerda: !/perdendo pacote/.test(socorroSemPerda),
+        viuDesistencia: /DESISTIU DA PLACA DE VÍDEO/.test(desistiu),
+        assumeAReducao: /o Frag reduziu a captura/.test(notaFrag),
+        culpaTelaQuandoEhTela: /sua tela entrega/.test(notaTela),
+        gritaSemAuto: /AJUSTE AUTOMÁTICO ESTÁ DESLIGADO/.test(semAuto),
+        caladoComAuto: !/AJUSTE AUTOMÁTICO ESTÁ DESLIGADO/.test(comAuto),
+      };
+    });
+    real.acusaCaptura ? ok('com a tela entregando 31 de 60, aponta a CAPTURA')
+                      : mal('não apontou a captura no caso real');
+    real.naoAcusaAtoa ? ok('com a tela entregando 58, não acusa nada')
+                      : mal('acusou a captura com tudo saudável');
+    (real.culpaMaquina && real.naoDizPerda)
+      ? ok('socorro sem perda: culpa a máquina dele, e não fala em pacote perdido')
+      : mal('continua acusando a rede sem perda nenhuma', JSON.stringify(real));
+    real.culpaRede ? ok('socorro COM perda: aí sim aponta a rede')
+                   : mal('deixou de apontar a rede quando havia perda');
+    real.viuDesistencia ? ok('grita quando o descompressor dele larga a placa de vídeo')
+                        : mal('a desistência do hardware continua escondida');
+    real.assumeAReducao ? ok('assume que foi o Frag que reduziu a captura, em vez de culpar a tela')
+                        : mal('continua culpando o monitor por uma decisão do Frag');
+    real.culpaTelaQuandoEhTela ? ok('e continua apontando a tela quando a tela É o limite')
+                               : mal('parou de avisar quando o limite é mesmo da tela');
+    (real.gritaSemAuto && real.caladoComAuto)
+      ? ok('avisa quando o ajuste automático está desligado, e só nessa hora')
+      : mal('o aviso do automático saiu errado', JSON.stringify(real));
+
+    /* ============ 17. a captura que balança ============ */
+    console.log('\n=== 17. A regra da captura pega o caso que escapou? ===');
+    const balanca = await A.evaluate(() => {
+      // amostra tirada do caderninho real do André: alvo 60, entregando isto
+      const dele = [26,7,24,13,22,16,23,8,20,22,15,23,21,25,23,20,21,26,30,21,
+                    23,20,21,20,33,24,14,23,23,22];
+      // tela de verdade parada: quase zero, com espirros quando algo se mexe
+      const parada = [0,1,0,60,2,0,1,0,0,55,1,0,2,1,0,0,58,1,0,1,
+                      0,2,0,0,1,60,0,1,0,2];
+      // captura boa
+      const boa = Array.from({length:30},()=>58+(Math.random()<0.5?1:0));
+      return { dele: capturaSuspeita(dele,60), parada: capturaSuspeita(parada,60),
+               boa: capturaSuspeita(boa,60) };
+    });
+    balanca.dele ? ok('pega a captura que BALANÇA na metade do alvo (o caso dele)')
+                 : mal('o caso real continua escapando');
+    !balanca.parada ? ok('tela de verdade parada continua não gerando alarme falso')
+                    : mal('passou a dar alarme falso com a tela parada');
+    !balanca.boa ? ok('captura boa segue sem alarme') : mal('alarme falso com captura boa');
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

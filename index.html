@@ -1918,7 +1918,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '4.4 — 29/08 15:10';
+const VERSAO = '4.5 — 29/08 18:40';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3977,7 +3977,23 @@ function capturaSuspeita(H, alvo){
   if(!H || H.length<30 || !alvo) return false;
   const firme = (Math.max(...H) - Math.min(...H)) <= 5;
   const ultimo = H[H.length-1];
-  return firme && ultimo >= alvo*0.25 && ultimo <= alvo*0.8;
+  if(firme && ultimo >= alvo*0.25 && ultimo <= alvo*0.8) return true;
+
+  /* O caso que escapou no primeiro caderninho de verdade: a captura não
+     ficava CRAVADA num número, ela BALANÇAVA — 7 num segundo, 56 no
+     outro — e a média morava na metade do alvo. Minha regra só olhava
+     firmeza, então não viu nada.
+     Quem denuncia isso é a mediana, que os picos não enganam. E o piso
+     de 15% do alvo é o que separa dos casos legítimos: tela realmente
+     parada fica perto de zero e só sobe quando algo se mexe; captura
+     capada tem movimento o tempo todo e mesmo assim não alcança. */
+  const ord = H.slice().sort((a,b)=>a-b);
+  const meio = ord[Math.floor(ord.length/2)];
+  /* O teto era 0,7 do alvo e isso deu alarme falso: uma captura com
+     mediana 41 de 60 é variação normal, não captura capada. Com 0,6 a
+     separação fica limpa — o caso real que motivou esta regra tinha
+     mediana 22, e nenhum caso saudável chega perto disso. */
+  return meio >= alvo*0.15 && meio < alvo*0.6;
 }
 
 function anotarLinha(x){
@@ -4033,6 +4049,8 @@ function anotarLinha(x){
     recL: x.ev ? (x.ev.frameWidth||0) : 0,
     recA: x.ev ? (x.ev.frameHeight||0) : 0,
     recPerdidos: x.ev ? (x.ev.packetsLost||0) : 0,
+    recLargou:   x.ev ? (x.ev.framesDropped||0) : 0,
+    recDec:      x.ev ? String(x.ev.decoderImplementation||'') : '',
     chaves:  x.par.chavesNoSegundo|0,
     socorro: x.par.socorroNoSegundo|0,
     fila:    x.par.filaMs|0,
@@ -4078,6 +4096,27 @@ function resumoDoRegistro(){
     const fonte = comFps.map(l=>l.fonte).filter(v=>v>0);
     if(fonte.length) R.push('a tela entregou   : média '+Math.round(conta(fonte.map(v=>({v})),o=>o.v))+
                             ' | pior '+Math.min(...fonte));
+
+    /* Os três números andando juntos e os três abaixo do alvo querem
+       dizer uma coisa só, e ela não estava escrita em lugar nenhum: o
+       gargalo está ANTES do Frag. A tela entregou pouco, então o
+       compressor comprimiu pouco, então saiu pouco. Nada aqui dentro
+       conserta isso — e ficar olhando banda e codec é procurar no
+       lugar errado. */
+    if(fonte.length && enc.length){
+      const mFonte = conta(fonte.map(v=>({v})),o=>o.v);
+      const mSai   = conta(comFps, l=>l.fps);
+      const juntos = Math.abs(mSai-mFonte) < Math.max(3, alvo*0.10);
+      if(mFonte < alvo*0.75 && juntos){
+        R.push('');
+        R.push('>>> O GARGALO É A CAPTURA DA TELA, não a rede nem o envio.');
+        R.push('    A tela entregou '+Math.round(mFonte)+' quadros e saíram '+Math.round(mSai)+
+               ' — o Frag mandou tudo que recebeu.');
+        R.push('    No Windows isso costuma ser: jogo em TELA CHEIA EXCLUSIVA (troque para');
+        R.push('    JANELA SEM BORDA) ou "Agendamento de GPU acelerado por hardware" desligado');
+        R.push('    nas configurações de Elementos Gráficos.');
+      }
+    }
   }
   /* Estes três explicam travada de quem TRANSMITE, que é um problema
      diferente de "a imagem está pequena" e não aparecia em lugar nenhum. */
@@ -4094,10 +4133,21 @@ function resumoDoRegistro(){
            ' — cada um é uma rajada que trava a imagem');
     if(chaves/segundos*60 > 12)
       R.push('  >>> ISSO É MUITO. Numa cena estável o normal é menos de 4 por minuto.');
+    /* Num caderninho real vieram 6 pedidos de socorro com perda de pacote
+       ZERO o tempo todo. A mensagem antiga dizia "ele está perdendo
+       pacote" e acusava a rede de um crime que ela não cometeu — o amigo
+       pedia socorro porque o DECODIFICADOR dele estava falhando, que é um
+       problema completamente diferente e tem conserto na máquina dele.
+       Pedir socorro sem perder pacote é a assinatura desse caso. */
+    const perdaMax = Math.max(0, ...L.map(l=>l.perda||0));
     R.push('socorro do amigo  : '+socorro+' pedidos de quadro-chave'+
-           (socorro ? ' — ele está perdendo pacote e pedindo tudo de novo' : ' (nenhum, ótimo)'));
-    if(socorro > 3)
-      R.push('  >>> CICLO RUIM: ele perde, pede tudo de novo, chega uma rajada, ele perde outra vez.');
+           (socorro ? '' : ' (nenhum, ótimo)'));
+    if(socorro > 3 && perdaMax < 0.5){
+      R.push('  >>> E a perda de pacote foi ZERO. Então NÃO é a rede: a máquina dele não está');
+      R.push('      conseguindo montar a imagem e pede tudo de novo. O conserto é do lado dele.');
+    }else if(socorro > 3){
+      R.push('  >>> CICLO RUIM: ele perde pacote, pede tudo de novo, chega uma rajada, perde outra vez.');
+    }
     if(filas.length){
       const ord = filas.slice().sort((a,b)=>a-b);
       const media = Math.round(filas.reduce((a,b)=>a+b,0)/filas.length);
@@ -4147,6 +4197,32 @@ function resumoDoRegistro(){
     if(tam.recL) R.push('tamanho recebido  : '+tam.recL+'x'+tam.recA);
     const perdidos = L[L.length-1].recPerdidos - L[0].recPerdidos;
     if(perdidos>0) R.push('pacotes perdidos  : '+perdidos);
+    const largou = L[L.length-1].recLargou - L[0].recLargou;
+    if(largou>0) R.push('quadros largados  : '+largou+' antes de chegar na tela');
+
+    /* ---------------------------------------------------------------------
+     * O DECODIFICADOR DESISTIU DO HARDWARE
+     * ---------------------------------------------------------------------
+     * Esta foi A resposta de um caderninho real, e estava escondida no
+     * relatório técnico onde ninguém ia olhar: o navegador tentou usar a
+     * placa de vídeo para descomprimir, falhou, e caiu para um caminho
+     * mais lento. Daí vem tudo o que o resto do log mostrava — quadros
+     * largados, congelamento de quase um segundo, e pedidos de socorro
+     * com a rede impecável.
+     *
+     * Descomprimir vídeo de jogo por software em tempo real não funciona,
+     * e o navegador não avisa ninguém quando desiste. Agora avisa.
+     * ------------------------------------------------------------------ */
+    const dec = (L.filter(l=>l.recDec).pop()||{}).recDec || '';
+    if(dec){
+      R.push('descompressor     : '+dec);
+      if(/fallback/i.test(dec)){
+        R.push('  >>> ELE DESISTIU DA PLACA DE VÍDEO e caiu para um caminho mais lento.');
+        R.push('      É provavelmente a causa raiz de tudo aqui em cima. Conserto NESTA máquina:');
+        R.push('      atualizar o driver da placa, e conferir se a aceleração por hardware está');
+        R.push('      ligada nas configurações do navegador.');
+      }
+    }
 
     /* Chegar e ser desenhado são coisas diferentes, e é a segunda que
        você enxerga. Quando estes números divergem do de cima, o problema
@@ -4224,11 +4300,27 @@ function montarRegistro(extra){
   dz('gravado por: '+relogio(Date.now()-registro.inicio)+'  ('+registro.linhas.length+' amostras)');
   dz('navegador: '+navigator.userAgent.replace(/^Mozilla\/5\.0 /,''));
   const real = perfilReal();
-  if(real.encolhido) dz('ATENÇÃO: você pediu '+p.a+'p mas a sua tela entrega '+real.a+
-                        'p — a conta é feita em cima de '+real.a+'p');
+  /* Esta linha já mentiu num caderninho real. Ela dizia "sua tela entrega
+     540p" quando quem tinha reduzido a captura para 540p era o PRÓPRIO
+     Frag, minutos antes, de propósito. Quem lesse ia culpar o monitor e
+     procurar no lugar errado. Agora ela diz de quem foi a decisão. */
+  if(real.encolhido){
+    if((est.capturaEm||1) > 1)
+      dz('NOTA: o Frag reduziu a captura para '+real.a+'p de propósito (ninguém precisava de mais). '+
+         'Você pediu '+p.a+'p — a tela dá conta, a conta é que está sendo feita em '+real.a+'p.');
+    else
+      dz('ATENÇÃO: você pediu '+p.a+'p mas a sua tela entrega '+real.a+
+         'p — a conta é feita em cima de '+real.a+'p');
+  }
   dz('escolhido: '+p.a+'p a '+p.fps+' fps | prioridade: '+(cfg.prioridade==='nitidez'?'nitidez':'fluidez')+
      ' | compressão: '+cfg.codec+' | imagem: '+cfg.latencia);
   dz('desenho: '+cfg.desenho+' | clipe sempre pronto: '+(cfg.clipeSempre?'LIGADO':'desligado'));
+  if(!cfg.auto){
+    dz('');
+    dz('!!! O AJUSTE AUTOMÁTICO ESTÁ DESLIGADO. Nada do mecanismo de qualidade rodou nesta');
+    dz('    gravação: sem escada de banda, sem escada de quadros, sem reação a aperto.');
+    dz('    Ligue em Ajustes > "Ajustar a qualidade sozinho".');
+  }
   const caros = ajustesCaros();
   if(caros.length){
     dz('');
