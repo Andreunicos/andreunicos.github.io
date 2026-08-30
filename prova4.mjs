@@ -1574,8 +1574,10 @@ async function principal() {
       let fila = [];
       window.medianaDe = () => (fila.length ? fila.shift() : 0);
 
-      const rodar = async (antes, depois) => {
-        fila = [antes, depois];
+      // medir() pergunta duas coisas por rodada, nesta ordem: quantos quadros
+      // e quanto a imagem estava mudando (kbps). 2500 kbps = jogo em movimento.
+      const rodar = async (antes, depois, kbps = 2500) => {
+        fila = [antes, kbps, depois, kbps];
         pedidos.length = 0;
         zerarSocorroCaptura();
         est.tamBaseCaptura = { l: 1920, a: 1080 };
@@ -1584,16 +1586,17 @@ async function principal() {
                  pediu: pedidos.slice(), degrau: est.socorro.degrau };
       };
 
-      const porTamanho = await rodar(30, 52);   // encolher rendeu muito
-      const porCaminho = await rodar(30, 31);   // encolher não mudou nada
-      const saudavel   = await rodar(58, 58);   // 58 de 60: está bom
+      const porTamanho = await rodar(30, 52);        // encolher rendeu muito
+      const porCaminho = await rodar(30, 31);        // encolher não mudou nada
+      const saudavel   = await rodar(58, 58);        // 58 de 60: está bom
+      const telaParada = await rodar(41, 41, 120);   // e a tela quase sem mudar
 
       const botao = document.getElementById('btn-testar-captura');
       const estadoDoBotao = { ligado: !botao.disabled, rotulo: botao.textContent };
 
       window.setTimeout = relogioReal;
       window.medianaDe = medianaReal;
-      return { porTamanho, porCaminho, saudavel, estadoDoBotao };
+      return { porTamanho, porCaminho, saudavel, telaParada, estadoDoBotao };
     });
     info('por tamanho: ' + veredito.porTamanho.txt.slice(0, 60) + '…');
     info('por caminho: ' + veredito.porCaminho.txt.slice(0, 60) + '…');
@@ -1610,6 +1613,14 @@ async function principal() {
     /não vai resolver/.test(veredito.porCaminho.txt)
       ? ok('e avisa que trocar a qualidade aqui dentro NÃO resolve — era a dúvida dele')
       : mal('deixou a pessoa achando que mexer na qualidade adianta');
+    /NÃO DEU PARA CONCLUIR/.test(veredito.telaParada.txt)
+      ? ok('com a tela quase parada (120 kbps) ele diz que NÃO SABE, em vez de culpar o Windows',
+           '41 -> 41, mas sem movimento não há veredito')
+      : mal('deu veredito confiante sobre uma tela parada — foi o erro da 5.5',
+            veredito.telaParada.txt);
+    /jogo em movimento|JOGO EM MOVIMENTO/i.test(veredito.telaParada.txt)
+      ? ok('e explica como refazer o teste direito')
+      : mal('não disse como refazer', veredito.telaParada.txt);
     /SAUDÁVEL/.test(veredito.saudavel.txt)
       ? ok('com 58 de 60, diz que está tudo bem em vez de inventar problema')
       : mal('inventou problema numa captura boa', veredito.saudavel.txt);
@@ -1624,6 +1635,24 @@ async function principal() {
     (veredito.estadoDoBotao.ligado && /Descobrir/.test(veredito.estadoDoBotao.rotulo))
       ? ok('o botão volta ao normal no fim', veredito.estadoDoBotao.rotulo)
       : mal('o botão ficou travado', JSON.stringify(veredito.estadoDoBotao));
+
+    /* ============ 41. o melhor trecho, ao lado da média ============ */
+    console.log('\n=== 41. A média esconde o que a máquina consegue? ===');
+    const trecho = await A.evaluate(() => {
+      const txt = montarRegistro();
+      const m = txt.match(/melhor trecho\s*:\s*(\d+) quadros sustentados/);
+      const med = txt.match(/quadros que saem\s*:\s*média (\d+)/);
+      return { tem: !!m, melhor: m ? +m[1] : -1, media: med ? +med[1] : -1,
+               explica: /A MÁQUINA CHEGA NO ALVO/.test(txt) };
+    });
+    info('média ' + trecho.media + ' | melhor trecho de 10s: ' + trecho.melhor);
+    trecho.tem
+      ? ok('o caderninho mostra o melhor trecho sustentado, não só a média')
+      : mal('o melhor trecho não entrou no caderninho');
+    (trecho.melhor >= trecho.media)
+      ? ok('e o melhor trecho nunca é pior que a média — seria conta errada',
+           trecho.melhor + ' >= ' + trecho.media)
+      : mal('conta errada', trecho.melhor + ' < ' + trecho.media);
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');

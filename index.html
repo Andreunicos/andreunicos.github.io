@@ -2021,7 +2021,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '5.5 — 30/08 00:15';
+const VERSAO = '5.6 — 30/08 01:10';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3891,10 +3891,28 @@ async function testarCaptura(){
   const rotulo = btn.textContent;
   btn.disabled = true;
 
+  /* ---------------------------------------------------------------------
+   * SEM MOVIMENTO NÃO HÁ VEREDITO
+   * ---------------------------------------------------------------------
+   * A primeira versão deste teste comparou 41 quadros contra 41 e disse,
+   * com todas as letras, que o culpado era tela cheia exclusiva. Estava
+   * confiante e podia estar errada: ele rodou o teste com a tela quase
+   * PARADA, mexendo nos ajustes. Tela parada entrega poucos quadros nos
+   * dois tamanhos — e por um motivo que não tem nada a ver com o Windows
+   * estar segurando alguma coisa.
+   *
+   * O que separa os dois casos é quanto a imagem está MUDANDO, e isso o
+   * compressor já me diz de graça: tela parada quase não gera bytes. Sem
+   * movimento, este teste não conclui nada — e dizer "não sei" é melhor
+   * do que mandar alguém reiniciar o PC à toa.
+   * ------------------------------------------------------------------ */
   const medir = async (segundos)=>{
     est.histFonte = []; est.olhouCaptura = 0;
+    const marca = registro.linhas.length;
     await new Promise(r=>setTimeout(r, segundos*1000));
-    return medianaDe(est.histFonte||[]);
+    const novas = registro.linhas.slice(marca);
+    return { fps: medianaDe(est.histFonte||[]),
+             kbps: medianaDe(novas.map(l=>l.kbps||0)) };
   };
 
   try{
@@ -3903,19 +3921,27 @@ async function testarCaptura(){
     const degrauAntes = est.socorro.degrau;
 
     btn.textContent = 'medindo no tamanho de agora…';
-    saida.textContent = 'Não mexa em nada por uns 20 segundos.';
-    const cheio = await medir(9);
+    saida.textContent = 'Deixe o JOGO EM MOVIMENTO por uns 20 segundos — sem movimento eu não '+
+                        'consigo medir nada.';
+    const a1 = await medir(9);
 
     btn.textContent = 'medindo num tamanho bem menor…';
     await aplicarDegrauCaptura(ESCADA_CAPTURA.length-1);
-    const pequeno = await medir(9);
+    const a2 = await medir(9);
 
     await aplicarDegrauCaptura(degrauAntes);
     est.socorro.quando = Date.now();
 
+    const cheio = a1.fps, pequeno = a2.fps;
     const ganho = cheio>0 ? (pequeno-cheio)/cheio : 0;
     let txt;
-    if(cheio >= alvo*0.85){
+    if(Math.max(a1.kbps, a2.kbps) < 600){
+      txt = 'NÃO DEU PARA CONCLUIR: a sua tela estava praticamente PARADA durante o teste '+
+            '('+a1.kbps+' kbps — imagem que quase não muda quase não gera dados). Tela parada '+
+            'entrega poucos quadros nos dois tamanhos, e isso não prova nada sobre a captura. '+
+            'Rode de novo com o JOGO EM MOVIMENTO na tela capturada: entre numa partida, mexa '+
+            'a câmera, e só então aperte o botão.';
+    }else if(cheio >= alvo*0.85){
       txt = 'A sua captura está SAUDÁVEL: a tela entregou '+cheio+' de '+alvo+
             ' quadros. Não há o que consertar aqui.';
     }else if(ganho >= 0.15){
@@ -3967,9 +3993,16 @@ async function socorrerCaptura(){
     }else{
       marcar('capturar menor NÃO rendeu ('+s.antes+' -> '+agora+
              ') — voltei ao tamanho cheio');
-      marcar('  >>> isso PROVA que o gargalo não é o tamanho da imagem, e sim a frequência '+
-             'com que o Windows entrega quadro. Jogo em JANELA SEM BORDA e HAGS ligado — '+
-             'trocar a qualidade aqui dentro não muda nada.');
+      // ...contanto que houvesse imagem mudando. Tela parada entrega pouco
+      // nos dois tamanhos e não prova nada.
+      const ultimas = registro.linhas.slice(-20).map(l=>l.kbps||0);
+      if(medianaDe(ultimas) >= 600)
+        marcar('  >>> isso PROVA que o gargalo não é o tamanho da imagem, e sim a frequência '+
+               'com que o Windows entrega quadro. Jogo em JANELA SEM BORDA e HAGS ligado — '+
+               'trocar a qualidade aqui dentro não muda nada.');
+      else
+        marcar('  >>> mas a tela estava quase parada, então isto NÃO prova nada. Refaça o '+
+               'teste da captura em Ajustes com o jogo em movimento.');
       recado('Testei capturar menor e não rendeu. O problema não é o tamanho — veja o teste '+
              'da captura em Ajustes.','mal');
       s.desistiu = true;
@@ -4789,6 +4822,33 @@ function resumoDoRegistro(){
            ' | pior '+Math.min(...fps)+' | melhor '+Math.max(...fps)+' (alvo '+alvo+')');
     R.push('                    abaixo de '+Math.round(alvo*0.85)+' em '+
            Math.round(abaixo/fps.length*100)+'% do tempo transmitindo');
+    /* ---------------------------------------------------------------------
+     * A MÉDIA ESCONDE O QUE A MÁQUINA CONSEGUE
+     * ---------------------------------------------------------------------
+     * "média 37 de 60" faz parecer um teto de hardware. No caderninho de
+     * 30/08 a mesma gravação tinha vinte segundos seguidos a 51-58
+     * quadros em 1080p — e depois desabava. Média 37.
+     *
+     * São diagnósticos opostos. Teto de hardware não tem conserto por
+     * ajuste; "chega lá e não fica" é interferência, e tem. Então o
+     * melhor trecho sustentado passa a aparecer do lado da média: se ele
+     * for alto, o problema NÃO é a capacidade da máquina.
+     * ------------------------------------------------------------------ */
+    if(fps.length >= 10){
+      let melhorTrecho = 0;
+      for(let i=0; i+10<=fps.length; i++){
+        const m = medianaDe(fps.slice(i,i+10));
+        if(m > melhorTrecho) melhorTrecho = m;
+      }
+      R.push('melhor trecho     : '+melhorTrecho+' quadros sustentados por 10s'+
+             (melhorTrecho >= alvo*0.85
+               ? ' — A MÁQUINA CHEGA NO ALVO. O problema não é capacidade: é algo'
+               : ''));
+      if(melhorTrecho >= alvo*0.85)
+        R.push('                    atrapalhando de vez em quando. Procure o que muda ENTRE');
+      if(melhorTrecho >= alvo*0.85)
+        R.push('                    os trechos bons e os ruins nos "momentos" aqui embaixo.');
+    }
     const enc = comFps.map(l=>l.enc).filter(v=>v>0);
     if(enc.length) R.push('o compressor deu  : média '+Math.round(conta(enc.map(v=>({v})),o=>o.v))+
                           ' | pior '+Math.min(...enc));
