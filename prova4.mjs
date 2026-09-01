@@ -583,7 +583,14 @@ async function principal() {
     const real = await A.evaluate(() => {
       const guardadas = registro.linhas.slice();
       const gAuto = cfg.auto, gCap = est.capturaEm, gQual = cfg.qualidade;
+      const gComp = est.compressorNaPlaca, gNome = est.ultimoCompressor;
       cfg.qualidade = '1080-60-8';
+      // este bloco pergunta sobre a CAPTURA. Em headless nao existe placa de
+      // video, entao o compressor e software de verdade e o diagnostico (com
+      // razao) passaria a acusar o compressor. Fixa a variavel que nao esta
+      // sendo testada aqui — o teste 43 e quem cuida dela.
+      est.compressorNaPlaca = true;
+      est.ultimoCompressor = 'MediaFoundationVideoEncodeAccelerator (NVIDIA H.264 Encoder MFT)';
 
       const linha = (o) => Object.assign({
         t: 0, quem: 'BIG', fps: 31, enc: 30, fonte: 31, larg: 960, alt: 540,
@@ -637,6 +644,7 @@ async function principal() {
       registro.linhas.length = 0;
       guardadas.forEach(l => registro.linhas.push(l));
       cfg.auto = gAuto; est.capturaEm = gCap; cfg.qualidade = gQual;
+      est.compressorNaPlaca = gComp; est.ultimoCompressor = gNome;
 
       return {
         acusaCaptura: /O GARGALO É A CAPTURA DA TELA/.test(gargalo),
@@ -1653,6 +1661,95 @@ async function principal() {
       ? ok('e o melhor trecho nunca é pior que a média — seria conta errada',
            trecho.melhor + ' >= ' + trecho.media)
       : mal('conta errada', trecho.melhor + ' < ' + trecho.media);
+
+    /* ============ 42. software chamado de placa de vídeo ============ */
+    console.log('\n=== 42. "MediaFoundationSoftwareVideoEncoder" é placa de vídeo? ===');
+    const quemComprime = await A.evaluate(() => {
+      const testar = (impl, eficiente) =>
+        compressorNaPlaca({ encoderImplementation: impl, powerEfficientEncoder: eficiente });
+      return {
+        // o caso do caderninho do Onishi: Software no meio do nome
+        softwareDaMicrosoft: testar('MediaFoundationSoftwareVideoEncoder'),
+        // e o AV1 por software, que estava comprimindo 1440p no processador
+        libaom: testar('libaom'),
+        // o que É placa de vídeo tem que continuar sendo
+        nvidia: testar('MediaFoundationVideoEncodeAccelerator (NVIDIA H.264 Encoder MFT)'),
+        externo: testar('ExternalEncoder'),
+        // o navegador desmentindo o nome vence
+        nomeBomMasIneficiente: testar('MediaFoundationVideoEncodeAccelerator', false),
+        // mas "software" no nome vence até o navegador
+        nomeRuimMasDizEficiente: testar('MediaFoundationSoftwareVideoEncoder', true),
+        semNada: testar(''),
+      };
+    });
+    info(JSON.stringify(quemComprime));
+    (quemComprime.softwareDaMicrosoft === false)
+      ? ok('MediaFoundationSoftwareVideoEncoder é PROCESSADOR — está escrito Software no nome')
+      : mal('continua chamando software de placa de vídeo (era o bug)',
+            String(quemComprime.softwareDaMicrosoft));
+    (quemComprime.libaom === false)
+      ? ok('libaom (AV1 por software) também é processador')
+      : mal('libaom passou por placa de vídeo', String(quemComprime.libaom));
+    (quemComprime.nvidia === true && quemComprime.externo === true)
+      ? ok('e o que é placa de vídeo de verdade continua sendo')
+      : mal('quebrou o caso bom', JSON.stringify(quemComprime));
+    (quemComprime.nomeBomMasIneficiente === false)
+      ? ok('quando o navegador diz que não é eficiente, ele vence o nome')
+      : mal('ignorou o powerEfficientEncoder', String(quemComprime.nomeBomMasIneficiente));
+    (quemComprime.nomeRuimMasDizEficiente === false)
+      ? ok('mas "Software" no nome vence até o navegador dizendo que é eficiente')
+      : mal('deixou o navegador desmentir a palavra Software',
+            String(quemComprime.nomeRuimMasDizEficiente));
+    (quemComprime.semNada === null)
+      ? ok('e sem nome ele responde "não sei" em vez de chutar')
+      : mal('chutou sem informação', String(quemComprime.semNada));
+
+    /* ============ 43. o veredito pergunta do compressor antes ============ */
+    console.log('\n=== 43. Ele culpa a captura quando o culpado é o compressor? ===');
+    const culpa = await A.evaluate(() => {
+      const guardaC = est.ultimoCompressor, guardaP = est.compressorNaPlaca;
+      // fabrica a assinatura do caderninho do Onishi: fonte = enc = fps, tudo baixo
+      const guardaL = registro.linhas;
+      registro.linhas = [];
+      for (let i = 0; i < 40; i++)
+        registro.linhas.push({ t: i * 1000, quem: 'x', fps: 5, enc: 5, fonte: 5,
+                               larg: 960, alt: 540, kbps: 100, ping: 10, perda: 0,
+                               segura: 'none', porque: '', escB: 1, escF: 1,
+                               recFps: 0, recL: 0, chaves: 0, socorro: 0, fila: 0 });
+      const antes = cfg.qualidade; cfg.qualidade = '1080-60-8';
+
+      est.ultimoCompressor = 'MediaFoundationSoftwareVideoEncoder';
+      est.compressorNaPlaca = false;
+      const comSoftware = montarRegistro();
+
+      est.ultimoCompressor = 'MediaFoundationVideoEncodeAccelerator (NVIDIA H.264 Encoder MFT)';
+      est.compressorNaPlaca = true;
+      const comPlaca = montarRegistro();
+
+      cfg.qualidade = antes;
+      registro.linhas = guardaL;
+      est.ultimoCompressor = guardaC; est.compressorNaPlaca = guardaP;
+      return {
+        softwareCulpaCompressor: /COMPRESSOR ESTÁ RODANDO NO PROCESSADOR/.test(comSoftware),
+        softwareCulpaCaptura:    /O GARGALO É A CAPTURA/.test(comSoftware),
+        softwareMandaH264:       /H264/.test(comSoftware),
+        placaCulpaCaptura:       /O GARGALO É A CAPTURA/.test(comPlaca),
+        placaInocenta:           /não é ele/.test(comPlaca),
+        cabecalho:               /quem comprime\s*:\s*O PROCESSADOR/.test(comSoftware),
+      };
+    });
+    (culpa.softwareCulpaCompressor && !culpa.softwareCulpaCaptura)
+      ? ok('com o compressor em software, ele acusa o COMPRESSOR e não a captura')
+      : mal('continuou mandando mexer em tela cheia exclusiva', JSON.stringify(culpa));
+    culpa.softwareMandaH264
+      ? ok('e diz o que fazer: pôr a compressão em H264')
+      : mal('não disse o conserto');
+    (culpa.placaCulpaCaptura && culpa.placaInocenta)
+      ? ok('com o compressor na placa, aí sim acusa a captura — e diz que conferiu o compressor')
+      : mal('perdeu o diagnóstico de captura', JSON.stringify(culpa));
+    culpa.cabecalho
+      ? ok('e o cabeçalho do caderninho avisa quem está comprimindo')
+      : mal('o cabeçalho não mostra o compressor');
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');

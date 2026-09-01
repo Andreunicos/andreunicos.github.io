@@ -2021,7 +2021,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '5.6 — 30/08 01:10';
+const VERSAO = '5.7 — 01/09 00:20';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3975,6 +3975,17 @@ async function testarCaptura(){
 
 async function socorrerCaptura(){
   if(!est.streamTela || cfg.socorroCaptura===false) return;
+  /* Não adianta socorrer a captura quando o compressor é que está no
+     processador: encolher a imagem alivia um pouco e não resolve. Avisa
+     e sai do caminho. */
+  if(est.compressorNaPlaca === false && !est.avisouCompressor){
+    est.avisouCompressor = true;
+    marcar('o compressor está no PROCESSADOR ('+(est.ultimoCompressor||'?')+
+           ') — troque a compressão para H264 em Ajustes › Rede');
+    recado('A compressão está rodando no processador ('+(est.ultimoCompressor||'?')+
+           '). Isso rouba FPS do jogo. Em Ajustes › Rede, ponha H264 ou Automática.','mal');
+  }
+
   if(!est.socorro) zerarSocorroCaptura();
   const s = est.socorro;
   const H = est.histFonte || [];
@@ -4644,6 +4655,35 @@ function marcar(txt){
  * software o Bigas Voice entra num vaivém pior que o problema. O usuário é
  * avisado e escolhe.
  * ------------------------------------------------------------------ */
+/* ---------------------------------------------------------------------
+ * "MediaFoundationSoftwareVideoEncoder" NÃO É PLACA DE VÍDEO
+ * ---------------------------------------------------------------------
+ * Estava escrito Software no meio do nome e eu chamava de placa de
+ * vídeo. O teste era /mediafoundation/i — casa com o encoder da NVIDIA e
+ * casa igual com o software da Microsoft. O painel dizia "quem comprime:
+ * a placa de vídeo" para uma máquina comprimindo no processador.
+ *
+ * Apareceu num caderninho real: o Onishi transmitindo H264 em
+ * MediaFoundationSoftwareVideoEncoder para um, e AV1 em libaom para
+ * outro. Dois compressores de software ao mesmo tempo, num 1440p. A
+ * linha principal da página dele ficou 3,1 SEGUNDOS parada e a
+ * transmissão inteira entregou 5 quadros por segundo.
+ *
+ * A ordem das perguntas importa: primeiro o nome desmente (Software,
+ * libaom, libvpx, openh264, ffmpeg, svt são sempre processador), depois
+ * o navegador responde se sabe (powerEfficientEncoder), e só então o
+ * nome confirma.
+ * ------------------------------------------------------------------ */
+function compressorNaPlaca(sv){
+  if(!sv) return null;
+  const impl = String(sv.encoderImplementation||'');
+  if(!impl) return null;
+  if(/software|libaom|libvpx|openh264|ffmpeg|\bsvt/i.test(impl)) return false;
+  if(sv.powerEfficientEncoder===true) return true;
+  if(sv.powerEfficientEncoder===false) return false;
+  return /external|mediafoundation|vaapi|videotoolbox|nvenc|amf|qsv/i.test(impl);
+}
+
 function descompressorFraco(impl){
   const t = String(impl||'');
   if(!t) return false;
@@ -4791,6 +4831,10 @@ function anotarLinha(x){
   while(registro.linhas.length>TETO_LINHAS) registro.linhas.shift();
 
   // trocas que valem virar momento
+  if(x.sv && x.sv.encoderImplementation){
+    est.ultimoCompressor = x.sv.encoderImplementation;
+    est.compressorNaPlaca = compressorNaPlaca(x.sv);
+  }
   const impl = x.sv && x.sv.encoderImplementation;
   if(impl && impl!==x.par.implAntes){
     if(x.par.implAntes) marcar('o compressor mudou: '+x.par.implAntes+' -> '+impl);
@@ -4868,12 +4912,37 @@ function resumoDoRegistro(){
       const juntos = Math.abs(mSai-mFonte) < Math.max(3, alvo*0.10);
       if(mFonte < alvo*0.75 && juntos){
         R.push('');
-        R.push('>>> O GARGALO É A CAPTURA DA TELA, não a rede nem o envio.');
-        R.push('    A tela entregou '+Math.round(mFonte)+' quadros e saíram '+Math.round(mSai)+
-               ' — o Bigas Voice mandou tudo que recebeu.');
-        R.push('    No Windows isso costuma ser: jogo em TELA CHEIA EXCLUSIVA (troque para');
-        R.push('    JANELA SEM BORDA) ou "Agendamento de GPU acelerado por hardware" desligado');
-        R.push('    nas configurações de Elementos Gráficos.');
+        /* ---------------------------------------------------------------
+         * ANTES DE CULPAR A CAPTURA, OLHE QUEM COMPRIME
+         * ---------------------------------------------------------------
+         * Os três números iguais NÃO provam sozinhos que o gargalo é a
+         * captura. Provam que os três estão presos ao mesmo teto — e um
+         * compressor de software segurando a linha principal da página
+         * derruba a captura JUNTO, dando exatamente a mesma assinatura.
+         *
+         * Este texto já mandou uma pessoa mexer em tela cheia exclusiva e
+         * HAGS quando o problema dela era AV1 caindo no libaom. Perguntar
+         * primeiro quem comprime custa uma linha e evita mandar alguém
+         * reiniciar o PC pelo motivo errado.
+         * ------------------------------------------------------------ */
+        if(est.compressorNaPlaca === false){
+          R.push('>>> O COMPRESSOR ESTÁ RODANDO NO PROCESSADOR, e é aí que o gargalo começa.');
+          R.push('    Compressor em uso: '+(est.ultimoCompressor||'?'));
+          R.push('    Comprimir '+alvo+' quadros no processador trava a própria página, e a');
+          R.push('    captura cai junto — por isso os três números descem colados. Não é a');
+          R.push('    captura: é a escolha de compressão.');
+          R.push('    Vá em Ajustes › Rede e ponha a compressão em H264 (ou Automática).');
+          R.push('    AV1 e VP9 quase sempre caem no processador; H264 usa a placa de vídeo.');
+        }else{
+          R.push('>>> O GARGALO É A CAPTURA DA TELA, não a rede nem o envio.');
+          R.push('    A tela entregou '+Math.round(mFonte)+' quadros e saíram '+Math.round(mSai)+
+                 ' — o Bigas Voice mandou tudo que recebeu.');
+          R.push('    (O compressor está na placa de vídeo'+
+                 (est.ultimoCompressor?': '+est.ultimoCompressor:'')+', então não é ele.)');
+          R.push('    No Windows isso costuma ser: jogo em TELA CHEIA EXCLUSIVA (troque para');
+          R.push('    JANELA SEM BORDA) ou "Agendamento de GPU acelerado por hardware" desligado');
+          R.push('    nas configurações de Elementos Gráficos.');
+        }
       }
     }
   }
@@ -5077,6 +5146,10 @@ function montarRegistro(extra){
   if(est.socorro && est.socorro.degrau>0)
     dz('captura socorrida: capturando 1/'+ESCADA_CAPTURA[est.socorro.degrau]+
        ' do tamanho porque a placa não dava conta'+(est.socorro.desistiu?' (e voltou)':''));
+  if(est.ultimoCompressor)
+    dz('quem comprime     : '+(est.compressorNaPlaca===false
+        ? 'O PROCESSADOR — '+est.ultimoCompressor+'  <<< ISSO CUSTA FPS DO JOGO'
+        : 'a placa de vídeo — '+est.ultimoCompressor));
   dz('prévia da própria tela: '+(cfg.previaEconomica===false?'sempre desenhando (custa placa)':
      'para depois de '+SEGUNDOS_DE_PREVIA+'s')+
      (est.previaDormindo?' — está adormecida agora':''));
@@ -5608,8 +5681,7 @@ async function atualizarNumeros(){
 
       // A informação mais importante de todas: quem está comprimindo.
       if(um.sv.encoderImplementation){
-        const naPlaca = um.sv.powerEfficientEncoder===true ||
-          /external|mediafoundation|vaapi|videotoolbox|nvenc|amf|qsv/i.test(um.sv.encoderImplementation);
+        const naPlaca = compressorNaPlaca(um.sv);
         linha('Quem comprime', naPlaca ? 'a placa de vídeo' : 'o processador (rouba FPS do jogo)',
               naPlaca?'bom':'ruim');
         linha('Compressor', um.sv.encoderImplementation);
@@ -5687,8 +5759,7 @@ async function cuidarDoAvisoDeCpu(porPessoa){
   const um = porPessoa.find(x=>x.sv);
   if(!um) return;
   const impl = um.sv.encoderImplementation||'';
-  const naPlaca = um.sv.powerEfficientEncoder===true ||
-    /external|mediafoundation|vaapi|videotoolbox|nvenc|amf|qsv/i.test(impl);
+  const naPlaca = compressorNaPlaca(um.sv);
   // Duas portas para o mesmo problema. A primeira é o navegador avisando
   // "estou segurando a qualidade por causa do processador". A segunda é
   // mais crua e pega o caso que escapava calado: o compressor não está
