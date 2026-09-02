@@ -2158,6 +2158,150 @@ async function principal() {
         : mal('não contou que a captura dele é o limite');
     }
 
+    /* ============ 53. o perfil que se escolhe sozinho ============ */
+    console.log('\n=== 53. Ele mede a máquina e escolhe o perfil, sem ninguém no menu? ===');
+    const sozinho = await A.evaluate(async () => {
+      const guardado = { q: cfg.qualidade, auto: Object.assign({}, PERFIS.auto),
+                         hf: est.histFonte, tb: est.tamBaseCaptura,
+                         cp: est.compressorNaPlaca, quando: est.sozinhoQuando };
+      const faixa = est.streamTela.getVideoTracks()[0];
+      const eraAplicar = faixa.applyConstraints;
+      const pedidos = [];
+      faixa.applyConstraints = async (c) => { pedidos.push(c); };
+      cfg.qualidade = 'auto';
+
+      const rep = (v, n) => Array.from({ length: n }, () => v);
+      const rodar = async (H, nat, naPlaca, base) => {
+        Object.assign(PERFIS.auto, base || { l: 1920, a: 1080, fps: 60, mbps: 8 });
+        est.histFonte = H.slice();
+        est.tamBaseCaptura = nat;
+        est.compressorNaPlaca = naPlaca;
+        est.sozinhoQuando = 0;
+        pedidos.length = 0;
+        await escolherSozinho();
+        return { l: PERFIS.auto.l, a: PERFIS.auto.a, fps: PERFIS.auto.fps,
+                 mbps: PERFIS.auto.mbps, pediu: pedidos[0] || null };
+      };
+
+      // (a) o caso do André: CS em 4:3 entregando 32 quadros firmes
+      const cs = await rodar(rep(32, 30).map((v, i) => v + (i % 3)),
+                             { l: 1280, a: 960 }, true);
+      // (b) máquina saudável: a fonte alcança 60 o tempo todo
+      const boa = await rodar(rep(60, 30), { l: 1920, a: 1080 }, true);
+      // (c) compressor no PROCESSADOR: 1440p vira armadilha, tem que capar
+      const soft = await rodar(rep(60, 30), { l: 2560, a: 1440 }, false);
+      // (d) um pico isolado de 60 numa tela que vive em 30 não pode subir
+      const pico = await rodar(rep(30, 29).concat([60]), { l: 1920, a: 1080 }, true,
+                               { l: 1920, a: 1080, fps: 30, mbps: 4 });
+      // (e) e sem medida suficiente ele não inventa nada
+      const cedo = await rodar(rep(32, 8), { l: 1280, a: 960 }, true,
+                               { l: 1920, a: 1080, fps: 60, mbps: 8 });
+
+      faixa.applyConstraints = eraAplicar;
+      cfg.qualidade = guardado.q; Object.assign(PERFIS.auto, guardado.auto);
+      est.histFonte = guardado.hf; est.tamBaseCaptura = guardado.tb;
+      est.compressorNaPlaca = guardado.cp; est.sozinhoQuando = guardado.quando;
+      return { cs, boa, soft, pico, cedo };
+    });
+    info('CS 32fps -> ' + sozinho.cs.a + 'p a ' + sozinho.cs.fps + ' (' + sozinho.cs.mbps +
+         ' Mbps) | saudável -> ' + sozinho.boa.a + 'p a ' + sozinho.boa.fps +
+         ' | software -> ' + sozinho.soft.a + 'p a ' + sozinho.soft.fps);
+    (sozinho.cs.fps === 30 && sozinho.cs.l === 1280 && sozinho.cs.a === 960)
+      ? ok('tela de 1280x960 entregando 32 quadros: escolhe 960p a 30, o que a máquina dá',
+           'em vez de perseguir os 60 do menu')
+      : mal('não adotou o que a captura entrega', JSON.stringify(sozinho.cs));
+    (sozinho.cs.pediu && sozinho.cs.pediu.frameRate.ideal === 30 &&
+     sozinho.cs.pediu.width.ideal === 1280)
+      ? ok('e PEDE isso ao Windows — parar de martelar 60 é metade do ganho de FPS no jogo',
+           JSON.stringify(sozinho.cs.pediu.frameRate))
+      : mal('mudou o alvo mas continuou pedindo o mesmo à captura',
+            JSON.stringify(sozinho.cs.pediu));
+    (sozinho.boa.fps === 60 && sozinho.boa.a === 1080)
+      ? ok('numa máquina saudável ele fica em 1080p60 — não castiga quem não precisa')
+      : mal('rebaixou uma máquina que dava conta', JSON.stringify(sozinho.boa));
+    (sozinho.soft.l === 1600)
+      ? ok('com o compressor no PROCESSADOR ele capa a largura em 1600',
+           'foi 1440p em software que derrubou a máquina do amigo')
+      : mal('deixou o processador comprimir 1440p', JSON.stringify(sozinho.soft));
+    (sozinho.pico.fps === 30)
+      ? ok('e um pico isolado de 60 não faz ele subir — subir pede prova, descer não')
+      : mal('subiu por causa de um segundo bom', JSON.stringify(sozinho.pico));
+    (sozinho.cedo.fps === 60 && sozinho.cedo.a === 1080)
+      ? ok('sem 20 amostras ele não decide nada — medir vem antes de escolher')
+      : mal('decidiu sem ter medido', JSON.stringify(sozinho.cedo));
+
+    /* ============ 54. o Sozinho é o padrão, e os números atravessam ============ */
+    console.log('\n=== 54. Ele já vem ligado, e o outro lado vê o número certo? ===');
+    const padrao = await B.evaluate(async () => {
+      // (a) quem herdou o antigo padrão de fábrica vai para o Sozinho
+      const eraCfg = cfg.qualidade;
+      const eraMig = cfg.migrouSozinho;
+      const eraLS = localStorage.getItem('frag');
+      // alguém que abriu a v6.1 vindo da v6.0: nunca migrou
+      localStorage.setItem('frag', JSON.stringify({ qualidade: '1080-60-8', nome: 'x' }));
+      cfg.qualidade = '1080-60-8'; cfg.migrouSozinho = false;
+      lerAjustes();
+      const migrou = cfg.qualidade;
+      // e o salvamento tem que ter guardado o sinalizador, senão ele migra
+      // de novo toda vez que a pessoa voltar para 1080p60 de propósito
+      let ficouGravado = false;
+      try{ ficouGravado = !!JSON.parse(localStorage.getItem('frag')).migrouSozinho; }catch{}
+      // ...e uma escolha DE VERDADE fica onde está
+      localStorage.setItem('frag', JSON.stringify({ qualidade: '720-30-3' }));
+      cfg.qualidade = '720-30-3'; cfg.migrouSozinho = false;
+      lerAjustes();
+      const respeitou = cfg.qualidade;
+      // quem JÁ migrou e voltou para 1080p60 de propósito não é atropelado
+      localStorage.setItem('frag', JSON.stringify({ qualidade: '1080-60-8', migrouSozinho: true }));
+      cfg.qualidade = '1080-60-8'; cfg.migrouSozinho = true;
+      lerAjustes();
+      const voltouDeProposito = cfg.qualidade;
+      if (eraLS === null) localStorage.removeItem('frag');
+      else localStorage.setItem('frag', eraLS);
+      cfg.qualidade = eraCfg; cfg.migrouSozinho = eraMig;
+
+      // (b) a chave 'auto' não diz nada sozinha: os números têm que vir junto
+      const p = [...pares.values()][0];
+      p.canal.onmessage({ data: JSON.stringify(
+        { t: 'perfil', v: 'auto', p: { a: 960, fps: 30 } }) });
+      const guardou = p.perfilDele;
+      document.getElementById('painel').classList.add('aberto');
+      await atualizarNumeros();
+      const texto = document.getElementById('painel').textContent;
+
+      // (c) e uma versão antiga, que manda só a chave, continua funcionando
+      p.canal.onmessage({ data: JSON.stringify({ t: 'perfil', v: '720-30-3' }) });
+      const antigo = { perfilDele: p.perfilDele, chave: p.qualidadeDele };
+      return { migrou, respeitou, ficouGravado, voltouDeProposito, guardou,
+               mostrou: /Ele está transmitindo em/.test(texto),
+               numero: /960p a 30 fps/.test(texto), antigo };
+    }).catch(e => ({ erro: String(e && e.message || e) }));
+    if (padrao.erro) { mal('o teste do padrão explodiu', padrao.erro); }
+    else {
+      (padrao.migrou === 'auto')
+        ? ok('quem tinha o antigo padrão de fábrica passa a ser decidido pela máquina')
+        : mal('não migrou para o Sozinho', String(padrao.migrou));
+      (padrao.respeitou === '720-30-3')
+        ? ok('mas uma escolha de verdade continua respeitada — migrar não é mandar')
+        : mal('atropelou a escolha do usuário', String(padrao.respeitou));
+      padrao.ficouGravado
+        ? ok('e o sinalizador da migração sobrevive ao salvamento')
+        : mal('o sinalizador some e a migração se repete para sempre');
+      (padrao.voltouDeProposito === '1080-60-8')
+        ? ok('quem JÁ migrou e voltou para 1080p60 de propósito não é migrado de novo')
+        : mal('migrou duas vezes e ignorou a escolha', String(padrao.voltouDeProposito));
+      (padrao.guardou && padrao.guardou.a === 960 && padrao.guardou.fps === 30)
+        ? ok('no Sozinho os números resolvidos viajam junto com a chave')
+        : mal('o outro lado ficaria lendo a MINHA tabela com a chave DELE',
+              JSON.stringify(padrao.guardou));
+      (padrao.mostrou && padrao.numero)
+        ? ok('e o painel do amigo mostra 960p a 30 fps — o que ele está mandando de verdade')
+        : mal('o painel não mostrou o número que veio');
+      (padrao.antigo.perfilDele === null && padrao.antigo.chave === '720-30-3')
+        ? ok('e uma versão ANTIGA, que manda só a chave, continua entendida')
+        : mal('quebrou com quem está na versão de ontem', JSON.stringify(padrao.antigo));
+    }
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

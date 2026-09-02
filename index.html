@@ -898,10 +898,11 @@ body.sem-tela .divisor{display:none}
     <label class="campo">
       <span>Qualidade do que VOCÊ transmite</span>
       <select id="sel-qualidade">
+        <option value="auto" selected>Sozinho — o app mede e decide (recomendado)</option>
         <option value="480-120-5">480p 120fps — fluidez máxima</option>
         <option value="720-30-3">720p 30fps — leve</option>
         <option value="1080-30-5">1080p 30fps</option>
-        <option value="1080-60-8" selected>1080p 60fps — recomendado</option>
+        <option value="1080-60-8">1080p 60fps</option>
         <option value="1440-60-14">1440p 60fps — pesado</option>
       </select>
     </label>
@@ -1207,6 +1208,32 @@ const RTC = ()=>({
 });
 
 const PERFIS = {
+  /* ---------------------------------------------------------------------
+   * SOZINHO — o perfil que o app escolhe medindo a máquina
+   * ---------------------------------------------------------------------
+   * "quero que ele apenas conecte e comece a transmitir."
+   *
+   * Todo o resto desta tabela é um pedido: você escolhe 1080p60 e a
+   * máquina obedece — ou tenta, e falha em silêncio. Foi o que aconteceu
+   * nas fotos do André. A tela do amigo entregava 32 quadros; o menu
+   * dizia 60; e as escadas passaram a call inteira encolhendo a imagem
+   * atrás de 28 quadros que não existiam em lugar nenhum.
+   *
+   * Um número que a máquina não alcança não é uma meta, é uma mentira
+   * com consequência. E a pessoa não tem como saber disso — ela escolheu
+   * "recomendado" num menu.
+   *
+   * Então este perfil não é escolhido: é MEDIDO. Vinte segundos de
+   * transmissão dizem quantos quadros a captura entrega de verdade, de
+   * que tamanho é a tela, e se o compressor está na placa ou no
+   * processador. Com essas três coisas dá para montar um alvo que a
+   * máquina sustenta — e pedir ao Windows exatamente isso, em vez de
+   * martelar 60 quadros que ele não vai dar.
+   *
+   * Os valores aqui embaixo são só o ponto de partida enquanto a medida
+   * não existe. escolherSozinho() reescreve este objeto.
+   * ------------------------------------------------------------------ */
+  'auto':      {l:1920,a:1080,fps:60,mbps:8, sozinho:true},
   /* 480p a 120: a troca mais extrema que o app oferece — um quarto dos
      pixels do 1080p e o DOBRO dos quadros. Faz sentido em jogo rápido,
      onde ver o movimento vale mais que ler texto pequeno.
@@ -1239,13 +1266,14 @@ const $ = (id)=>document.getElementById(id);
  * isso tudo aqui está dentro de try.
  * =================================================================== */
 const cfg = {
-  nome:'', mic:'padrao', limpar:true, qualidade:'1080-60-8',
+  nome:'', mic:'padrao', limpar:true, qualidade:'auto',
   fala:'voz', tecla:'KeyV', nomeTecla:'V', volume:100,
   codec:'auto', auto:true, turn:'', site:'', versaoAjustes:0,
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
   prioridade:'fps', desenho:'normal', latencia:'estavel',
   espacial:false, portao:12, socorroCaptura:true, previaEconomica:true,
   liso:true,   // atalho de exibicao da placa (tira o canto arredondado)
+  migrouSozinho:false,   // ver a migracao em lerAjustes: precisa sobreviver ao guardarAjustes
 };
 
 function lerAjustes(){
@@ -1261,6 +1289,17 @@ function lerAjustes(){
     if(typeof v !== typeof cfg[k]) continue;
     cfg[k]=v;
   }
+  /* '1080-60-8' era o padrão da caixa até a v6.0: quem está com ele quase
+     nunca escolheu, herdou. Levar essa gente para o Sozinho é o ponto da
+     versão. Quem escolheu OUTRA coisa escolheu de verdade e fica onde
+     está — e a migração acontece uma vez só, então voltar para 1080p60 de
+     propósito continua valendo. */
+  if(cfg.qualidade==='1080-60-8' && !cfg.migrouSozinho){
+    cfg.qualidade='auto';
+    cfg.migrouSozinho=true;
+    guardarAjustes();
+  }
+  cfg.migrouSozinho = true;   // uma vez na vida, para quem chega novo também
   if(typeof cfg.volume!=='number' || !isFinite(cfg.volume)) cfg.volume=100;
   cfg.volume=Math.max(0,Math.min(200,cfg.volume));
   if(!PERFIS[cfg.qualidade]) cfg.qualidade='1080-60-8';
@@ -2142,7 +2181,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.0 — 03/09 — o piso';
+const VERSAO = '6.1 — 03/09 — sozinho';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2164,7 +2203,7 @@ function novoPar(id){
     conhece:null,
     // o que ela pede: o tamanho da janela dela, e se sumiu da vista
     larguraQueQuer:0, sumiu:false, avisei:0, pedido:null,
-    porqueDele:null, ultimoRecadoTam:null,
+    porqueDele:null, ultimoRecadoTam:null, perfilDele:null,
     decDele:'', decDeleFraco:false, decMeu:'', avisouDec:false, podeDescomprimir:null,
   };
   pares.set(id,p);
@@ -2349,7 +2388,7 @@ function abrirCanal(par){
     par.tentativasCanal = 0;
     enviar(par,{t:'nome', v:eu.nome||'Sem nome'});
     enviar(par,{t:'mudo', v:est.mudo});
-    enviar(par,{t:'perfil', v:cfg.qualidade});
+    enviar(par,{t:'perfil', v:cfg.qualidade, p:perfilAnunciado()});
     enviar(par,{t:'sumi', v:document.hidden});
     par.avisei=0; setTimeout(()=>avisarTamanho(par), 600);
     // o que estava esperando na sacola pode ir agora, pelo canal
@@ -2360,7 +2399,13 @@ function abrirCanal(par){
     if(d.t==='mudo'){ par.mudo=!!d.v; pintarGente(); }
     else if(d.t==='fala'){ par.falando=!!d.v; marcarFala(par); }
     else if(d.t==='nome'){ definirNome(par, d.v); }
-    else if(d.t==='perfil'){ par.qualidadeDele = String(d.v||'').slice(0,20); pintarGente(); }
+    else if(d.t==='perfil'){
+      par.qualidadeDele = String(d.v||'').slice(0,20);
+      // no modo Sozinho a chave não diz nada: os números vêm junto
+      par.perfilDele = (d.p && Number(d.p.a) && Number(d.p.fps))
+        ? { a:Math.round(d.p.a), fps:Math.round(d.p.fps) } : null;
+      pintarGente();
+    }
     else if(d.t==='msg') receberMensagem(par, d.v);
     else if(d.t==='sdp') receberSdp(par, d.v);
     else if(d.t==='ice') receberIce(par, d.v);
@@ -2979,7 +3024,8 @@ function abrirMenuDaPessoa(par, ancora){
   const h=document.createElement('h4'); h.textContent=par.nome||'Entrando…';
   const sub=document.createElement('div'); sub.className='sub';
   const nomeDoPerfil=(q)=>{
-    const x=PERFIS[q]; return x ? (x.a+'p a '+x.fps+' fps') : null;
+    const x = par.perfilDele || PERFIS[q];
+    return x ? (x.a+'p a '+x.fps+' fps') : null;
   };
   sub.textContent = !par.conectado ? 'conectando…'
     : (par.temTela?'transmitindo · ':'') + (par.ping?par.ping+' ms':'na call') +
@@ -4330,6 +4376,95 @@ async function socorrerCaptura(){
   if(!await aplicarDegrauCaptura(s.degrau+1)){ s.fase='parado'; s.desistiu=true; return; }
   marcar('a tela só entrega '+agora+' de '+perfilReal().fps+
          ' quadros — capturando menor para medir se rende');
+}
+
+/* o que dizer aos outros sobre o meu perfil — com 'auto' a chave sozinha
+   não informa nada, então vão os números já resolvidos */
+function perfilAnunciado(){
+  const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  return { a:p.a, fps:p.fps };
+}
+
+/* De 32 quadros medidos não sai um alvo de "32": sai 30. Alvo quebrado
+   faz toda comparação de "está bom?" virar sorte, e o compressor gosta
+   de números redondos. */
+function arredondarFps(f){
+  if(f >= 100) return 120;
+  if(f >= 50)  return 60;
+  if(f >= 25)  return 30;
+  return 20;
+}
+
+/* A conta de banda sai da própria tabela acima: 1080p60 a 8 Mbps são
+   0,065 bits por pixel; 720p30 a 3 Mbps são 0,108. Movimento de jogo
+   pede mais por pixel quando a imagem é pequena, então 0,075 fica no
+   meio e erra pouco dos dois lados. */
+function bandaPara(l, a, fps){
+  const mpix = (l*a*fps)/1e6;
+  return Math.max(1.5, Math.min(20, +(mpix*0.075).toFixed(1)));
+}
+
+async function escolherSozinho(){
+  if(cfg.qualidade !== 'auto' || !est.streamTela) return;
+  const H = est.histFonte || [];
+  if(H.length < 20) return;                                  // ~20s de medida
+  if(Date.now() - (est.sozinhoQuando||0) < 30000) return;    // e sem ficar remexendo
+
+  const nat = est.tamBaseCaptura || tamanhoDaCaptura();
+  if(!nat || !nat.l) return;
+  const P = PERFIS.auto;
+
+  /* (a) QUANTOS QUADROS A CAPTURA DÁ. tetoDaFonte() responde quando existe
+     teto firme; quando ela responde 0 é porque a fonte alcança o alvo, e
+     aí o pico é a resposta certa. */
+  const teto = tetoDaFonte();
+  const fpsQuer = arredondarFps(teto || Math.max(...H));
+
+  /* (b) DE QUE TAMANHO. A tela nativa, com um teto: comprimir no
+     processador é o que derrubou a máquina do amigo do André (libaom,
+     1440p, a página 3,1 segundos parada). Em software, 1600 de largura
+     é o limite do razoável. */
+  const naPlaca = est.compressorNaPlaca !== false;
+  const larguraMax = naPlaca ? 2560 : 1600;
+  const l = Math.round(Math.min(nat.l, larguraMax)/2)*2;
+  const a = Math.round(l * nat.a / nat.l / 2)*2;
+
+  const alvo = { l, a, fps:fpsQuer, mbps:bandaPara(l,a,fpsQuer), sozinho:true };
+
+  /* SUBIR precisa de mais prova que descer. Um pico isolado de 60 numa
+     tela que vive em 30 é a tela tendo um bom segundo, não a máquina
+     tendo melhorado — e subir por causa dele devolve o sobe-e-desce que
+     a v6.0 acabou de tirar. Descer é livre: doeu, alivia. */
+  const sobe = alvo.fps > P.fps;
+  if(sobe && medianaDe(H) < alvo.fps*0.8) return;
+
+  const mudou = alvo.l!==P.l || alvo.a!==P.a || alvo.fps!==P.fps;
+  if(!mudou) return;
+
+  const antes = P.a+'p a '+P.fps;
+  P.l=alvo.l; P.a=alvo.a; P.fps=alvo.fps; P.mbps=alvo.mbps;
+  est.sozinhoQuando = Date.now();
+  est.sozinhoPorque = teto
+    ? 'sua tela entrega '+teto+' quadros'
+    : 'sua tela dá conta de '+alvo.fps;
+
+  /* E agora o pedido ao Windows muda junto. Isto é metade do ganho: pedir
+     60 de uma captura que dá 32 não produz 32 de graça — produz 32 com o
+     capturador tentando 60 o tempo todo, e essa tentativa sai do jogo. */
+  const faixa = est.streamTela.getVideoTracks()[0];
+  if(faixa && faixa.applyConstraints){
+    try{
+      await faixa.applyConstraints({ width:{ideal:alvo.l}, height:{ideal:alvo.a},
+                                     frameRate:{ideal:alvo.fps}, resizeMode:'none' });
+    }catch(e){ console.warn('sozinho captura',e); }
+  }
+  est.tamBaseCaptura = null; est.histFonte = []; est.olhouCaptura = 0;
+  pares.forEach(p=>{ zerarAuto(p); });
+  marcar('SOZINHO: '+antes+' -> '+alvo.a+'p a '+alvo.fps+' fps ('+est.sozinhoPorque+
+         (naPlaca ? ', compressor na placa' : ', compressor no PROCESSADOR')+')');
+  recado('Ajustei sozinho para '+alvo.a+'p a '+alvo.fps+' fps — '+est.sozinhoPorque+'.','ok');
+  enviarTodos({t:'perfil', v:cfg.qualidade, p:{a:alvo.a, fps:alvo.fps}});
+  await reequilibrarVideo();
 }
 
 async function cuidarDaCaptura(){
@@ -6052,6 +6187,7 @@ async function atualizarNumeros(){
 
   // FPS sempre à vista enquanto você transmite: é o número que importa
   cuidarDaCaptura();
+  escolherSozinho();
   socorrerCaptura();
 
   // o caderninho se alimenta do que já foi colhido aqui em cima
@@ -6169,9 +6305,10 @@ async function atualizarNumeros(){
   for(const x of porPessoa){
     h.push('<div class="secao">'+escapar(x.par.nome||'Entrando…')+'</div>');
     linha('Ping', x.ms+' ms', x.ms<60?'bom':x.ms<130?'medio':'ruim');
-    if(x.par.qualidadeDele && PERFIS[x.par.qualidadeDele]){
-      const q=PERFIS[x.par.qualidadeDele];
-      linha('Ele escolheu transmitir em', q.a+'p a '+q.fps+' fps', q.fps>=60?'bom':'medio');
+    const qd = x.par.perfilDele || PERFIS[x.par.qualidadeDele];
+    if(x.par.qualidadeDele && qd){
+      linha(x.par.qualidadeDele==='auto' ? 'Ele está transmitindo em' : 'Ele escolheu transmitir em',
+            qd.a+'p a '+qd.fps+' fps', qd.fps>=60?'bom':'medio');
     }
     if(x.par.porqueTamanho && est.streamTela)
       linha('Por que esse tamanho', x.par.porqueTamanho,
@@ -7806,7 +7943,7 @@ $('vol').oninput=(e)=>{
 };
 $('sel-qualidade').onchange=async(e)=>{
   cfg.qualidade=e.target.value; guardarAjustes();
-  enviarTodos({t:'perfil', v:cfg.qualidade});
+  enviarTodos({t:'perfil', v:cfg.qualidade, p:perfilAnunciado()});
   // vale já, sem precisar parar e recomeçar a transmissão
   if(est.streamTela){
     const p=PERFIS[cfg.qualidade];
