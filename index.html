@@ -224,6 +224,31 @@ input[type=range]{width:100%;accent-color:var(--azul)}
   border-radius:var(--r2);overflow:hidden;min-height:0;
 }
 .quadro video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+
+/* -----------------------------------------------------------------
+ * CAMINHO RÁPIDO DE EXIBIÇÃO
+ * -----------------------------------------------------------------
+ * O Windows tem um atalho para vídeo: em vez de o navegador desenhar
+ * cada quadro junto com o resto da página, a placa entrega a imagem
+ * direto na tela. Metade do consumo, e liso.
+ *
+ * Só que ele desliga sozinho se o vídeo — ou QUALQUER caixa em volta —
+ * tiver canto arredondado, sombra, transparência ou filtro. Está no
+ * código do compositor do Chrome, sem meio-termo:
+ *
+ *   // If the current quad has rounded corners, force it to underlay mode
+ *
+ * O border-radius bonitinho do quadro estava desligando o atalho o
+ * tempo todo. Quando tem uma tela só no palco — que é o caso normal,
+ * você assistindo um amigo — vale muito mais a pena o atalho.
+ * ----------------------------------------------------------------- */
+body.liso .palco .quadro{
+  border-radius:0; border-color:transparent; box-shadow:none;
+  animation:none; transition:none;
+}
+body.liso .palco .quadro video{ border-radius:0 }
+body.liso .quadro-tag,
+body.liso .quadro-acoes button{ backdrop-filter:none; background:rgba(8,9,12,.92) }
 .quadro canvas.pintura{width:100%;height:100%;object-fit:contain;display:block;background:#000}
 body.desenho-canvas .quadro video{display:none}
 /* sem desfoque atrás: em driver ruim é ele que apaga o vídeo */
@@ -899,6 +924,15 @@ body.sem-tela .divisor{display:none}
       Demora uns 20 segundos.</p>
 
     <label class="chk" style="margin-top:14px">
+      <input id="in-liso" type="checkbox" checked>
+      <span>Caminho rápido de exibição (tira o canto arredondado)</span>
+    </label>
+    <p class="ajuda" style="margin-top:0">Com UMA tela no palco, tiro o canto arredondado e a sombra
+      do quadro. Parece pouco, mas é o que deixa o Windows entregar a imagem direto na tela pela placa
+      de vídeo em vez de o navegador desenhar quadro a quadro. Se preferir o visual arredondado,
+      desligue — custa um pouco mais de placa.</p>
+
+    <label class="chk" style="margin-top:14px">
       <input id="in-previa-economica" type="checkbox" checked>
       <span>Parar de desenhar a minha própria tela enquanto transmito</span>
     </label>
@@ -1206,6 +1240,7 @@ const cfg = {
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
   prioridade:'fps', desenho:'normal', latencia:'estavel',
   espacial:false, portao:12, socorroCaptura:true, previaEconomica:true,
+  liso:true,   // atalho de exibicao da placa (tira o canto arredondado)
 };
 
 function lerAjustes(){
@@ -1909,12 +1944,58 @@ function melhorarAudio(sdp){
  * Só mexe no começo. O teto de verdade continua sendo o setParameters,
  * medido e reavaliado a cada segundo lá em aplicarPerfilVideo.
  * ------------------------------------------------------------------ */
+/* ---------------------------------------------------------------------
+ * A OUTRA METADE DA RATOEIRA
+ * ---------------------------------------------------------------------
+ * O comentário aqui embaixo dizia: "o teto de verdade continua sendo o
+ * setParameters". Isso está errado, e o erro custou a qualidade toda.
+ *
+ * Existem DOIS tetos no Chrome, e eles não são o mesmo:
+ *
+ *   1) o teto do COMPRESSOR — esse sim é o setParameters, e a gente já
+ *      mexia nele direito;
+ *   2) o teto do SONDADOR — o pedacinho que dispara rajadas de teste
+ *      para descobrir quanto a linha aguenta. Esse tem um limite fixo
+ *      próprio, e o setParameters não encosta nele.
+ *
+ * Está escrito no código do Chrome, em probe_controller.cc:
+ *
+ *     // Default probing bitrate limit. Applied only when the
+ *     // application didn't specify max bitrate.
+ *     constexpr DataRate kDefaultMaxProbingBitrate = KilobitsPerSec(5000);
+ *
+ *     max_bitrate_ = max_bitrate.IsFinite() ? max_bitrate
+ *                                           : kDefaultMaxProbingBitrate;
+ *
+ * "Applied only when the application didn't specify max bitrate" quer
+ * dizer: se ninguém declarar um teto NO SDP, o sondador nunca testa
+ * acima de 5 Mbps. Nunca. Por mais rápida que seja a internet.
+ *
+ * E aí a conta lá de baixo, `teto = min(teto, banda * 1,15)`, opera
+ * inteira debaixo de um muro de 5 Mbps que ela não sabe que existe.
+ * A folga de 15% estava certa — só que 15% de um número preso.
+ *
+ * O único jeito de levantar esse teto é escrever "b=AS" na seção de
+ * vídeo do SDP (e o x-google-max-bitrate junto, por garantia). Aí o
+ * sondador passa a poder descobrir 10, 20, 30 Mbps.
+ *
+ * Cuidado que custou tempo: b=AS e o maxBitrate do setParameters são
+ * combinados pelo MENOR dos dois, não pelo maior. Então o b=AS tem que
+ * ser sempre >= o que a gente pede por pessoa, senão ele vira a trava.
+ * Por isso o 1,6x aqui embaixo.
+ * ------------------------------------------------------------------ */
+function tetoDoSondadorKbps(){
+  const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  return Math.max(3000, Math.min(60000, Math.round(p.mbps*1000*1.6)));
+}
+
 function melhorarVideo(sdp){
   if(!sdp || sdp.indexOf('m=video')<0) return sdp;
   const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
   // um terço do alvo: alto para pular a fila, baixo para não afogar uma
   // internet modesta logo no primeiro segundo
   const kbps = Math.max(800, Math.min(4000, Math.round(p.mbps*1000/3)));
+  const tetoSonda = tetoDoSondadorKbps();
   const pts = [];
   sdp.split(/\r?\n/).forEach(l=>{
     const m = l.match(/^a=rtpmap:(\d+) (VP8|VP9|H264|H265|AV1)\/90000/i);
@@ -1924,16 +2005,49 @@ function melhorarVideo(sdp){
   let saida = sdp;
   for(const pt of pts){
     const jaTem = new RegExp('a=fmtp:'+pt+' ([^\\r\\n]*)');
+    const receita = 'x-google-start-bitrate='+kbps+';x-google-max-bitrate='+tetoSonda;
     if(jaTem.test(saida)){
       saida = saida.replace(jaTem, (l, params)=>{
-        const limpos = params.split(';').filter(x=>!/^x-google-(start|min|max)-bitrate=/.test(x));
-        return 'a=fmtp:'+pt+' '+limpos.concat('x-google-start-bitrate='+kbps).join(';');
+        const limpos = params.split(';').filter(x=>x && !/^x-google-(start|min|max)-bitrate=/.test(x));
+        return 'a=fmtp:'+pt+' '+limpos.concat(receita.split(';')).join(';');
       });
     }else{
       saida = saida.replace(new RegExp('(a=rtpmap:'+pt+' [^\\r\\n]*)'),
-                            '$1\r\na=fmtp:'+pt+' x-google-start-bitrate='+kbps);
+                            '$1\r\na=fmtp:'+pt+' '+receita);
     }
   }
+
+  /* O b=AS vai na seção de vídeo, logo depois da linha c=. É ELE que
+     solta o sondador — o x-google-max-bitrate acima é cinto e suspensório.
+
+     Isto era uma expressão regular que ia de "m=video" até o primeiro
+     "c=IN" depois dele. Parece certo e não é: se a seção de vídeo não
+     tiver c= própria (é legal, o c= pode morar no nível da sessão), a
+     busca atravessa a fronteira e acha o c= da seção SEGUINTE — e aí o
+     b=AS entra no áudio, que é justamente o que não pode acontecer:
+     estrangularia a voz. Provado com um SDP montado à mão.
+
+     Percorrer linha a linha respeitando a fronteira do m= custa o mesmo
+     e não tem como errar de seção. */
+  const L = saida.split(/\r?\n/);
+  let dentro = false, fim = -1, achouC = false;
+  for(let i=0; i<L.length; i++){
+    if(L[i].startsWith('m=')){
+      if(dentro){ break; }                    // acabou a seção de vídeo
+      if(L[i].startsWith('m=video')){ dentro = true; fim = i; achouC = false; }
+      continue;
+    }
+    if(!dentro) continue;
+    if(L[i].startsWith('b=AS:')){ L.splice(i,1); i--; continue; }
+    if(L[i].startsWith('c=')){ fim = i; achouC = true; }
+    // b= vem logo depois do c= (ou do m=, se não houver c=)
+    else if(!achouC && L[i].startsWith('i=')) fim = i;
+  }
+  if(dentro){
+    L.splice(fim+1, 0, 'b=AS:'+tetoSonda);
+    saida = L.join('\r\n');
+  }
+
   return saida;
 }
 
@@ -2021,7 +2135,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '5.7 — 01/09 00:20';
+const VERSAO = '5.8 — 02/09 21:40 tetos soltos';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2458,18 +2572,54 @@ function ajustarAmortecedor(par){
     try{ par.receptorVideo.playoutDelayHint=piso/1000; }catch{}
     return;
   }
+  /* -------------------------------------------------------------------
+   * POR QUE A ESCADA FIXA NÃO CONSEGUIA CONSERTAR NADA
+   * -------------------------------------------------------------------
+   * Esta escada terminava em 400 ms. Parece bastante. Não é — e o motivo
+   * é aritmético, não de gosto.
+   *
+   * Quando um pedaço da imagem se perde, o navegador PEDE ele de volta.
+   * Esse pedido leva uma ida-e-volta INTEIRA para ser atendido. Numa
+   * ligação de 460 ms de ping, o pedaço só volta 460 ms depois.
+   *
+   * Se a folga guardada for menor que isso, o pedaço chega atrasado e é
+   * jogado fora. Ou seja: o pedido de volta não conserta nada, nunca —
+   * ele só gasta rede. E a imagem trava a cada pacote perdido.
+   *
+   * (O Chrome sozinho é ainda mais curto: ele para em 200 ms fixos.
+   *  kRttMultAddCap = 200ms. Por isso a folga precisa vir de fora.)
+   *
+   * A conta certa é: cobrir uma ida-e-volta, mais um quadro, mais uma
+   * margem para o tremor da rede. Custa atraso — e para ASSISTIR alguém
+   * jogar, meio segundo de atraso em troca de imagem lisa é uma troca
+   * ótima. Quem precisa reagir na hora tem o modo "sem atraso" acima.
+   * ------------------------------------------------------------------ */
   const ping = par.ping||0;
-  // sem medida ainda: começa com uma folga conservadora
-  const folga = !ping ? 120
-    : ping<40  ? 40
-    : ping<90  ? 90
-    : ping<180 ? 160
-    : ping<300 ? 260
-    :            400;
-  if(par.folgaAplicada===folga) return;      // não remexer à toa
+  const fps = (PERFIS[cfg.qualidade]||PERFIS['1080-60-8']).fps || 60;
+  const QUADRO = 1000/fps;
+  const tremor = par.tremorRede||0;
+  const decodo = par.decDeleFraco ? 25 : 10;
+
+  // piso de suavidade: dois quadros + descompressão + tremor medido
+  const liso = 2*QUADRO + decodo + 1.5*tremor;
+  // piso de conserto: uma ida-e-volta inteira, mais a virada do outro lado
+  const conserta = ping + QUADRO/2 + 20;
+
+  const folga = !ping
+    ? Math.round(Math.max(120, liso))
+    : Math.round(Math.min(Math.max(liso, Math.min(conserta, 700)), 4000));
+
+  // não remexer por causa de 3 ms: cada mexida é um ajuste no relógio
+  if(Math.abs((par.folgaAplicada||0)-folga) < 15) return;
   par.folgaAplicada=folga;
-  try{ par.receptorVideo.jitterBufferTarget=folga; }catch{}
-  try{ par.receptorVideo.playoutDelayHint=folga/1000; }catch{}
+  // a faixa aceita é 0..4000 ms; fora disso o navegador reclama
+  const seguro = Math.max(30, Math.min(4000, folga));
+  /* Os DOIS, sempre — como era antes. Escrever numa propriedade que o
+     navegador não tem não dá erro: cria um campo solto e segue calado.
+     Então "tenta o primeiro, e no catch usa o segundo" nunca chegaria no
+     segundo. Quem não tem jitterBufferTarget ficaria sem folga nenhuma. */
+  try{ par.receptorVideo.jitterBufferTarget=seguro; }catch{}
+  try{ par.receptorVideo.playoutDelayHint=seguro/1000; }catch{}
 }
 
 /* ---------------------------------------------------------------------
@@ -2584,7 +2734,7 @@ async function aoOla(m){
     try{
       criarPar(par.id);
       await prepararMidia(par);
-      preferirCodec(par.pc);
+      await preferirCodec(par.pc);
       await ofertar(par);
     }catch(e){ falhouPar(par,e); }
   }
@@ -2603,7 +2753,7 @@ async function aoOferta(m){
     par.ignorandoOferta = impolido(par) && colisao;
     if(par.ignorandoOferta) return;
     await par.pc.setRemoteDescription({type:'offer', sdp:melhorarVideo(m.sdp)});
-    if(novo){ await prepararMidia(par); preferirCodec(par.pc); }
+    if(novo){ await prepararMidia(par); await preferirCodec(par.pc); }
     const r = await par.pc.createAnswer();
     r.sdp = melhorarAudio(r.sdp);
     await par.pc.setLocalDescription(r);
@@ -3350,6 +3500,10 @@ function arrumarPalco(){
   const p=$('palco');
   p.classList.toggle('dois', n===2);
   p.classList.toggle('varios', n>2);
+  /* Uma tela só = liga o atalho de exibição da placa. Com duas ou mais,
+     ou no modo desenho, o atalho não vale mesmo, então nem tenta. */
+  document.body.classList.toggle('liso',
+    cfg.liso!==false && n<=1 && cfg.desenho!=='canvas');
 }
 /* =====================================================================
  * MICROFONE, MUDO E VOLUME
@@ -3853,7 +4007,7 @@ async function aplicarDegrauCaptura(n){
   const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
   try{
     await faixa.applyConstraints({ width:{ideal:l,max:l}, height:{ideal:a,max:a},
-                                   frameRate:{ideal:p.fps}, resizeMode:'none' });
+                                   frameRate:{ideal:p.fps}, resizeMode:'crop-and-scale' });
   }catch(e){ console.warn('socorro captura',e); return false; }
   if(est.socorro) est.socorro.degrau = n;
   // o histórico de antes é de outro tamanho: comparar os dois seria
@@ -4078,8 +4232,12 @@ async function cuidarDaCaptura(){
   const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
   const l = Math.round(p.l/alvo), h = Math.round(p.a/alvo);
   try{
+    /* Aqui a gente QUER que reescale — é o pedido inteiro. Dizer
+       resizeMode:'none' junto com um max menor que o monitor é pedir
+       duas coisas que se contradizem, e deixa a decisão para o
+       navegador. Onde o encolhimento é intencional, diz-se isso. */
     await faixa.applyConstraints({ width:{ideal:l,max:l}, height:{ideal:h,max:h},
-                                   frameRate:{ideal:p.fps}, resizeMode:'none' });
+                                   frameRate:{ideal:p.fps}, resizeMode:'crop-and-scale' });
     est.capturaEm = alvo;
     est.capturaFolgada = 0;
     // o encolhimento mudou de casa: sai do compressor, entra na captura
@@ -4124,10 +4282,17 @@ async function pegarTela(){
   let stream;
   try{
     stream=await navigator.mediaDevices.getDisplayMedia({
+      /* O "max" em width/height sai daqui, e isso não é detalhe.
+         Qualquer max acende um redimensionador DENTRO do capturador, na
+         CPU, antes de comprimir qualquer coisa — é trabalho roubado do
+         jogo para produzir uma imagem PIOR. O "ideal" sozinho já pede o
+         tamanho que a gente quer; se o monitor for maior, quem encolhe
+         é o compressor (na placa, de graça) via scaleResolutionDownBy.
+
+         Nos quadros só vale "ideal" mesmo: pedir min ou exact faz o
+         navegador recusar a captura inteira com erro de tipo. */
       video:{
-        width:{ideal:p.l,max:p.l}, height:{ideal:p.a,max:p.a},
-        // sem "max" nos quadros: pedir 60 e deixar o navegador entregar
-        // o que conseguir é melhor do que impor um teto que ele arredonda
+        width:{ideal:p.l}, height:{ideal:p.a},
         frameRate:{ideal:p.fps},
         resizeMode:'none',           // o navegador não reescala no caminho
       },
@@ -5397,6 +5562,19 @@ async function atualizarNumeros(){
     else if(ev && ea && ev.estimatedPlayoutTimestamp && ea.estimatedPlayoutTimestamp)
       par.descompasso = Math.round(ea.estimatedPlayoutTimestamp - ev.estimatedPlayoutTimestamp);
 
+    /* O tremor LIMPO da rede. O campo "jitter" cru mistura outras coisas;
+       jitterBufferMinimumDelay é o que o próprio navegador calcula como
+       a folga mínima que a rede sozinha exigiria — é a entrada certa
+       para a conta da folga lá em ajustarAmortecedor. */
+    if(ev && ev.jitterBufferMinimumDelay!=null && ev.jitterBufferEmittedCount>0){
+      const ant=par.antesTremor;
+      if(ant && ev.jitterBufferEmittedCount>ant.c){
+        par.tremorRede = ((ev.jitterBufferMinimumDelay-ant.d) /
+                          (ev.jitterBufferEmittedCount-ant.c))*1000;
+      }
+      par.antesTremor={d:ev.jitterBufferMinimumDelay, c:ev.jitterBufferEmittedCount};
+    }else if(ev && ev.jitter!=null){ par.tremorRede = ev.jitter*1000; }
+
     const ms = pardeIce ? Math.round((pardeIce.currentRoundTripTime||0)*1000) : 0;
     par.ping = ms;
     arrumarPrioridades(par);
@@ -5855,7 +6033,7 @@ function oferecerConserto(texto, rotulo, acao){
 async function trocarCodecAgora(){
   for(const par of pares.values()){
     if(!par.pc) continue;
-    preferirCodec(par.pc);
+    await preferirCodec(par.pc);
     try{
       if(canalDe(par)){
         const of=await par.pc.createOffer();
@@ -5987,31 +6165,150 @@ function temCodec(qual){
   }catch{ return false; }
 }
 
-function preferirCodec(pc){
-  const alvo=cfg.codec||'auto';
-  if(alvo==='auto') return;
-  const nome={h264:'video/h264', vp9:'video/vp9', vp8:'video/vp8',
-              av1:'video/av1', h265:'video/h265'}[alvo];
-  if(!nome) return;
+/* ---------------------------------------------------------------------
+ * PERGUNTAR À PLACA, EM VEZ DE DEDUZIR PELO NOME
+ * ---------------------------------------------------------------------
+ * Isto aqui começava com:
+ *
+ *     if(alvo==='auto') return;
+ *
+ * Ou seja: no ajuste padrão, que é o que praticamente todo mundo usa, o
+ * Bigas Voice não expressava preferência NENHUMA. Quem escolhia era o
+ * navegador, pela ordem que ele lista — e essa ordem começa em VP8/VP9,
+ * que no Windows são comprimidos PELO PROCESSADOR.
+ *
+ * É por isso que o FPS do jogo cai quando você transmite. Não é a
+ * captura, não é a rede: é o processador comprimindo vídeo. Medido, em
+ * 1080p, VP9 em software custa 364% de um núcleo. AV1 custa 287%.
+ *
+ * Existem dois tipos de compressor:
+ *   - o da PLACA: um pedaço de silício separado, que não divide nada
+ *     com o jogo. Custa perto de zero fps.
+ *   - o do PROCESSADOR: o mesmo que roda o jogo. Divide tudo.
+ *
+ * E o nome do formato não diz qual dos dois você vai pegar. Armadilhas
+ * reais no Windows:
+ *
+ *   - AV1 comprime melhor que todos, mas o Chrome no Windows não usa a
+ *     placa para ele em chamada (kWebRtcAV1HWEncode é DISABLED_BY_DEFAULT
+ *     só no Windows). Escolher AV1 "porque é o mais moderno" é a forma
+ *     mais rápida de perder fps.
+ *   - H.264 tem um sabor antigo (constrained baseline, profile-level-id
+ *     42e01f) que o Chrome recusa em placa NVIDIA por um defeito conhecido
+ *     (crbug 1088650), e cai no processador sem avisar. Tem que ser o
+ *     perfil High (640c...).
+ *   - H.265 é o mais novo que roda NA PLACA de verdade — ligado por
+ *     padrão desde o Chrome 136 — e comprime ~40% melhor que H.264. E
+ *     como ele NÃO TEM versão em software, é impossível ele trair caindo
+ *     no processador escondido: ou é placa, ou nem negocia.
+ *
+ * Então a gente pergunta, no tamanho real que vai ser transmitido, e só
+ * usa quem responder "essa eu comprimo sozinha".
+ * ------------------------------------------------------------------ */
+const ESCADA = [
+  {id:'h265', nome:'H.265', mime:'video/H265'},
+  {id:'h264', nome:'H.264 (perfil alto)', mime:'video/H264', fmtp:'profile-level-id=640'},
+  {id:'h264b',nome:'H.264', mime:'video/H264'},
+  {id:'vp9',  nome:'VP9',   mime:'video/VP9'},
+  {id:'vp8',  nome:'VP8',   mime:'video/VP8'},
+  {id:'av1',  nome:'AV1',   mime:'video/AV1'},
+];
+
+async function naPlaca(mime, l, a, fps){
+  try{
+    if(!navigator.mediaCapabilities || !navigator.mediaCapabilities.encodingInfo) return null;
+    const r = await navigator.mediaCapabilities.encodingInfo({
+      type:'webrtc',
+      video:{contentType:mime, width:l, height:a, framerate:fps, bitrate:12000000},
+    });
+    if(!r || !r.supported) return false;
+    return r.powerEfficient===true;
+  }catch{ return null; }
+}
+
+async function sondarCompressores(){
+  /* A pergunta feita à placa é "você comprime ISTO, neste tamanho, nesta
+     taxa?" — então a resposta só vale para o tamanho em que foi feita.
+     Uma placa que comprime 1080p sozinha pode não comprimir 1440p. O
+     resultado ficava guardado para sempre: quem trocasse a qualidade
+     depois seguia com a resposta do tamanho antigo. */
+  const chave = cfg.qualidade;
+  if(est.escadaPronta && est.escadaDe === chave) return est.escadaPronta;
+  const perf = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  const l = perf.l || 1920, a = perf.a || 1080, fps = perf.fps || 60;
+  const tem = new Set();
   try{
     const caps=RTCRtpSender.getCapabilities('video');
-    if(!caps||!caps.codecs) return;
-    const bons=caps.codecs.filter(c=>c.mimeType.toLowerCase()===nome);
-    if(!bons.length){
-      if(alvo==='h264' && !est.avisouSemH264){
-        est.avisouSemH264=true;
-        console.warn('sem H264 neste navegador');
-      }
-      return;
-    }
-    const resto=caps.codecs.filter(c=>c.mimeType.toLowerCase()!==nome);
+    (caps&&caps.codecs||[]).forEach(c=>tem.add(c.mimeType.toLowerCase()));
+  }catch{}
+  const achados=[];
+  for(const c of ESCADA){
+    if(!tem.has(c.mime.toLowerCase())){ achados.push({...c, existe:false, placa:false}); continue; }
+    const placa = await naPlaca(c.mime, l, a, fps);
+    achados.push({...c, existe:true, placa:placa===true, incerto:placa===null});
+  }
+  est.escadaPronta = achados;
+  est.escadaDe = chave;
+  return achados;
+}
+
+/* A ordem final: primeiro quem roda na placa, na ordem de quem comprime
+   melhor. Quem roda no processador vai pro fim — existe só para a
+   chamada não morrer, nunca como primeira opção. E o AV1 em software vai
+   por ÚLTIMO de todos, porque é o mais caro de todos. */
+async function ordemDeCodecs(){
+  const achados = await sondarCompressores();
+  const naPlacaLista = achados.filter(c=>c.existe && c.placa);
+  const incertos     = achados.filter(c=>c.existe && !c.placa && c.incerto && c.id!=='av1');
+  const resto        = achados.filter(c=>c.existe && !c.placa && !c.incerto && c.id!=='av1');
+  const av1          = achados.filter(c=>c.existe && c.id==='av1' && !c.placa);
+  return naPlacaLista.concat(incertos, resto, av1);
+}
+
+function combinaCodec(cap, alvo){
+  if(cap.mimeType.toLowerCase()!==alvo.mime.toLowerCase()) return false;
+  if(alvo.fmtp && !String(cap.sdpFmtpLine||'').includes(alvo.fmtp)) return false;
+  return true;
+}
+
+async function preferirCodec(pc){
+  const alvo = cfg.codec||'auto';
+  let ordem;
+  if(alvo==='auto'){
+    ordem = await ordemDeCodecs();
+    if(!ordem.length) return;
+  }else{
+    const um = ESCADA.find(c=>c.id===alvo);
+    if(!um) return;
+    // no modo manual, o pedido vem primeiro e o resto atras dele
+    ordem = [um].concat(await ordemDeCodecs());
+  }
+  try{
+    /* Desde o Chrome 124 esta lista TEM que vir do receptor, nao do
+       emissor: veio a mudanca depois de um caso no macOS em que o
+       Chromium anunciava um nivel de H.264 que ele nao conseguia honrar.
+       Passar a do emissor faz o navegador recusar. */
+    const fonte = (window.RTCRtpReceiver && RTCRtpReceiver.getCapabilities)
+      ? RTCRtpReceiver.getCapabilities('video')
+      : RTCRtpSender.getCapabilities('video');
+    if(!fonte || !fonte.codecs) return;
+    const todos = fonte.codecs;
+    const fila = [];
+    for(const a of ordem)
+      for(const c of todos)
+        if(combinaCodec(c,a) && !fila.includes(c)) fila.push(c);
+    /* O resto vai junto no fim. Sem isso, um amigo com navegador
+       diferente nao fecha acordo nenhum e ninguem ve nada. */
+    for(const c of todos) if(!fila.includes(c)) fila.push(c);
+    if(!fila.length) return;
     pc.getTransceivers().forEach(t=>{
       const k=(t.receiver&&t.receiver.track&&t.receiver.track.kind)||'';
       if(k!=='video') return;
-      try{ t.setCodecPreferences(bons.concat(resto)); }catch{}
+      try{ t.setCodecPreferences(fila); }catch(e){ console.warn('codec pref',e); }
     });
   }catch(e){ console.warn('codec',e); }
 }
+
 
 /* ---------------------------------------------------------------------
  * QUEM CEDE PRIMEIRO QUANDO A INTERNET APERTA
@@ -6106,7 +6403,7 @@ async function gerarConvite(){
     par.impolido = true;                       // quem convida é quem propõe
     criarPar(PAR_MANUAL);
     await prepararMidia(par);
-    preferirCodec(par.pc);
+    await preferirCodec(par.pc);
     const of=await par.pc.createOffer();
     of.sdp=melhorarAudio(of.sdp);
     await par.pc.setLocalDescription(of);
@@ -6164,7 +6461,7 @@ async function responder(){
     criarPar(PAR_MANUAL);
     await par.pc.setRemoteDescription({type:'offer',sdp:melhorarVideo(sdp)});
     await prepararMidia(par);
-    preferirCodec(par.pc);
+    await preferirCodec(par.pc);
     const r=await par.pc.createAnswer();
     r.sdp=melhorarAudio(r.sdp);
     await par.pc.setLocalDescription(r);
@@ -7197,6 +7494,8 @@ $('sel-qualidade').onchange=async(e)=>{
     }catch(err){ console.warn('reajustar captura',err); }
     // escolha na mão vence a medição: recomeça a avaliação do zero
     zerarSocorroCaptura();
+    est.escadaPronta = null;      // a sonda foi feita no tamanho antigo
+    for(const par of pares.values()) if(par.pc) await preferirCodec(par.pc);
     pares.forEach(zerarAuto);
     await reequilibrarVideo();
     recado('Agora em '+p.a+'p a '+p.fps+' fps.','ok');
@@ -7486,6 +7785,8 @@ $('sel-prioridade').onchange=async()=>{
 };
 $('in-auto').onchange=()=>{ cfg.auto=$('in-auto').checked; guardarAjustes(); };
 $('btn-testar-captura').onclick = testarCaptura;
+$('in-liso').checked = cfg.liso!==false;
+$('in-liso').onchange=()=>{ cfg.liso=$('in-liso').checked; guardarAjustes(); arrumarPalco(); };
 $('in-previa-economica').checked = cfg.previaEconomica!==false;
 $('in-previa-economica').onchange=()=>{
   cfg.previaEconomica=$('in-previa-economica').checked; guardarAjustes();

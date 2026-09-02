@@ -425,7 +425,7 @@ async function principal() {
     trava.temSecao ? ok('a seção da travada entrou no caderninho') : mal('a seção não apareceu');
     (trava.citaChave && trava.citaSocorro && trava.citaFila)
       ? ok('conta as três causas: quadro-chave, socorro do amigo e fila de envio')
-      : mal('faltou alguma das três causas', JSON.stringify(travaTela));
+      : mal('faltou alguma das três causas', JSON.stringify(trava));
     (trava.mediuFila && trava.mediuChaves)
       ? ok('as medidas estão sendo colhidas de verdade')
       : mal('as medidas não foram colhidas', JSON.stringify(trava));
@@ -1750,6 +1750,95 @@ async function principal() {
     culpa.cabecalho
       ? ok('e o cabeçalho do caderninho avisa quem está comprimindo')
       : mal('o cabeçalho não mostra o compressor');
+
+    /* ============ 44. o teto do sondador ============ */
+    console.log('\n=== 44. O b=AS solta o sondador — e fica na seção certa? ===');
+    const teto = await A.evaluate(() => {
+      const NL = String.fromCharCode(13) + String.fromCharCode(10);
+      const secoes = (sdp) => {
+        // devolve, para cada m=, as linhas b= que caíram dentro dela
+        const out = []; let atual = null;
+        for (const l of sdp.split(/\r?\n/)) {
+          if (l.startsWith('m=')) { atual = { m: l.split(' ')[0], bs: [] }; out.push(atual); continue; }
+          if (atual && l.startsWith('b=')) atual.bs.push(l);
+        }
+        return out;
+      };
+      const antes = cfg.qualidade;
+      cfg.qualidade = '1080-60-8';
+
+      // (a) o SDP normal do Chrome: cada seção tem seu c=
+      const normal = melhorarVideo([
+        'v=0','o=- 1 1 IN IP4 0.0.0.0','s=-','t=0 0',
+        'm=audio 9 UDP/TLS/RTP/SAVPF 111','c=IN IP4 0.0.0.0','a=rtpmap:111 opus/48000/2','a=mid:0',
+        'm=video 9 UDP/TLS/RTP/SAVPF 96','c=IN IP4 0.0.0.0','a=rtpmap:96 H264/90000','a=mid:1',
+        'm=audio 9 UDP/TLS/RTP/SAVPF 111','c=IN IP4 0.0.0.0','a=rtpmap:111 opus/48000/2','a=mid:2',
+        ''].join(NL));
+
+      // (b) o caso que quebrava: a seção de vídeo SEM c= próprio
+      const semC = melhorarVideo([
+        'v=0','o=- 1 1 IN IP4 0.0.0.0','s=-','c=IN IP4 0.0.0.0','t=0 0',
+        'm=video 9 UDP/TLS/RTP/SAVPF 96','a=rtpmap:96 H264/90000','a=mid:1',
+        'm=audio 9 UDP/TLS/RTP/SAVPF 111','c=IN IP4 0.0.0.0','a=rtpmap:111 opus/48000/2','a=mid:2',
+        ''].join(NL));
+
+      // (c) aplicar duas vezes não pode empilhar b=AS
+      const duasVezes = melhorarVideo(normal);
+      cfg.qualidade = antes;
+      return { normal: secoes(normal), semC: secoes(semC), duasVezes: secoes(duasVezes),
+               esperado: tetoDoSondadorKbps() };
+    });
+    const soNoVideo = (secs) => secs.every(x =>
+      x.m === 'm=video' ? x.bs.length === 1 && /^b=AS:\d+$/.test(x.bs[0]) : x.bs.length === 0);
+    info('teto do sondador: ' + teto.esperado + ' kbps | seções: ' +
+         JSON.stringify(teto.normal.map(x => x.m + (x.bs.length ? ' ' + x.bs.join() : ''))));
+    (teto.esperado === 12800)
+      ? ok('para 1080p a 8 Mbps ele declara 12800 kbps — acima do que pede por pessoa')
+      : mal('teto do sondador errado', String(teto.esperado));
+    soNoVideo(teto.normal)
+      ? ok('no SDP normal, o b=AS entra só na seção de vídeo')
+      : mal('b=AS na seção errada', JSON.stringify(teto.normal));
+    soNoVideo(teto.semC)
+      ? ok('e continua na de vídeo mesmo quando ela não tem c= próprio — era aqui que vazava para o áudio')
+      : mal('o b=AS escapou para outra seção', JSON.stringify(teto.semC));
+    soNoVideo(teto.duasVezes)
+      ? ok('e passar duas vezes não empilha b=AS')
+      : mal('empilhou b=AS', JSON.stringify(teto.duasVezes));
+
+    /* ============ 45. a sonda de compressores ============ */
+    console.log('\n=== 45. Ele pergunta à placa quem comprime, e refaz ao trocar o tamanho? ===');
+    const escada = await A.evaluate(async () => {
+      const antes = cfg.qualidade;
+      est.escadaPronta = null; est.escadaDe = null;
+      cfg.qualidade = '1080-60-8';
+      const a = await sondarCompressores();
+      const deA = est.escadaDe;
+      const ordemA = (await ordemDeCodecs()).map(c => c.id);
+
+      // trocar o tamanho tem que invalidar: a placa responde por tamanho
+      cfg.qualidade = '1440-60-14';
+      await sondarCompressores();
+      const deB = est.escadaDe;
+
+      cfg.qualidade = antes; est.escadaPronta = null; est.escadaDe = null;
+      return { nomes: a.map(c => c.id), deA, deB,
+               ordem: ordemA,
+               av1PorUltimo: ordemA.length ? ordemA[ordemA.length - 1] : null,
+               temTodos: a.length === 6 };
+    });
+    info('escada sondada: ' + JSON.stringify(escada.nomes) + ' | ordem: ' + JSON.stringify(escada.ordem));
+    escada.temTodos
+      ? ok('pergunta pelos seis formatos, um por um')
+      : mal('a escada não tem os seis', JSON.stringify(escada.nomes));
+    (escada.deA === '1080-60-8' && escada.deB === '1440-60-14')
+      ? ok('e refaz a pergunta quando o tamanho muda — a placa responde POR TAMANHO',
+           escada.deA + ' -> ' + escada.deB)
+      : mal('ficou com a resposta do tamanho antigo', escada.deA + ' -> ' + escada.deB);
+    (escada.ordem.length === 0 || escada.av1PorUltimo === 'av1' ||
+     !escada.ordem.includes('av1'))
+      ? ok('AV1 sem placa vai por último, nunca como primeira opção',
+           'ordem: ' + escada.ordem.join(' > '))
+      : mal('AV1 em software ficou na frente', escada.ordem.join(' > '));
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
