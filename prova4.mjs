@@ -1840,6 +1840,144 @@ async function principal() {
            'ordem: ' + escada.ordem.join(' > '))
       : mal('AV1 em software ficou na frente', escada.ordem.join(' > '));
 
+    /* ============ 46. o mudo que vazava para quem chega depois ============ */
+    console.log('\n=== 46. Quem entra depois consegue te ouvir mesmo você estando mudo? ===');
+    const vazou = await A.evaluate(async () => {
+      const eraMudo = est.mudo;
+      const ligadas = () => est.streamMic.getAudioTracks().map(t => t.enabled);
+
+      if (!est.mudo) alternarMudo();          // fica mudo
+      const logoDepois = ligadas();
+
+      /* O buraco: uma faixa NOVA de microfone nasce aberta. Acontece quando
+         o aparelho é readquirido — e era por aí que quem chegava depois
+         passava a te ouvir sem nada na tela mudar. */
+      est.streamMic.getAudioTracks().forEach(t => { t.enabled = true; });
+      const escapou = ligadas();
+      const consertou = conferirMudo();
+      const depoisDoSocorro = ligadas();
+
+      // e o caminho de verdade: alguém entrando na call chama prepararMidia
+      est.streamMic.getAudioTracks().forEach(t => { t.enabled = true; });
+      const p = [...pares.values()][0];
+      await prepararMidia(p);
+      const depoisDeAlguemEntrar = ligadas();
+      // o que o sender está realmente mandando
+      const noSender = p.senderMic && p.senderMic.track ? p.senderMic.track.enabled : null;
+
+      // ler o botao ANTES de desfazer o mudo, senao leio o estado restaurado
+      const botao = document.getElementById('btn-mic').textContent;
+      if (est.mudo !== eraMudo) alternarMudo();
+      return { logoDepois, escapou, consertou, depoisDoSocorro,
+               depoisDeAlguemEntrar, noSender, botao };
+    });
+    info('mudo -> ' + JSON.stringify(vazou.logoDepois) + ' | faixa nova -> ' +
+         JSON.stringify(vazou.escapou) + ' | depois de alguém entrar -> ' +
+         JSON.stringify(vazou.depoisDeAlguemEntrar));
+    vazou.logoDepois.every(v => v === false)
+      ? ok('apertar o mudo fecha o microfone')
+      : mal('o mudo não fechou', JSON.stringify(vazou.logoDepois));
+    (vazou.consertou > 0 && vazou.depoisDoSocorro.every(v => v === false))
+      ? ok('uma faixa que nasceu aberta é fechada pela reconferida de cada segundo',
+           vazou.consertou + ' faixa(s) fechada(s) de volta')
+      : mal('a faixa aberta passou batido', JSON.stringify(vazou.depoisDoSocorro));
+    vazou.depoisDeAlguemEntrar.every(v => v === false)
+      ? ok('e ALGUÉM ENTRANDO na call não reabre o microfone — era o bug relatado')
+      : mal('quem entrou depois te ouviria', JSON.stringify(vazou.depoisDeAlguemEntrar));
+    (vazou.noSender === false)
+      ? ok('a faixa que sai pelo sender está fechada de verdade, não só a local')
+      : mal('o sender está mandando som com você mudo', String(vazou.noSender));
+    (vazou.botao === '🔇')
+      ? ok('e o botão continua dizendo que você está mudo')
+      : mal('o botão desencontrou do estado', vazou.botao);
+
+    /* ============ 47. a tela que ficava congelada ============ */
+    console.log('\n=== 47. Quando o amigo para de transmitir, a tela dele sai do palco? ===');
+    const congelada = await B.evaluate(async () => {
+      const p = [...pares.values()][0];
+      // finge que a tela dele estava no palco
+      p.temTela = true; p.fluxo = p.fluxo || new MediaStream();
+      p.naoQueroVer = false;
+      mostrarTela(p);
+      const antes = !!document.getElementById('q-p-' + p.id);
+
+      // (a) o recado direto: ele avisou que parou
+      // chama o tratador de verdade, do jeito que a mensagem chega
+      p.canal.onmessage({ data: JSON.stringify({ t: 'tela', v: false }) });
+      const depoisDoRecado = !!document.getElementById('q-p-' + p.id) && p.temTela;
+
+      // (b) e se o recado nunca chegar (ele travou / fechou o navegador)?
+      p.temTela = true; mostrarTela(p);
+      p.quandoQuadro = Date.now() - 8000;      // 8s sem um quadro sequer
+      // alto de proposito: assim 'agora > antes' da falso e o laco entra no
+      // ramo do vigia. Com 99 os quadros reais passavam por cima e o vigia
+      // nunca era exercitado.
+      p.quadrosAntes = 1e9;
+      est.pulso = 1;                            // o laco pula de dois em dois quando ninguem olha
+      await atualizarNumeros();
+      const depoisDoVigia = p.temTela;
+      return { antes, depoisDoRecado, depoisDoVigia };
+    }).catch(e => ({ erro: String(e && e.message || e) }));
+    if (congelada.erro) { mal('o teste da tela congelada explodiu', congelada.erro); }
+    else {
+      congelada.antes
+        ? ok('a tela do amigo estava no palco')
+        : mal('não consegui montar o quadro para o teste');
+      !congelada.depoisDoRecado
+        ? ok('ele avisa que parou e a tela sai na hora — em vez de congelar no último quadro')
+        : mal('a tela continuou no palco depois do aviso');
+      !congelada.depoisDoVigia
+        ? ok('e mesmo sem aviso nenhum, 6s sem um quadro tira a tela do palco')
+        : mal('sem aviso a tela ficaria congelada para sempre');
+    }
+
+    /* ============ 48. ver só uma tela ============ */
+    console.log('\n=== 48. Dá para ver só uma tela quando tem várias? ===');
+    const foco = await A.evaluate(() => {
+      const palco = document.getElementById('palco');
+      // monta dois quadros de mentira, como se dois amigos transmitissem
+      montarQuadro('t1', 'tela 1', true, null);
+      montarQuadro('t2', 'tela 2', true, null);
+      arrumarPalco();
+      const visiveis = () => [...palco.querySelectorAll('.quadro:not(.saindo)')]
+        .filter(q => getComputedStyle(q).display !== 'none').map(q => q.id);
+      const todas = visiveis();
+      const rotuloAntes = document.querySelector('#q-t1 .so-esta').textContent;
+
+      alternarFoco('t1');
+      const focado = visiveis();
+      const rotuloDepois = document.querySelector('#q-t1 .so-esta').textContent;
+
+      alternarFoco('t1');            // clicar de novo volta a ver todas
+      const voltou = visiveis();
+
+      // e se o quadro focado morrer, o foco tem que morrer junto
+      alternarFoco('t2');
+      document.getElementById('q-t2').remove();
+      arrumarPalco();
+      const semOFocado = { foco: est.foco, visiveis: visiveis() };
+
+      document.getElementById('q-t1') && document.getElementById('q-t1').remove();
+      est.foco = null; arrumarPalco();
+      return { todas, focado, voltou, rotuloAntes, rotuloDepois, semOFocado };
+    });
+    info('todas: ' + JSON.stringify(foco.todas) + ' | focado: ' + JSON.stringify(foco.focado));
+    (foco.todas.length >= 2)
+      ? ok('com duas telas, as duas aparecem')
+      : mal('não montou as duas telas', JSON.stringify(foco.todas));
+    (foco.focado.length === 1 && foco.focado[0] === 'q-t1')
+      ? ok('escolhendo uma, só ela é desenhada — as outras saem do compositor')
+      : mal('o foco não isolou a tela', JSON.stringify(foco.focado));
+    (foco.voltou.length === foco.todas.length)
+      ? ok('e clicar de novo volta a ver todas')
+      : mal('não deu para voltar', JSON.stringify(foco.voltou));
+    (/Só esta/.test(foco.rotuloAntes) && /Ver todas/.test(foco.rotuloDepois))
+      ? ok('o botão diz o que vai fazer, dos dois lados', foco.rotuloAntes + ' / ' + foco.rotuloDepois)
+      : mal('o rótulo do botão não acompanha', foco.rotuloAntes + ' / ' + foco.rotuloDepois);
+    (foco.semOFocado.foco === null)
+      ? ok('e se a tela focada some, o foco some junto em vez de deixar o palco vazio')
+      : mal('ficou focado numa tela que não existe mais', JSON.stringify(foco.semOFocado));
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

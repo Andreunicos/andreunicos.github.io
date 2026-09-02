@@ -247,6 +247,11 @@ body.liso .palco .quadro{
   animation:none; transition:none;
 }
 body.liso .palco .quadro video{ border-radius:0 }
+
+/* Foco: as outras saem do desenho, não da conexão. display:none tira do
+   layout E do compositor — é isso que devolve placa de vídeo. */
+.palco.focado .quadro{display:none}
+.palco.focado .quadro.em-foco{display:flex}
 body.liso .quadro-tag,
 body.liso .quadro-acoes button{ backdrop-filter:none; background:rgba(8,9,12,.92) }
 .quadro canvas.pintura{width:100%;height:100%;object-fit:contain;display:block;background:#000}
@@ -2086,8 +2091,10 @@ async function ligarMicrofone(forcar){
     est.fonteMic.connect(est.analisador);
     iniciarMedidor();
   }catch(e){console.warn('medidor',e);}
-  // em push-to-talk o microfone só abre quando a tecla for segurada
-  if(cfg.fala==='ptt') est.streamMic.getAudioTracks().forEach(t=>{ t.enabled=false; });
+  /* Aqui morava o buraco. Esta linha fechava o microfone no push-to-talk
+     e SÓ nisso — a faixa nova nascia aberta e o est.mudo era ignorado.
+     Agora quem decide é a regra única, que olha os dois. */
+  aplicarMudo();
 
   return est.streamMic.getAudioTracks()[0];
 }
@@ -2135,7 +2142,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '5.8 — 02/09 21:40 tetos soltos';
+const VERSAO = '5.9 — 02/09 23:40';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2357,6 +2364,13 @@ function abrirCanal(par){
     else if(d.t==='sdp') receberSdp(par, d.v);
     else if(d.t==='ice') receberIce(par, d.v);
     else if(d.t==='ponte') aoPonte(d);
+    else if(d.t==='tela'){
+      if(d.v===false){
+        clearTimeout(par.relogioSumir); clearTimeout(par.relogioVazio);
+        par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
+        marcar((par.nome||'seu amigo')+' parou de transmitir');
+      }
+    }
     else if(d.t==='quero'){ par.larguraQueQuer=Math.max(240,Math.min(3840,Number(d.v)||0)); aplicarPerfilVideo(par); }
     else if(d.t==='dec'){
       par.decDele = String(d.v||'').slice(0,120);
@@ -2449,6 +2463,8 @@ async function prepararMidia(par){
     if(audios[1]){ audios[1].direction='sendrecv'; par.senderTelaAudio=audios[1].sender; }
   }
 
+  // quem acabou de chegar não pode receber som se você está mudo
+  aplicarMudo();
   await bitrateAudio(par.senderMic,128000);
   await prioridadeDeRede(par.senderMic, PRIORIDADE.voz);
 
@@ -3107,6 +3123,25 @@ function montarQuadro(id, titulo, aoVivo, aoParar, par){
   acoes.appendChild(cheia);
 
   /* ---------------------------------------------------------------------
+   * COM DUAS TELAS NO PALCO, CADA UMA FICA PELA METADE
+   * ---------------------------------------------------------------------
+   * E metade de 1080p num monitor de 1080p é 960 de largura — o Bigas
+   * Voice vê a janela pequena e manda imagem menor, com razão. Só que
+   * quando você quer OLHAR uma tela, você quer ela inteira.
+   *
+   * Focar não é só esconder as outras: o quadro focado passa a ocupar o
+   * palco todo, a largura pedida dobra, e o amigo focado volta a mandar
+   * em tamanho cheio sozinho — porque avisarTamanhos roda logo depois.
+   * As outras continuam CHEGANDO (ninguém é desconectado); só não são
+   * desenhadas, o que já devolve placa de vídeo.
+   * ------------------------------------------------------------------ */
+  const focar=document.createElement('button');
+  focar.type='button'; focar.className='so-esta';
+  focar.onclick=(ev)=>{ ev.stopPropagation(); alternarFoco(id); };
+  acoes.appendChild(focar);
+  q.botaoFoco = focar;
+
+  /* ---------------------------------------------------------------------
    * FLUTUAR POR CIMA DE TUDO
    * ---------------------------------------------------------------------
    * Em quem tem um monitor só, dar Alt+Tab para ler alguma coisa faz a
@@ -3492,12 +3527,35 @@ async function cuidarDaTravaDeTela(){
   }
 }
 
+function alternarFoco(id){
+  est.foco = (est.foco===id) ? null : id;
+  arrumarPalco();
+  // a janela mudou de tamanho para quem está focado: pede o tamanho novo
+  avisarTamanhos();
+}
+
 function arrumarPalco(){
   cuidarDaTravaDeTela();
   setTimeout(avisarTamanhos,200);
-  const n=$('palco').querySelectorAll('.quadro:not(.saindo)').length;
-  $('nada').hidden = n>0;
   const p=$('palco');
+  const todos=[...p.querySelectorAll('.quadro:not(.saindo)')];
+
+  // o foco morre junto com o quadro focado
+  if(est.foco && !todos.some(q=>q.id==='q-'+est.foco)) est.foco=null;
+  const focando = !!est.foco && todos.length>1;
+  p.classList.toggle('focado', focando);
+  todos.forEach(q=>{
+    const ehEle = q.id==='q-'+est.foco;
+    q.classList.toggle('em-foco', focando && ehEle);
+    if(q.botaoFoco){
+      const so = focando && ehEle;
+      q.botaoFoco.textContent = so ? '⊞ Ver todas' : '⊡ Só esta';
+      q.botaoFoco.hidden = todos.length<2;
+    }
+  });
+
+  const n = focando ? 1 : todos.length;
+  $('nada').hidden = todos.length>0;
   p.classList.toggle('dois', n===2);
   p.classList.toggle('varios', n>2);
   /* Uma tela só = liga o atalho de exibição da placa. Com duas ou mais,
@@ -3508,12 +3566,48 @@ function arrumarPalco(){
 /* =====================================================================
  * MICROFONE, MUDO E VOLUME
  * =================================================================== */
+/* ---------------------------------------------------------------------
+ * O MUDO PRECISA SER UM SÓ LUGAR
+ * ---------------------------------------------------------------------
+ * "Mutei, aí alguém entrou na call e me ouviu assim mesmo."
+ *
+ * Estar mudo era "faixa.enabled = false". A conta de quando fechar
+ * estava escrita, IGUAL, em quatro lugares diferentes — alternarMudo,
+ * aplicarModoFala, segurarFala e ligarMicrofone. E num quinto lugar não
+ * estava: quando o microfone é pego de novo.
+ *
+ * Uma faixa recém-criada nasce com enabled = true. Então bastava o
+ * microfone ser readquirido — porque morreu, porque você trocou de
+ * aparelho, porque a call ainda não tinha pegado o microfone quando
+ * você apertou o mudo — para o mudo evaporar sem nada na tela mudar.
+ * O botão continuava vermelho. Você continuava achando que estava mudo.
+ *
+ * A regra agora existe UMA vez e todo caminho passa por ela, inclusive
+ * uma reconferida por segundo no laço de números. Um mudo que depende de
+ * eu ter lembrado de reaplicar em cinco lugares não é um mudo.
+ * ------------------------------------------------------------------ */
+function aplicarMudo(){
+  if(!est.streamMic) return false;
+  const aberto = !est.mudo && (cfg.fala!=='ptt' || est.segurando);
+  est.streamMic.getAudioTracks().forEach(t=>{ if(t.enabled!==aberto) t.enabled=aberto; });
+  return aberto;
+}
+
+/* Confere se alguma faixa escapou da regra. Devolve o que consertou —
+   é isso que a prova lê para saber que o socorro funcionou de verdade. */
+function conferirMudo(){
+  if(!est.streamMic || !est.mudo) return 0;
+  let escapou = 0;
+  est.streamMic.getAudioTracks().forEach(t=>{ if(t.enabled){ escapou++; t.enabled=false; } });
+  if(escapou) marcar('o mudo tinha escapado numa faixa nova de microfone — fechei de novo');
+  return escapou;
+}
+
 function alternarMudo(){
   est.mudo=!est.mudo;
   // Em push-to-talk, tirar o mudo NÃO pode abrir o microfone sozinho —
   // senão você fica transmitindo tudo achando que está no push-to-talk.
-  const aberto = !est.mudo && (cfg.fala!=='ptt' || est.segurando);
-  est.streamMic&&est.streamMic.getAudioTracks().forEach(t=>{t.enabled=aberto;});
+  aplicarMudo();
   $('btn-mic').classList.toggle('on',est.mudo);
   $('btn-mic').textContent=est.mudo?'🔇':'🎙';
   if(est.mudo){ est.segurando=false; enviarTodos({t:'fala',v:false}); }
@@ -4314,6 +4408,28 @@ async function pegarTela(){
   const aud=stream.getAudioTracks()[0];
   aplicarDicaDeConteudo(v);
 
+  /* ---------------------------------------------------------------------
+   * O SOM DO SISTEMA NÃO SABE SEPARAR O JOGO DA CONVERSA
+   * ---------------------------------------------------------------------
+   * Quando você marca "compartilhar o som", o Windows entrega ao
+   * navegador TUDO que está saindo pela caixa — inclusive a voz dos seus
+   * amigos, que o Bigas Voice acabou de tocar aí. Aí você manda essa voz
+   * de volta para eles, com atraso. Cada um se ouve.
+   *
+   * Não existe API de navegador que separe "o som do jogo" do "som da
+   * chamada": o que chega é uma mistura só, já pronta. Fone resolve na
+   * hora, porque aí a voz deles nunca passa pela caixa.
+   *
+   * Então: avisar na hora em que acontece, com o conserto junto, e um
+   * botão para cortar o som do sistema sem parar a transmissão.
+   * ------------------------------------------------------------------ */
+  if(aud && quantosRecebem()>0 && !est.avisouEcoDaTela){
+    est.avisouEcoDaTela = true;
+    recado('Você está mandando o som do sistema. Se NÃO estiver de fone, a voz dos seus '+
+           'amigos vai junto e eles vão se ouvir. Use fone — ou desligue o som da tela em Ajustes.','mal');
+    marcar('transmitindo com som do sistema — sem fone isso devolve a voz dos amigos para eles');
+  }
+
   /* O modo canvas é uma saída de emergência para driver quebrado, não um
      jeito normal de assistir: ele redesenha cada quadro na mão, na mesma
      fila da página. Ligado durante um jogo, é dinheiro jogado fora — e
@@ -4456,6 +4572,12 @@ async function pararTela(){
   acordarControles();
   $('btn-tela').textContent='🖥 Compartilhar tela';
   $('btn-tela').classList.remove('parando');
+  /* O replaceTrack(null) acima NÃO avisa o outro lado de forma
+     confiável: o evento 'mute' na faixa recebida às vezes demora, às
+     vezes não vem — está escrito no comentário do ontrack. O resultado
+     era a sua tela ficando parada na tela do amigo, congelada no último
+     quadro, até ele recarregar. Falar é mais barato que adivinhar. */
+  enviarTodos({t:'tela', v:false});
   marcar('parei de transmitir');
   recado('Você parou de transmitir.','ok');
 }
@@ -5468,6 +5590,9 @@ function iniciarNumeros(){ clearInterval(est.loopNum); est.loopNum=setInterval(a
 function pararNumeros(){ clearInterval(est.loopNum); est.loopNum=null; }
 
 async function atualizarNumeros(){
+  // barato e vale por si: comparar um booleano por faixa, uma vez por
+  // segundo, contra a chance de estar sendo ouvido achando que não está
+  conferirMudo();
   const gente=[...pares.values()].filter(p=>p.pc);
   if(!gente.length) return;
 
@@ -5672,12 +5797,24 @@ async function atualizarNumeros(){
       const avancou = agora > antes;
       par.quadrosAntes = agora;
       if(avancou){
+        par.quandoQuadro = Date.now();
         clearTimeout(par.relogioVazio);   // tem imagem chegando de verdade
         if(!par.temTela && par.fluxo && !par.naoQueroVer){
           par.temTela = true;
           mostrarTela(par);
           recado('A tela de '+(par.nome||'seu amigo')+' apareceu.','ok');
         }
+      }
+      /* E se ele não chegou a avisar — travou, fechou o navegador, caiu a
+         luz? Aí ninguém manda recado nenhum e o quadro ficaria parado
+         para sempre. Seis segundos sem UM quadro decodificado é morte,
+         não engasgo: mesmo uma tela completamente parada continua
+         mandando quadro. */
+      else if(par.temTela && par.quandoQuadro &&
+              Date.now()-par.quandoQuadro > 6000){
+        par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
+        marcar('a tela de '+(par.nome||'seu amigo')+
+               ' parou de chegar há 6s — tirei do palco');
       }
     }
 
@@ -6133,17 +6270,14 @@ function receberMensagem(par, texto){
 function aplicarModoFala(){
   const ptt = cfg.fala==='ptt';
   $('bloco-ptt').hidden = !ptt;
-  if(est.streamMic){
-    const aberto = !est.mudo && (!ptt || est.segurando);
-    est.streamMic.getAudioTracks().forEach(t=>{ t.enabled=aberto; });
-  }
+  aplicarMudo();
   pintarGente();
 }
 function segurarFala(ligado){
   if(cfg.fala!=='ptt' || est.mudo) return;
   if(est.segurando===ligado) return;
   est.segurando=ligado;
-  if(est.streamMic) est.streamMic.getAudioTracks().forEach(t=>{ t.enabled=ligado; });
+  aplicarMudo();
   enviarTodos({t:'fala',v:ligado});
   const av=$('av-eu'); if(av) av.classList.toggle('fala',ligado);
   const sub=$('sub-eu');
@@ -6269,6 +6403,39 @@ function combinaCodec(cap, alvo){
   if(cap.mimeType.toLowerCase()!==alvo.mime.toLowerCase()) return false;
   if(alvo.fmtp && !String(cap.sdpFmtpLine||'').includes(alvo.fmtp)) return false;
   return true;
+}
+
+/* ---------------------------------------------------------------------
+ * O MENU QUE DEIXAVA ESCOLHER A ARMADILHA
+ * ---------------------------------------------------------------------
+ * "AV1 — placa nova (RTX 40, RX 7000, Arc)" é uma descrição de catálogo:
+ * ela fala do mundo, não do SEU computador. E o Chrome no Windows não
+ * usa a placa para AV1 em chamada de jeito nenhum — nem na RTX 40.
+ *
+ * Escolher AV1 aí derrubou uma call de verdade: libaom, software, 1440p,
+ * a página do amigo 3,1 segundos parada, 5 quadros por segundo.
+ *
+ * A resposta certa já estava calculada em sondarCompressores(): a gente
+ * pergunta à placa, no tamanho real, quem ela comprime sozinha. Faltava
+ * só escrever isso no menu, em vez de deixar o texto genérico prometer
+ * uma coisa que a máquina não vai cumprir.
+ * ------------------------------------------------------------------ */
+async function rotularCodecs(){
+  const sel = $('sel-codec'); if(!sel) return;
+  let achados; try{ achados = await sondarCompressores(); }catch{ return; }
+  const porId = new Map(achados.map(c=>[c.id,c]));
+  [...sel.options].forEach(o=>{
+    if(o.value==='auto') return;
+    if(!o.dataset.base) o.dataset.base = o.textContent.split(' — ')[0];
+    const c = porId.get(o.value);
+    let cauda;
+    if(!c || !c.existe)      cauda = 'este navegador não tem';
+    else if(c.placa)         cauda = '✅ a SUA placa comprime — não custa FPS do jogo';
+    else if(c.incerto)       cauda = 'não consegui perguntar à placa';
+    else                     cauda = '⚠ no SEU PC isto comprime no PROCESSADOR — custa FPS do jogo';
+    o.textContent = o.dataset.base + ' — ' + cauda;
+    o.disabled = !c || !c.existe;
+  });
 }
 
 async function preferirCodec(pc){
@@ -7279,6 +7446,7 @@ async function socorrerMicrofone(motivo){
     }
     const nova = await ligarMicrofone(true);
     if(!nova) throw new Error('nenhum microfone respondeu');
+    aplicarMudo();
 
     let trocados = 0;
     for(const par of pares.values()){
@@ -7496,6 +7664,7 @@ $('sel-qualidade').onchange=async(e)=>{
     zerarSocorroCaptura();
     est.escadaPronta = null;      // a sonda foi feita no tamanho antigo
     for(const par of pares.values()) if(par.pc) await preferirCodec(par.pc);
+    rotularCodecs();
     pares.forEach(zerarAuto);
     await reequilibrarVideo();
     recado('Agora em '+p.a+'p a '+p.fps+' fps.','ok');
@@ -7785,6 +7954,7 @@ $('sel-prioridade').onchange=async()=>{
 };
 $('in-auto').onchange=()=>{ cfg.auto=$('in-auto').checked; guardarAjustes(); };
 $('btn-testar-captura').onclick = testarCaptura;
+rotularCodecs();
 $('in-liso').checked = cfg.liso!==false;
 $('in-liso').onchange=()=>{ cfg.liso=$('in-liso').checked; guardarAjustes(); arrumarPalco(); };
 $('in-previa-economica').checked = cfg.previaEconomica!==false;
