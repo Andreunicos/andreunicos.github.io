@@ -1978,6 +1978,186 @@ async function principal() {
       ? ok('e se a tela focada some, o foco some junto em vez de deixar o palco vazio')
       : mal('ficou focado numa tela que não existe mais', JSON.stringify(foco.semOFocado));
 
+    /* ============ 49. o teto que a captura impõe ============ */
+    console.log('\n=== 49. Ele descobre que a captura não dá o que o perfil pede? ===');
+    const tetoFonte = await A.evaluate(() => {
+      const guardado = est.histFonte;
+      const antes = cfg.qualidade;
+      cfg.qualidade = '1080-60-8';
+      const com = (H) => { est.histFonte = H.slice(); return tetoDaFonte(); };
+      const rep = (v, n) => Array.from({ length: n }, () => v);
+
+      // (a) o caso do André: 32 firmes quando o perfil pede 60
+      const capada = com(rep(32, 30).map((v, i) => v + (i % 3)));
+      // (b) a mesma fonte, mas UMA vez ela alcançou o alvo -> não é teto
+      const alcancou = com(rep(32, 29).concat([58]));
+      // (c) tela parada de verdade: quase nada o tempo todo
+      const parada = com(rep(0, 27).concat([1, 2, 0]));
+      // (d) amostra curta demais para concluir qualquer coisa
+      const curta = com(rep(30, 8));
+      // (e) fonte saudável
+      const boa = com(rep(59, 30));
+
+      est.histFonte = guardado; cfg.qualidade = antes;
+      return { capada, alcancou, parada, curta, boa };
+    });
+    info('capada -> ' + tetoFonte.capada + ' | alcançou 58 uma vez -> ' + tetoFonte.alcancou +
+         ' | tela parada -> ' + tetoFonte.parada + ' | boa -> ' + tetoFonte.boa);
+    (tetoFonte.capada >= 30 && tetoFonte.capada <= 40)
+      ? ok('32 quadros firmes num perfil de 60: reconhece o teto e devolve o número',
+           tetoFonte.capada + ' quadros')
+      : mal('não viu o teto da captura', String(tetoFonte.capada));
+    (tetoFonte.alcancou === 0)
+      ? ok('mas se a fonte alcançou o alvo UMA vez, ela sabe alcançar — não é teto')
+      : mal('confundiu tela sem novidade com captura capada', String(tetoFonte.alcancou));
+    (tetoFonte.parada === 0)
+      ? ok('e tela parada não vira diagnóstico — não dá para concluir sem movimento')
+      : mal('chamou tela parada de captura capada', String(tetoFonte.parada));
+    (tetoFonte.curta === 0 && tetoFonte.boa === 0)
+      ? ok('amostra curta e fonte saudável não acusam nada')
+      : mal('acusou sem base', tetoFonte.curta + ' / ' + tetoFonte.boa);
+
+    /* ============ 50. a escada dos quadros tem que provar que serve ============ */
+    console.log('\n=== 50. Encolher não devolveu quadros: ele desfaz e para de tentar? ===');
+    const prova = await A.evaluate(async () => {
+      const p = [...pares.values()][0];
+      const guardado = { hf: est.histFonte, prio: cfg.prioridade, q: cfg.qualidade };
+      cfg.prioridade = 'fluidez'; cfg.qualidade = '1080-60-8';
+      const rep = (v, n) => Array.from({ length: n }, () => v);
+      const prep = () => { const a = autoDe(p); zerarAuto(p); a.aquece = 99; a.banda = 0; return a; };
+
+      /* (a) A FONTE É O LIMITE. O compressor entrega 24 e a captura só deu
+         25 neste segundo: encolher não pode subir um número que já está
+         capado antes do Bigas Voice. */
+      let a = prep();
+      est.histFonte = rep(58, 29).concat([25]);   // oscila: não é teto firme
+      for (let i = 0; i < 10; i++) await ajustarQualidade(p, 0, false, 0, 24);
+      const comFonteBaixa = a.degrauFps;
+
+      /* (b) A FONTE ESTÁ ÓTIMA e mesmo assim o fps é ruim: aí encolher é a
+         tentativa certa — e ele tem que tentar. */
+      a = prep();
+      est.histFonte = rep(60, 30);
+      for (let i = 0; i < 10; i++) await ajustarQualidade(p, 0, false, 0, 30);
+      const tentou = a.degrauFps;
+
+      /* (c) ...e oito segundos depois os quadros continuam iguais. Isso é a
+         resposta: o tamanho não era o problema. Desfaz e desiste. */
+      a.provando = Date.now() - 9000;
+      a.fpsAntes = 30;
+      await ajustarQualidade(p, 0, false, 0, 30);
+      const desfez = { degrau: a.degrauFps, inutil: !!a.fpsInutil, motivo: a.motivo };
+
+      // e enquanto está desistido, não tenta de novo
+      for (let i = 0; i < 10; i++) await ajustarQualidade(p, 0, false, 0, 30);
+      const insistiu = a.degrauFps;
+
+      /* (d) o outro desfecho: encolher FUNCIONOU. Aí mantém. */
+      a = prep();
+      est.histFonte = rep(60, 30);
+      for (let i = 0; i < 10; i++) await ajustarQualidade(p, 0, false, 0, 30);
+      const antesDoGanho = a.degrauFps;
+      a.provando = Date.now() - 9000; a.fpsAntes = 30;
+      await ajustarQualidade(p, 0, false, 0, 52);
+      const manteve = a.degrauFps;
+
+      est.histFonte = guardado.hf; cfg.prioridade = guardado.prio; cfg.qualidade = guardado.q;
+      zerarAuto(p); p.perfilAplicado = null; await aplicarPerfilVideo(p);
+      return { comFonteBaixa, tentou, desfez, insistiu, antesDoGanho, manteve };
+    });
+    info('fonte baixa -> ' + prova.comFonteBaixa + 'x | tentou -> ' + prova.tentou +
+         'x | desfez -> ' + prova.desfez.degrau + 'x | com ganho -> ' + prova.manteve + 'x');
+    (prova.comFonteBaixa === 1)
+      ? ok('o compressor engole tudo o que a captura dá: NÃO encolhe a imagem à toa')
+      : mal('encolheu para consertar um limite que é anterior a ele', String(prova.comFonteBaixa));
+    (prova.tentou > 1)
+      ? ok('mas com a fonte saudável e o fps ruim, ele tenta encolher — como deve',
+           prova.tentou + 'x menor')
+      : mal('deixou de tentar quando valia a pena', String(prova.tentou));
+    (prova.desfez.degrau < prova.tentou && prova.desfez.inutil)
+      ? ok('e se os quadros não subiram, DESFAZ o degrau e para de tentar',
+           prova.tentou + 'x -> ' + prova.desfez.degrau + 'x')
+      : mal('encolheu de graça e continuaria descendo', JSON.stringify(prova.desfez));
+    (prova.insistiu === prova.desfez.degrau)
+      ? ok('durante a desistência ele não fica remexendo no compressor')
+      : mal('voltou a encolher logo depois de desistir', String(prova.insistiu));
+    (prova.manteve === prova.antesDoGanho && prova.manteve > 1)
+      ? ok('e quando encolher FUNCIONA (30 -> 52 quadros), o degrau fica de pé')
+      : mal('desfez um degrau que estava funcionando',
+            prova.antesDoGanho + ' -> ' + prova.manteve);
+
+    /* ============ 51. o piso ============ */
+    console.log('\n=== 51. As duas escadas multiplicadas podem chegar a 288px de largura? ===');
+    const pisoTeste = await A.evaluate(async () => {
+      const p = [...pares.values()][0];
+      // a tela do André: CS em 4:3, e a captura JÁ reduzida por outra escada
+      const eraTam = window.tamanhoDaCaptura;
+      window.tamanhoDaCaptura = () => ({ l: 1280, a: 960 });
+      const largura = perfilReal().l;
+      const medir = async (apertado) => {
+        const a = autoDe(p);
+        a.degrauBanda = 3; a.degrauFps = 3;      // as duas escadas no fundo
+        p.decDeleFraco = true;                    // e mais um motivo por cima
+        p.larguraQueQuer = 320;                   // e a janela dele minúscula
+        p.apertado = apertado; p.perda = apertado ? 4 : 0;
+        p.perfilAplicado = null;
+        await aplicarPerfilVideo(p);
+        return { encolher: p.encolherAtual, px: Math.round(largura / p.encolherAtual),
+                 porque: p.porqueTamanho };
+      };
+      const semAperto = await medir(false);
+      const comAperto = await medir(true);
+      window.tamanhoDaCaptura = eraTam;
+      p.decDeleFraco = false; p.larguraQueQuer = 0; p.apertado = false; p.perda = 0;
+      zerarAuto(p); p.perfilAplicado = null; await aplicarPerfilVideo(p);
+      return { largura, semAperto, comAperto };
+    });
+    info('fonte ' + pisoTeste.largura + 'px | sem aperto -> ' + pisoTeste.semAperto.px +
+         'px | com aperto medido -> ' + pisoTeste.comAperto.px + 'px');
+    (pisoTeste.semAperto.px >= 640)
+      ? ok('com tudo mandando encolher mas SEM aperto medido, para no piso de 640px',
+           pisoTeste.semAperto.px + 'px — ' + pisoTeste.semAperto.porque)
+      : mal('desceu abaixo do legível por palpite', JSON.stringify(pisoTeste.semAperto));
+    /(segurei no piso)/.test(pisoTeste.semAperto.porque)
+      ? ok('e assina que foi o piso que segurou, em vez de sumir com o motivo')
+      : mal('o piso agiu calado', pisoTeste.semAperto.porque);
+    (pisoTeste.comAperto.px < pisoTeste.semAperto.px && pisoTeste.comAperto.px >= 320)
+      ? ok('mas com aperto MEDIDO o piso cede até 320px — imagem feia é melhor que imagem nenhuma',
+           pisoTeste.comAperto.px + 'px')
+      : mal('o piso não cedeu à internet de verdade', JSON.stringify(pisoTeste.comAperto));
+
+    /* ============ 52. o motivo viaja para quem recebe ============ */
+    console.log('\n=== 52. Quem RECEBE consegue saber por que a imagem está daquele tamanho? ===');
+    const viajou = await B.evaluate(async () => {
+      const p = [...pares.values()][0];
+      p.temTela = true;
+      // do jeito que a mensagem chega de verdade: pelo canal
+      p.canal.onmessage({ data: JSON.stringify(
+        { t: 'porque', v: { q: 'pouca banda 2x', l: 960, tf: 32, alvo: 60 } }) });
+      const guardou = p.porqueDele;
+      // o painel só se DESENHA quando está aberto (senão custa FPS à toa)
+      document.getElementById('painel').classList.add('aberto');
+      await atualizarNumeros();
+      const texto = (document.getElementById('painel') || document.body).textContent;
+      return { guardou, mandando: /Ele está mandando/.test(texto),
+               entrega: /A tela DELE só entrega/.test(texto),
+               px: /960px/.test(texto), tf: /32 de 60/.test(texto) };
+    }).catch(e => ({ erro: String(e && e.message || e) }));
+    if (viajou.erro) { mal('o teste do motivo que viaja explodiu', viajou.erro); }
+    else {
+      (viajou.guardou && viajou.guardou.l === 960 && viajou.guardou.tf === 32)
+        ? ok('o motivo de quem manda chega inteiro do outro lado',
+             JSON.stringify(viajou.guardou))
+        : mal('a explicação não atravessou o canal', JSON.stringify(viajou.guardou));
+      (viajou.mandando && viajou.px)
+        ? ok('e o painel de quem RECEBE mostra o tamanho e o motivo dele')
+        : mal('quem recebe continua sem saber por quê');
+      (viajou.entrega && viajou.tf)
+        ? ok('inclusive quando o problema é a captura DELE — 32 de 60 quadros',
+             'a pergunta "por que a resolução fica mudando" agora tem resposta na tela')
+        : mal('não contou que a captura dele é o limite');
+    }
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

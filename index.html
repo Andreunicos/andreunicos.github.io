@@ -2142,7 +2142,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '5.9 — 02/09 23:40';
+const VERSAO = '6.0 — 03/09 — o piso';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2164,6 +2164,7 @@ function novoPar(id){
     conhece:null,
     // o que ela pede: o tamanho da janela dela, e se sumiu da vista
     larguraQueQuer:0, sumiu:false, avisei:0, pedido:null,
+    porqueDele:null, ultimoRecadoTam:null,
     decDele:'', decDeleFraco:false, decMeu:'', avisouDec:false, podeDescomprimir:null,
   };
   pares.set(id,p);
@@ -2370,6 +2371,11 @@ function abrirCanal(par){
         par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
         marcar((par.nome||'seu amigo')+' parou de transmitir');
       }
+    }
+    else if(d.t==='porque'){
+      const v = d.v||{};
+      par.porqueDele = { q:String(v.q||'').slice(0,120), l:Number(v.l)||0,
+                         tf:Number(v.tf)||0, alvo:Number(v.alvo)||0 };
     }
     else if(d.t==='quero'){ par.larguraQueQuer=Math.max(240,Math.min(3840,Number(d.v)||0)); aplicarPerfilVideo(par); }
     else if(d.t==='dec'){
@@ -3880,6 +3886,37 @@ async function aplicarPerfilVideo(par){
           'janela dele ('+par.larguraQueQuer+'px)');
   }
 
+  /* ---------------------------------------------------------------------
+   * O PISO
+   * ---------------------------------------------------------------------
+   * As escadas se multiplicam e ninguém estava somando o resultado. A
+   * captura pode reduzir 2x, o compressor pode reduzir 3x, e o total —
+   * 6x — nunca passou pela cabeça de nenhuma das duas, porque cada uma
+   * só conhece o próprio degrau. Foi assim que uma tela de 1280 virou
+   * 288 de largura no painel do André.
+   *
+   * (p.l já é o tamanho DEPOIS da captura reduzida, então este piso pega
+   * as duas escadas de uma vez.)
+   *
+   * Abaixo de 640 de largura, transmitir um jogo é teatro: não se lê um
+   * nome, não se vê o radar, não dá para acompanhar nada. Melhor mandar
+   * menos quadros de uma imagem legível do que muitos de um borrão.
+   *
+   * O piso cede quando existe APERTO MEDIDO — se a internet realmente não
+   * comporta, imagem feia é melhor que imagem nenhuma. O que ele barra é
+   * encolher por palpite, que era o caso aqui: 5 ms de ping e caminho
+   * direto. */
+  const apertoAgora = !!par.apertado || (par.perda||0) > 1.5;
+  const piso = apertoAgora ? 320 : 640;
+  const cabeAteAqui = Math.max(1, p.l/piso);
+  if(encolher > cabeAteAqui){
+    const seguro = DEGRAUS.filter(d=>d<=cabeAteAqui).pop() || 1;
+    if(seguro < encolher){
+      porque.push('(segurei no piso de '+piso+'px)');
+      encolher = seguro;
+    }
+  }
+
   let fps = seguraFps ? p.fps : (a.fator<0.45 ? Math.min(30,p.fps) : p.fps);
 
   /* O amigo saiu da aba há mais de 20 segundos. Vale economizar — mas com
@@ -3973,6 +4010,17 @@ async function aplicarPerfilVideo(par){
     par.porqueTamanho = explicacao;
     if(est.streamTela) marcar('tamanho para '+(par.nome||'amigo')+': '+
       Math.round(p.l/encolher)+'px — '+explicacao);
+  }
+  /* O André olhou o painel e perguntou "por que a resolução fica mudando?".
+     A resposta existia — inteira, com nome e motivo — mas só na máquina de
+     QUEM MANDA. Quem recebe via o resultado e nenhuma explicação, que é a
+     pior combinação possível: dá para ver que está ruim e não dá para
+     saber de quem é a vez. São dois números e uma frase; cabem no canal. */
+  const recadoTam = explicacao+'|'+Math.round(p.l/encolher)+'|'+(tetoDaFonte()||0)+'|'+p.fps;
+  if(canalDe(par) && par.ultimoRecadoTam !== recadoTam){
+    par.ultimoRecadoTam = recadoTam;
+    enviar(par,{t:'porque', v:{q:explicacao, l:Math.round(p.l/encolher),
+                               tf:tetoDaFonte()||0, alvo:p.fps}});
   }
   // Você pediu fluidez — então é fluidez que o navegador tem que segurar.
   // Aqui ia "balanced", um meio-termo que cedia quadros JUNTO com
@@ -4614,6 +4662,8 @@ function zerarAuto(par){
   a.degrau=1; a.degrauQuer=1; a.degrauFirme=0; a.quandoDegrau=0; a.banda=0;
   a.degrauBanda=1; a.degrauFps=1; a.fpsRuim=0; a.fpsBom=0; a.quandoFps=0;
   a.euSouOTeto=false; a.folgado=0; a.esperaSubida=15000; a.quandoSubiu=0;
+  a.provando=0; a.fpsAntes=0; a.fpsInutil=0; a.avisouTeto=false; a.avisouFonte=false;
+  par.ultimoRecadoTam=null;
   par.tetoAplicado=0; par.quandoAperto=0;
   par.perfilAplicado=null;
 }
@@ -4753,26 +4803,83 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
    * quadros não chegam ao alvo a imagem encolhe MAIS, de propósito, até
    * caber. Um 900p a 60 é muito melhor de jogar que um 1080p a 30.
    * ------------------------------------------------------------------ */
-  const alvoFps = p0.fps;
+  /* O alvo não é o que você pediu: é o que a captura sabe entregar. Pedir
+     60 de uma tela que só dá 32 mantém a escada descendo para sempre. */
+  const teto = tetoDaFonte();
+  const alvoFps = teto ? Math.min(p0.fps, teto) : p0.fps;
+  if(teto && !a.avisouTeto){
+    a.avisouTeto = true;
+    marcar('a captura entrega no máximo '+teto+' quadros — passei a mirar nisso, '+
+           'em vez de encolher a imagem atrás de '+p0.fps+' que não existem');
+  }
   if(cfg.prioridade!=='nitidez' && fpsAgora>0){
     if(fpsAgora < alvoFps*0.75) a.fpsRuim++; else a.fpsRuim=0;
     if(fpsAgora > alvoFps*0.92) a.fpsBom++;  else a.fpsBom=0;
     const desdeFps = Date.now()-(a.quandoFps||0);
 
+    /* ---------------------------------------------------------------------
+     * A ESCADA TEM QUE OLHAR SE FUNCIONOU
+     * ---------------------------------------------------------------------
+     * Encolhi a imagem para ganhar quadros. Ganhei? Até aqui ninguém
+     * perguntava — a escada descia, olhava o mesmo fps ruim, e descia de
+     * novo, cinco vezes seguidas, até o fim dos degraus. Cada degrau
+     * cobrava um quadro-chave (um solavanco visível) e devolvia nada.
+     *
+     * Oito segundos depois de descer, a resposta já existe. Se os quadros
+     * não subiram pelo menos 12%, o tamanho não era o problema: desfaz o
+     * degrau e para de tentar por um minuto e meio. Um remédio que não
+     * curou não vira dose dupla. */
+    if(a.provando && Date.now()-a.provando > 8000){
+      const ganhou = fpsAgora >= (a.fpsAntes||0)*1.12;
+      a.provando = 0;
+      if(!ganhou && a.degrauFps>1){
+        const i = Math.max(0, DEGRAUS.indexOf(a.degrauFps));
+        a.degrauFps = DEGRAUS[Math.max(0, i-1)];
+        a.quandoFps = Date.now(); a.fpsRuim=0; a.fpsBom=0;
+        a.degrau = Math.max(a.degrauBanda, a.degrauFps);
+        a.fpsInutil = Date.now();
+        a.motivo = 'encolher não devolveu quadros — o tamanho não é o problema';
+        marcar('desfiz o degrau: a imagem ficou menor e os quadros continuaram em '+
+               fpsAgora+' — encolher aqui não adianta, parei de tentar por 90s');
+        await aplicarPerfilVideo(par);
+        return;
+      }
+      if(ganhou) marcar('o degrau valeu: '+(a.fpsAntes|0)+' -> '+fpsAgora+' quadros');
+    }
+
     // Queda leve merece paciência — remexer no compressor custa um soluço.
     // Mas queda para menos da metade do alvo não é oscilação, é problema:
     // esperar treze segundos numa partida é uma eternidade.
     const desabou = fpsAgora < alvoFps*0.45;
+    /* O compressor já está engolindo tudo o que a captura entrega: o
+       gargalo está ANTES do Bigas Voice, e nenhum tamanho conserta isso.
+       É sobre ESTE segundo — a fonte que oscila não vira teto firme, mas
+       ainda assim segura os quadros enquanto está lá embaixo. */
+    const HF = est.histFonte||[];
+    const fonteAgora = HF.length ? HF[HF.length-1] : 0;
+    const fonteEhOLimite = fonteAgora>0 && fpsAgora >= fonteAgora*0.9 &&
+                           fonteAgora < alvoFps*0.9;
+    const desistiu = a.fpsInutil && Date.now()-a.fpsInutil < 90000;
     if((a.fpsRuim>=5 && desdeFps>8000) || (desabou && a.fpsRuim>=2 && desdeFps>3000)){
+      if(fonteEhOLimite){
+        if(!a.avisouFonte){
+          a.avisouFonte = true;
+          marcar('não vou encolher: o compressor entrega '+fpsAgora+' e a captura só dá '+
+                 fonteAgora+' — quem segura os quadros é a captura do Windows');
+        }
+      }
+      else if(!desistiu){
       const i = Math.max(0, DEGRAUS.indexOf(a.degrauFps));
       const prox = DEGRAUS[Math.min(DEGRAUS.length-1, i+1)];
       if(prox!==a.degrauFps){
         a.degrauFps=prox; a.quandoFps=Date.now(); a.fpsRuim=0;
         a.degrau=Math.max(a.degrauBanda, a.degrauFps);
+        a.fpsAntes=fpsAgora; a.provando=Date.now();
         a.motivo='imagem menor para segurar os '+alvoFps+' quadros';
         marcar('escada dos QUADROS: imagem '+prox+'x menor (fps estava em '+fpsAgora+', alvo '+alvoFps+')');
         await aplicarPerfilVideo(par);
         return;
+      }
       }
     }
     // devolver tamanho é luxo: só depois de 25 s inteiros no alvo
@@ -5026,6 +5133,45 @@ function codecDeResgate(par){
 
 function descompressorDesistiu(impl){
   return /fallback/i.test(String(impl||''));
+}
+
+/* ---------------------------------------------------------------------
+ * O TETO QUE A CAPTURA IMPÕE
+ * ---------------------------------------------------------------------
+ * Três fotos do painel do André, na mesma call, minutos de diferença:
+ *
+ *     568x426 -> 32 fps
+ *     480x360 -> 33 fps
+ *     288x216 -> 32 fps
+ *
+ * A imagem encolheu quatro vezes e os quadros não se mexeram. Isso não é
+ * ruído: é prova. O que limita não é o tamanho, e o Bigas Voice passou
+ * todo esse tempo encolhendo a imagem para consertar uma coisa que o
+ * tamanho não conserta — até 288 de largura, onde não se lê um nome nem
+ * se vê o radar.
+ *
+ * A conta estava errada num ponto simples: o alvo era sempre o do perfil
+ * (60), e o compressor nunca ia chegar lá porque a CAPTURA do Windows só
+ * entregava 32. Perseguir um alvo impossível não é ambição, é um laço
+ * infinito com a imagem como moeda.
+ *
+ * Então a gente mede o teto e o adota. Um 1280x960 firme a 32 vale
+ * infinitamente mais, para jogar, do que um 288x216 tremendo a 32.
+ *
+ * O cuidado é distinguir "a captura está capada" de "a tela está
+ * parada". Quem separa é o PICO, não a média: se em trinta segundos a
+ * fonte alcançou o alvo UMA vez, ela sabe alcançar — o resto é a tela
+ * sem novidade. Se nem o pico chega perto, existe teto de verdade.
+ * ------------------------------------------------------------------ */
+function tetoDaFonte(){
+  const H = est.histFonte;
+  if(!est.streamTela || !H || H.length < 20) return 0;
+  const alvo = perfilReal().fps;
+  if(!alvo) return 0;
+  const topo = Math.max(...H);
+  if(topo >= alvo*0.85) return 0;         // ela alcança quando tem o que mandar
+  if(medianaDe(H) < alvo*0.15) return 0;  // tela parada: não dá para concluir nada
+  return Math.max(15, Math.round(topo));
 }
 
 function capturaSuspeita(H, alvo){
@@ -6030,6 +6176,15 @@ async function atualizarNumeros(){
     if(x.par.porqueTamanho && est.streamTela)
       linha('Por que esse tamanho', x.par.porqueTamanho,
             x.par.porqueTamanho==='nada segurando' ? 'bom' : 'medio');
+    // e agora o outro lado da conversa: por que a imagem DELE está assim
+    if(x.par.porqueDele && x.par.temTela){
+      const pd = x.par.porqueDele;
+      linha('Ele está mandando', pd.l+'px — '+pd.q,
+            pd.q==='nada segurando' ? 'bom' : 'medio');
+      if(pd.tf>0 && pd.alvo>0 && pd.tf < pd.alvo*0.85)
+        linha('A tela DELE só entrega', pd.tf+' de '+pd.alvo+' quadros — '+
+              'é a captura do Windows dele, não a internet','medio');
+    }
     if(x.par.sumiu) linha('Ele saiu da aba', 'estou mandando pouco de propósito','medio');
     if(document.hidden) linha('Você está fora da aba', 'ele pode estar economizando','medio');
     if(x.par.auto && x.par.auto.motivo) linha('Ajuste automático', x.par.auto.motivo,'medio');
