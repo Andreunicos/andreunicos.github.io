@@ -2730,6 +2730,40 @@ async function principal() {
            socorroNitidez.primeiraEmergencia + 'x -> ' + socorroNitidez.devolveu + 'x')
       : mal('ficou preso no degrau de emergência para sempre', String(socorroNitidez.devolveu));
 
+    /* ============ 63. duas idas e voltas já bastam ============ */
+    console.log('\n=== 63. Um caderninho real levou 6 minutos para reconhecer o segundo monitor — e agora? ===');
+    const doisCliques = await B.evaluate(async () => {
+      const fingir = async (v) => {
+        if (!window.__stub63) {
+          window.__stub63 = true;
+          Object.defineProperty(document, 'hidden', { configurable: true, get: () => !!window.__escondido63 });
+        }
+        window.__escondido63 = v;
+        document.dispatchEvent(new Event('visibilitychange'));
+        await new Promise(r => setTimeout(r, 60));
+      };
+      const eraNao = est.naoEconomizar, eraIdas = est.idasEVoltas;
+      est.naoEconomizar = false; est.idasEVoltas = 0;
+
+      await fingir(true); await fingir(false);
+      const depoisDeUma = { naoEconomizar: !!est.naoEconomizar, idas: est.idasEVoltas };
+
+      await fingir(true); await fingir(false);
+      const depoisDeDuas = { naoEconomizar: !!est.naoEconomizar, idas: est.idasEVoltas };
+
+      est.naoEconomizar = eraNao; est.idasEVoltas = eraIdas;
+      return { depoisDeUma, depoisDeDuas };
+    });
+    info('depois de 1 ida-e-volta: ' + JSON.stringify(doisCliques.depoisDeUma) +
+         ' | depois de 2: ' + JSON.stringify(doisCliques.depoisDeDuas));
+    !doisCliques.depoisDeUma.naoEconomizar
+      ? ok('uma ida-e-volta sozinha ainda não é prova de segundo monitor')
+      : mal('desistiu cedo demais, com só uma repetição', JSON.stringify(doisCliques.depoisDeUma));
+    doisCliques.depoisDeDuas.naoEconomizar
+      ? ok('mas DUAS já bastam agora — no caderninho real isso levou 6 minutos a mais do que devia',
+           doisCliques.depoisDeDuas.idas + ' idas e voltas')
+      : mal('ainda exige 3, continua lento para reconhecer o padrão', JSON.stringify(doisCliques.depoisDeDuas));
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

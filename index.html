@@ -202,7 +202,7 @@ input[type=range]{width:100%;accent-color:var(--azul)}
 .av.fala{border-color:var(--verde);box-shadow:0 0 0 3px rgba(63,208,122,.2)}
 .ficha-txt{line-height:1.25}
 .ficha-nome{font-size:12.5px;font-weight:600}
-.ficha-sub{font-size:10.5px;color:var(--txt3)}
+.ficha-sub{font-size:10.5px;color:var(--txt2)}
 .pin{
   display:inline-flex;align-items:center;gap:6px;padding:5px 12px;
   background:var(--sup);border:1px solid var(--linha);border-radius:30px;
@@ -2256,7 +2256,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.6 — 03/09 — piso mesmo em nitidez';
+const VERSAO = '6.7 — 03/09 — dois cliques bastam';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -8217,7 +8217,7 @@ document.addEventListener('visibilitychange', ()=>{
   if(!document.hidden){
     if(est.quandoSumi && Date.now()-est.quandoSumi < 60000){
       est.idasEVoltas = (est.idasEVoltas||0)+1;
-      if(est.idasEVoltas>=3 && !est.naoEconomizar){
+      if(est.idasEVoltas>=2 && !est.naoEconomizar){
         est.naoEconomizar = true;
         marcar('você fica indo e voltando — parei de economizar (deve ser segundo monitor)');
       }
