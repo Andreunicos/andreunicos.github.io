@@ -2256,7 +2256,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.7 — 03/09 — dois cliques bastam';
+const VERSAO = '6.8 — 03/09 — congelada ou só lenta';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -4395,13 +4395,31 @@ async function testarCaptura(){
    * movimento, este teste não conclui nada — e dizer "não sei" é melhor
    * do que mandar alguém reiniciar o PC à toa.
    * ------------------------------------------------------------------ */
-  const medir = async (segundos)=>{
+  const medir = async (segundos, colherPixels)=>{
     est.histFonte = []; est.olhouCaptura = 0;
     const marca = registro.linhas.length;
-    await new Promise(r=>setTimeout(r, segundos*1000));
+    let amostras = [];
+    if(colherPixels){
+      const jaAcordada = !est.previaDormindo;
+      espiarPrevia();
+      const v = $('v-eu');
+      const passos = Math.max(2, Math.floor(segundos*1000/700));
+      for(let i=0; i<passos; i++){
+        await new Promise(r=>setTimeout(r, 700));
+        amostras.push(amostrarVideoNumerico(v));
+      }
+      if(!jaAcordada) pararDeDesenharPrevia();
+    } else {
+      await new Promise(r=>setTimeout(r, segundos*1000));
+    }
     const novas = registro.linhas.slice(marca);
+    const validas = amostras.filter(Boolean);
+    let congelada = validas.length>=2;
+    for(let i=1; congelada && i<validas.length; i++)
+      if(diferencaEntreAmostras(validas[i-1], validas[i]) > 0.6) congelada = false;
     return { fps: medianaDe(est.histFonte||[]),
-             kbps: medianaDe(novas.map(l=>l.kbps||0)) };
+             kbps: medianaDe(novas.map(l=>l.kbps||0)),
+             congelada: colherPixels ? congelada : null };
   };
 
   try{
@@ -4412,7 +4430,7 @@ async function testarCaptura(){
     btn.textContent = 'medindo no tamanho de agora…';
     saida.textContent = 'Deixe o JOGO EM MOVIMENTO por uns 20 segundos — sem movimento eu não '+
                         'consigo medir nada.';
-    const a1 = await medir(9);
+    const a1 = await medir(9, true);
 
     btn.textContent = 'medindo num tamanho bem menor…';
     await aplicarDegrauCaptura(ESCADA_CAPTURA.length-1);
@@ -4438,16 +4456,24 @@ async function testarCaptura(){
             ' quadros; num quarto do tamanho, '+pequeno+' — '+Math.round(ganho*100)+'% a mais. '+
             'Falta placa para copiar tantos pixels. Deixe ligado o "socorrer os quadros", '+
             'ou escolha 720p na mão.';
+    }else if(a1.congelada){
+      txt = 'A CAPTURA ESTÁ CONGELADA — o mesmo quadro se repetindo, byte a byte, durante os '+
+            '9 segundos de teste. Isto não é falta de placa: é o Windows bloqueando QUALQUER '+
+            'programa de ver essa tela nesse modo (tela cheia EXCLUSIVA de verdade). Não '+
+            'existe ajuste, aqui ou em qualquer outro programa de captura, que resolva isto — '+
+            'só troca o jogo para "Janela Sem Borda" nas configurações de vídeo dele.';
     }else{
-      txt = 'O tamanho NÃO MUDA NADA — e isso é a resposta. No tamanho de agora a tela '+
-            'entregou '+cheio+' quadros; num quarto do tamanho, '+pequeno+'. Se fosse falta '+
-            'de placa para copiar pixels, o menor teria rendido muito mais. Não rendeu: o que '+
-            'limita não é QUANTO se copia, é a frequência com que o Windows deixa copiar. '+
-            'Duas causas, nesta ordem: (1) o jogo em TELA CHEIA EXCLUSIVA — troque para '+
-            'JANELA SEM BORDA, é o conserto de longe mais provável; (2) "Agendamento de GPU '+
-            'acelerado por hardware" desligado — ligue em Configurações › Sistema › Vídeo › '+
-            'Elementos Gráficos e reinicie o PC. Trocar a qualidade aqui dentro não vai '+
-            'resolver nenhum dos dois.';
+      txt = 'O tamanho NÃO MUDA NADA, mas a imagem está VIVA (não congelada) — e isso é a '+
+            'resposta. No tamanho de agora a tela entregou '+cheio+' quadros; num quarto do '+
+            'tamanho, '+pequeno+'. Se fosse falta de placa para copiar pixels, o menor teria '+
+            'rendido muito mais. Não rendeu: o que limita não é QUANTO se copia, é a '+
+            'frequência com que o Windows deixa copiar — mas ele DEIXA, só devagar (se fosse '+
+            'bloqueio total, a imagem estaria CONGELADA, não devagar). O Bigas Voice já se '+
+            'adapta sozinho a esse teto (modo Sozinho). Duas causas, nesta ordem: (1) o jogo '+
+            'em TELA CHEIA EXCLUSIVA — troque para JANELA SEM BORDA, é o conserto de longe '+
+            'mais provável; (2) "Agendamento de GPU acelerado por hardware" desligado — ligue '+
+            'em Configurações › Sistema › Vídeo › Elementos Gráficos e reinicie o PC. Trocar '+
+            'a qualidade aqui dentro não vai resolver nenhum dos dois.';
     }
     saida.textContent = txt;
     marcar('teste da captura: cheio '+cheio+' / pequeno '+pequeno+' quadros — '+
@@ -5516,6 +5542,46 @@ function capturaSuspeita(H, alvo){
   return meio >= alvo*0.15 && meio < alvo*0.6;
 }
 
+/* Ver o comentário grande logo antes de onde isto é chamado, em
+   anotarLinha. Async e sem "await" no chamador de propósito: ela mesma
+   decide a mensagem quando terminar, uns 900ms depois — não vale travar
+   o resto do laço de números esperando isso. */
+async function investigarCongelamento(agora, alvoF){
+  const jaAcordada = !est.previaDormindo;
+  espiarPrevia();
+  await new Promise(r=>setTimeout(r, 300));
+  const v = $('v-eu');
+  const amostras = [];
+  for(let i=0; i<3; i++){
+    amostras.push(amostrarVideoNumerico(v));
+    if(i<2) await new Promise(r=>setTimeout(r, 400));
+  }
+  if(!jaAcordada) pararDeDesenharPrevia();
+
+  const validas = amostras.filter(Boolean);
+  let congelada = validas.length>=2;
+  for(let i=1; congelada && i<validas.length; i++)
+    if(diferencaEntreAmostras(validas[i-1], validas[i]) > 0.6) congelada = false;
+
+  if(congelada){
+    marcar('a captura está CONGELADA (mesmo quadro se repetindo) — isso é bloqueio do '+
+           'Windows, não falta de placa');
+    recado('Sua tela parou de atualizar de verdade — o mesmo quadro está se repetindo. Isso é '+
+           'o Windows bloqueando QUALQUER programa de ver essa tela nesse modo (tela cheia '+
+           'EXCLUSIVA de verdade — mais rara hoje em dia, mas existe). Não existe ajuste aqui '+
+           'dentro que resolva: troque o jogo para "Janela Sem Borda" nas configurações de '+
+           'vídeo dele.','mal');
+  }else{
+    marcar('a tela entrega '+agora+' quadros FIRMES e você pediu '+alvoF+
+           ' — a imagem está viva, só mais devagar que o alvo (não é o envio do Bigas Voice)');
+    recado('Sua tela entrega só '+agora+' quadros por segundo, antes de o Bigas Voice tocar '+
+           'nela — mas a imagem está viva, não travada. O Bigas Voice já ajusta sozinho o '+
+           'tamanho e a taxa para o que a captura der. Se quiser mais fps, tente o jogo em '+
+           'JANELA SEM BORDA e confira o "Agendamento de GPU acelerado por hardware" nas '+
+           'configurações gráficas do Windows.','mal');
+  }
+}
+
 function anotarLinha(x){
   const f = x.fonte;
 
@@ -5543,11 +5609,7 @@ function anotarLinha(x){
     H.push(agora); if(H.length>30) H.shift();
     if(capturaSuspeita(H, alvoF) && !est.avisouCaptura){
       est.avisouCaptura = true;
-      marcar('a tela entrega '+agora+' quadros FIRMES e você pediu '+alvoF+
-             ' — isso é a captura do Windows, não o envio do Bigas Voice');
-      recado('Sua tela entrega só '+agora+' quadros por segundo, antes de o Bigas Voice tocar nela. '+
-             'Tente o jogo em JANELA SEM BORDA e ligue o "Agendamento de GPU acelerado por '+
-             'hardware" nas configurações gráficas do Windows.','mal');
+      investigarCongelamento(agora, alvoF);
     }
   }
   registro.linhas.push({
@@ -7429,24 +7491,44 @@ async function conferirAtualizacao(){
  * olha os pixels de verdade. Se der tudo zero, a imagem é preta na
  * origem e não adianta mexer em tela nenhuma.
  * ------------------------------------------------------------------ */
-function amostrarVideo(v){
+/* O núcleo de amostrarVideo, sem formatar em texto — para poder COMPARAR
+   duas amostras entre si, não só descrever uma. O canvas é reaproveitado
+   (32x18 é minúsculo, mas criar um elemento novo por segundo ainda é
+   lixo à toa para o coletor). */
+function amostrarVideoNumerico(v){
   try{
-    if(!v || !v.videoWidth) return 'sem imagem (0×0)';
-    const c=document.createElement('canvas');
+    if(!v || !v.videoWidth) return null;
+    const c = est.canvasAmostra || (est.canvasAmostra = document.createElement('canvas'));
     c.width=32; c.height=18;
     const g=c.getContext('2d',{willReadFrequently:true});
     g.drawImage(v,0,0,32,18);
     const d=g.getImageData(0,0,32,18).data;
+    const luma = new Float32Array(d.length/4);
     let soma=0, min=255, max=0, vivos=0;
-    for(let i=0;i<d.length;i+=4){
+    for(let i=0,j=0;i<d.length;i+=4,j++){
       const b=(d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114);
-      soma+=b; if(b<min)min=b; if(b>max)max=b; if(b>8)vivos++;
+      luma[j]=b; soma+=b; if(b<min)min=b; if(b>max)max=b; if(b>8)vivos++;
     }
-    const n=d.length/4;
-    return 'brilho médio '+(soma/n).toFixed(1)+'/255 | mais escuro '+Math.round(min)+
-           ' | mais claro '+Math.round(max)+' | pixels com luz '+vivos+' de '+n+
-           (max<=8 ? '  <<< IMAGEM TOTALMENTE PRETA' : '');
-  }catch(e){ return 'não consegui olhar os pixels: '+(e&&e.name||e); }
+    return { luma, media:soma/luma.length, min, max, vivos, total:luma.length };
+  }catch{ return null; }
+}
+
+/* Diferença média de brilho, pixel a pixel, entre duas amostras da MESMA
+   grade. Zero (ou perto disso) quer dizer "o mesmo quadro de novo" — é
+   isso que separa captura CONGELADA de captura só LENTA. */
+function diferencaEntreAmostras(a, b){
+  if(!a || !b || a.luma.length!==b.luma.length) return null;
+  let soma=0;
+  for(let i=0;i<a.luma.length;i++) soma += Math.abs(a.luma[i]-b.luma[i]);
+  return soma/a.luma.length;
+}
+
+function amostrarVideo(v){
+  const s = amostrarVideoNumerico(v);
+  if(!s) return 'sem imagem (0×0)';
+  return 'brilho médio '+s.media.toFixed(1)+'/255 | mais escuro '+Math.round(s.min)+
+         ' | mais claro '+Math.round(s.max)+' | pixels com luz '+s.vivos+' de '+s.total+
+         (s.max<=8 ? '  <<< IMAGEM TOTALMENTE PRETA' : '');
 }
 
 function oQueEstaDesenhado(){

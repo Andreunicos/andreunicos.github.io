@@ -2764,6 +2764,98 @@ async function principal() {
            doisCliques.depoisDeDuas.idas + ' idas e voltas')
       : mal('ainda exige 3, continua lento para reconhecer o padrão', JSON.stringify(doisCliques.depoisDeDuas));
 
+    /* ============ 64. a diferença entre duas amostras de pixel ============ */
+    console.log('\n=== 64. diferencaEntreAmostras reconhece "mesmo quadro" e "quadro diferente"? ===');
+    const diferenca = await A.evaluate(() => {
+      const feita = (vals) => ({ luma: Float32Array.from(vals) });
+      const iguais   = diferencaEntreAmostras(feita([10,20,30,200]), feita([10,20,30,200]));
+      const parecidas= diferencaEntreAmostras(feita([10,20,30,200]), feita([10.3,20.2,30,200.1]));
+      const bemDiferentes = diferencaEntreAmostras(feita([10,20,30,200]), feita([80,90,15,40]));
+      const tamanhoDiferente = diferencaEntreAmostras(feita([1,2,3]), feita([1,2]));
+      const semAmostra = diferencaEntreAmostras(null, feita([1,2,3]));
+      return { iguais, parecidas, bemDiferentes, tamanhoDiferente, semAmostra };
+    });
+    info(JSON.stringify(diferenca));
+    (diferenca.iguais === 0)
+      ? ok('duas amostras idênticas dão diferença zero')
+      : mal('amostras iguais não deram zero', String(diferenca.iguais));
+    (diferenca.parecidas < 0.6)
+      ? ok('ruído mínimo de recompressão não conta como "mudou"', diferenca.parecidas.toFixed(3))
+      : mal('um ruído pequeno já contaria como imagem viva', String(diferenca.parecidas));
+    (diferenca.bemDiferentes > 0.6)
+      ? ok('uma imagem realmente diferente passa longe do limiar', diferenca.bemDiferentes.toFixed(1))
+      : mal('duas amostras bem diferentes não cruzaram o limiar', String(diferenca.bemDiferentes));
+    (diferenca.tamanhoDiferente === null && diferenca.semAmostra === null)
+      ? ok('grades de tamanho diferente ou amostra ausente não quebram — devolvem null')
+      : mal('não tratou entrada inválida', JSON.stringify(diferenca));
+
+    /* ============ 65. o aviso automático separa CONGELADA de SÓ LENTA ============ */
+    console.log('\n=== 65. Mesma contagem de quadros, veredito oposto: congelou ou só está devagar? ===');
+    const autoDetector = await A.evaluate(async () => {
+      const eraFn = window.amostrarVideoNumerico;
+      const eraMarcos = registro.marcos.length;
+
+      const rodar = async (congelarDeVerdade) => {
+        let n = 0;
+        window.amostrarVideoNumerico = () => {
+          n++;
+          const base = congelarDeVerdade ? 100 : 100 + n * 50;
+          return { luma: new Float32Array(6).fill(base), media: base, min: base, max: base,
+                   vivos: 6, total: 6 };
+        };
+        await investigarCongelamento(31, 60);
+        window.amostrarVideoNumerico = eraFn;
+        return registro.marcos[registro.marcos.length - 1].txt;
+      };
+
+      const congelada = await rodar(true);
+      const viva = await rodar(false);
+      registro.marcos.length = eraMarcos;   // não sujar o resto da suíte
+      return { congelada, viva };
+    });
+    info('congelada -> ' + autoDetector.congelada + ' | viva -> ' + autoDetector.viva);
+    /CONGELADA/.test(autoDetector.congelada)
+      ? ok('três amostras idênticas: acusa CONGELADA (bloqueio do Windows, não falta de placa)')
+      : mal('não reconheceu o congelamento de verdade', autoDetector.congelada);
+    (/viva/.test(autoDetector.viva) && !/CONGELADA/.test(autoDetector.viva))
+      ? ok('três amostras diferentes, mesma contagem de quadros baixa: diz que está VIVA, só devagar',
+           autoDetector.viva)
+      : mal('confundiu imagem viva e devagar com imagem bloqueada', autoDetector.viva);
+
+    /* ============ 66. o teste manual (🔬) também separa os dois casos ============ */
+    console.log('\n=== 66. O botão de testar a captura entrega o mesmo veredito, agora com CONGELADA? ===');
+    const manualCongelado = await A.evaluate(async () => {
+      cfg.qualidade = '1080-60-8';
+      const faixa = est.streamTela.getVideoTracks()[0];
+      faixa.applyConstraints = async () => {};
+      const relogioReal = window.setTimeout;
+      window.setTimeout = (fn, ms) => relogioReal(fn, ms > 300 ? 20 : ms);
+      const medianaReal = window.medianaDe;
+      let fila = [];
+      window.medianaDe = () => (fila.length ? fila.shift() : 0);
+      const eraAmostra = window.amostrarVideoNumerico;
+      window.amostrarVideoNumerico = () => ({ luma: new Float32Array(4).fill(50), media: 50,
+                                              min: 50, max: 50, vivos: 4, total: 4 });
+
+      fila = [30, 2500, 31, 2500];   // caminho: encolher não rendeu nada
+      zerarSocorroCaptura();
+      est.tamBaseCaptura = { l: 1920, a: 1080 };
+      await testarCaptura();
+      const txt = document.getElementById('resultado-captura').textContent;
+
+      window.setTimeout = relogioReal; window.medianaDe = medianaReal;
+      window.amostrarVideoNumerico = eraAmostra;
+      return txt;
+    });
+    info(manualCongelado.slice(0, 90) + '…');
+    /CAPTURA ESTÁ CONGELADA/.test(manualCongelado)
+      ? ok('com os pixels sempre idênticos durante a medida, o teste manual também diz CONGELADA',
+           'em vez do genérico "duas causas" de antes')
+      : mal('o teste manual não pegou o congelamento', manualCongelado);
+    /Janela Sem Borda/.test(manualCongelado)
+      ? ok('e dá o único conserto que existe para isto — trocar o modo de tela do jogo')
+      : mal('não disse o que fazer', manualCongelado);
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');
