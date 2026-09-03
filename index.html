@@ -1561,7 +1561,7 @@ function desempacotar(codigo){
   // transport-cc é o que mede a banda disponível e deixa o vídeo subir
   const fbTcc = (pt)=> idTcc ? ['a=rtcp-fb:'+pt+' transport-cc'] : [];
 
-  const OPUS = 'minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=128000;usedtx=0';
+  const OPUS = 'minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=128000;usedtx=1';
   const secaoAudio = (mid,ssrc)=>[
     'm=audio 9 UDP/TLS/RTP/SAVPF '+ptA,
     ...comum(mid),
@@ -2020,11 +2020,17 @@ function caiuPraManual(e){
  * para 128 kbps estéreo — é o que separa "voz de rádio" de "voz na sua
  * frente". O Discord grátis manda 64 kbps mono.
  * =================================================================== */
+function novoContextoDeAudio(){
+  return new AudioContext({ sampleRate:48000, latencyHint:'interactive' });
+}
+
 function melhorarAudio(sdp){
   const m=sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/i);
   if(!m) return sdp;
   const pt=m[1];
-  const extras='stereo=1;sprop-stereo=1;maxaveragebitrate=128000;maxplaybackrate=48000;useinbandfec=1;usedtx=0';
+  // usedtx=1: em silêncio o Opus para de mandar pacote — mesma ideia do
+  // OPUS lá em cima, agora no caminho normal (não-manual) da chamada.
+  const extras='stereo=1;sprop-stereo=1;maxaveragebitrate=128000;maxplaybackrate=48000;useinbandfec=1;usedtx=1';
   // O "g" no fim não é detalhe: o SDP tem UMA linha de fmtp por seção de
   // mídia, e existem duas de áudio — a sua voz e o som do jogo. Sem ele
   // só a primeira era corrigida, ou seja: a voz ia em 128 kbps estéreo e
@@ -2224,7 +2230,7 @@ async function ligarMicrofone(forcar){
   est.streamMic=novo; est.micLimpar=limpar; est.micDev=dev;
   vigiarMicrofone();
   try{
-    est.ctx=est.ctx||new AudioContext();
+    est.ctx=est.ctx||novoContextoDeAudio();
     if(est.ctx.state==='suspended') await est.ctx.resume();
     try{ est.fonteMic && est.fonteMic.disconnect(); }catch{}
     est.analisador=est.ctx.createAnalyser();
@@ -2284,7 +2290,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.9.2 — 03/09 — paralelo, reciclado e sem mover ficha';
+const VERSAO = '6.9.3 — 03/09 — DTX e áudio na taxa certa';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3056,7 +3062,7 @@ function bater(){
    de saber que o amigo chegou. */
 function toque(subindo){
   try{
-    est.ctx = est.ctx || new AudioContext();
+    est.ctx = est.ctx || novoContextoDeAudio();
     if(est.ctx.state==='suspended') est.ctx.resume();
     const t = est.ctx.currentTime;
     const o = est.ctx.createOscillator(), g = est.ctx.createGain();
@@ -3865,7 +3871,7 @@ function alternarSurdo(){
 function ligarAmplificador(par){
   if(par.ganho) return true;
   try{
-    if(!est.ctx) est.ctx = new AudioContext();
+    if(!est.ctx) est.ctx = novoContextoDeAudio();
     if(est.ctx.state==='suspended') est.ctx.resume();
     if(!par.audio || !par.audio.srcObject) return false;
     par.fonteAudio = est.ctx.createMediaStreamSource(par.audio.srcObject);

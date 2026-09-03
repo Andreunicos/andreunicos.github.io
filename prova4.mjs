@@ -2994,6 +2994,10 @@ async function principal() {
     /* ============ 69. getStats de todo mundo ao mesmo tempo ============ */
     console.log('\n=== 69. atualizarNumeros busca os relatórios de TODOS ao mesmo tempo, não em fila? ===');
     const paralelo = await A.evaluate(async () => {
+      // o intervalo de verdade (a cada 1s) continua rodando durante a suíte
+      // inteira — sem parar ele, uma virada dele NO MEIO da medição chama
+      // getStats() de novo para os mesmos falsos e falseia a contagem
+      pararNumeros();
       document.getElementById('painel').classList.add('aberto');   // precisaAgora = true
 
       const chamadas = [];
@@ -3012,6 +3016,7 @@ async function principal() {
 
       falsos.forEach(f => pares.delete(f.id));
       document.getElementById('painel').classList.remove('aberto');
+      iniciarNumeros();
 
       const espalhamento = chamadas.length ? Math.max(...chamadas) - Math.min(...chamadas) : -1;
       return { total, espalhamento, n: chamadas.length };
