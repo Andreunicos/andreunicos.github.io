@@ -254,6 +254,12 @@ body.liso .palco .quadro video{ border-radius:0 }
 .palco.focado .quadro.em-foco{display:flex}
 body.liso .quadro-tag,
 body.liso .quadro-acoes button{ backdrop-filter:none; background:rgba(8,9,12,.92) }
+/* uma tela só: ninguém precisa ler o nome o tempo todo, e cada pixel
+   pintado por cima do vídeo custa o atalho de hardware inteiro */
+body.liso .quadro-tag{opacity:0; transition:opacity .25s}
+body.liso .quadro:hover .quadro-tag,
+body.liso .quadro:focus-within .quadro-tag,
+body.liso .quadro.revelar .quadro-tag{opacity:1}
 .quadro canvas.pintura{width:100%;height:100%;object-fit:contain;display:block;background:#000}
 body.desenho-canvas .quadro video{display:none}
 /* sem desfoque atrás: em driver ruim é ele que apaga o vídeo */
@@ -2209,8 +2215,8 @@ function nivel(){
   const a = (est.balde && est.balde.length===est.analisador.fftSize)
     ? est.balde : (est.balde = new Uint8Array(est.analisador.fftSize));
   est.analisador.getByteTimeDomainData(a);
-  let s=0; for(let i=0;i<a.length;i++){const v=(a[i]-128)/128;s+=v*v;}
-  return Math.min(100,Math.round(Math.sqrt(Math.sqrt(s/a.length))*145));
+  let s=0; for(let i=0;i<a.length;i++){const v=a[i]-128;s+=v*v;}
+  return Math.min(100,Math.round(Math.sqrt(Math.sqrt((s/a.length)/16384))*145));
 }
 function iniciarMedidor(){
   clearInterval(est.loopNivel);
@@ -2245,7 +2251,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.3 — 03/09 — teto que nao congela';
+const VERSAO = '6.4 — 03/09 — a etiqueta que atrapalhava o atalho';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3492,7 +3498,8 @@ function olharQuadrosPintados(v, par){
   if(par.olhandoQuadros && par.videoOlhado === v) return;
   par.videoOlhado = v;
   par.olhandoQuadros = true;
-  par.intervalos = [];
+  par.intervalos = par.intervalos instanceof Float32Array ? par.intervalos : new Float32Array(240);
+  par.intervalosQtd = 0; par.intervalosIdx = 0;
   let antes = 0;
   const passo = (agora)=>{
     if(par.videoOlhado !== v) return;          // outro medidor assumiu o lugar
@@ -3503,8 +3510,9 @@ function olharQuadrosPintados(v, par){
       // acima de 2 s não é engasgo, é pausa: contaria como buraco gigante
       // e estragaria a média de todo o resto
       if(dt>0 && dt<2000){
-        par.intervalos.push(dt);
-        if(par.intervalos.length>240) par.intervalos.shift();
+        par.intervalos[par.intervalosIdx] = dt;
+        par.intervalosIdx = (par.intervalosIdx+1) % 240;
+        if(par.intervalosQtd<240) par.intervalosQtd++;
       }
     }
     antes = agora;
@@ -3515,7 +3523,7 @@ function olharQuadrosPintados(v, par){
 
 /* Do histórico de intervalos, o que a média esconde. */
 function pacingDe(par){
-  const I = par.intervalos;
+  const I = par.intervalos ? par.intervalos.slice(0, par.intervalosQtd||0) : null;
   if(!I || I.length<20) return null;
   const ord = I.slice().sort((a,b)=>a-b);
   const medio = I.reduce((a,b)=>a+b,0)/I.length;
@@ -3711,8 +3719,13 @@ async function cuidarDaTravaDeTela(){
 function alternarFoco(id){
   est.foco = (est.foco===id) ? null : id;
   arrumarPalco();
-  // a janela mudou de tamanho para quem está focado: pede o tamanho novo
-  avisarTamanhos();
+  // a janela mudou de tamanho para quem está focado: pede o tamanho novo.
+  // Só que arrumarPalco ACABOU de escrever classe em vários elementos, e
+  // ler geometria imediatamente depois de escrever é o gatilho clássico
+  // de reflow forçado — o navegador não pode esperar o próximo quadro,
+  // é obrigado a recalcular ali, na hora. Um instante de folga (o mesmo
+  // que o resize já usa) deixa o layout acontecer no ritmo dele.
+  setTimeout(avisarTamanhos, 0);
 }
 
 function arrumarPalco(){
@@ -5218,7 +5231,7 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
  * desempenho seria o pecado óbvio aqui, então não tem DOM, não tem
  * alocação e a lista é limitada a 10 segundos.
  * ------------------------------------------------------------------ */
-const pulso = { quadros:[], travas:0, msTravado:0, ligado:false };
+const pulso = { quadros:new Float32Array(600), qtd:0, idx:0, travas:0, msTravado:0, ligado:false };
 
 function medirPulso(){
   if(pulso.ligado) return;
@@ -5234,8 +5247,9 @@ function medirPulso(){
       const dt = agora-antes;
       // acima de 1 s não é engasgo, é aba em segundo plano
       if(dt>0 && dt<1000){
-        pulso.quadros.push(dt);
-        if(pulso.quadros.length>600) pulso.quadros.shift();
+        pulso.quadros[pulso.idx] = dt;
+        pulso.idx = (pulso.idx+1) % 600;
+        if(pulso.qtd<600) pulso.qtd++;
       }
     }
     antes = agora;
@@ -5245,7 +5259,9 @@ function medirPulso(){
 }
 
 function resumoDoPulso(){
-  const q = pulso.quadros;
+  // só a leitura (uma vez por segundo) copia e ordena — o LAÇO de cima
+  // nunca faz isso, que é onde o custo por quadro importava
+  const q = pulso.quadros.slice(0, pulso.qtd);
   if(q.length<60) return null;
   const ord = q.slice().sort((a,b)=>a-b);
   const medio = q.reduce((a,b)=>a+b,0)/q.length;

@@ -304,7 +304,7 @@ async function principal() {
     await espera(9000);
     const pac = await B.evaluate(() => {
       const p = [...pares.values()][0];
-      return { olhando: !!p.olhandoQuadros, amostras: (p.intervalos || []).length,
+      return { olhando: !!p.olhandoQuadros, amostras: p.intervalosQtd||0,
                pacing: p.pacing ? { ...p.pacing } : null };
     });
     info('amostras de quadro: ' + pac.amostras + ' | ' + JSON.stringify(pac.pacing));
@@ -325,7 +325,7 @@ async function principal() {
       const p = [...pares.values()][0];
       const v = document.getElementById('v-p-' + p.id);
       return { mesmoElemento: p.videoOlhado === v, olhando: !!p.olhandoQuadros,
-               amostras: (p.intervalos || []).length };
+               amostras: p.intervalosQtd||0 };
     });
     info('amostras depois do redesenho: ' + depois.amostras);
     depois.mesmoElemento ? ok('o medidor migrou para o <video> novo')
@@ -360,7 +360,7 @@ async function principal() {
     console.log('\n=== 10b. O Bigas Voice mede se ELE MESMO está engasgando? ===');
     const pulsoT = await B.evaluate(() => {
       const p = resumoDoPulso();
-      return { ligado: pulso.ligado, amostras: pulso.quadros.length,
+      return { ligado: pulso.ligado, amostras: pulso.qtd,
                resumo: p ? { ...p } : null };
     });
     info('amostras de desenho: ' + pulsoT.amostras + ' | ' + JSON.stringify(pulsoT.resumo));
@@ -2498,6 +2498,172 @@ async function principal() {
       ? ok('e sem nenhum compressor que caiba, ele FALHA aqui em vez de gerar um link torto',
            'antes montava um SDP dizendo VP8 e apontando para o número do H.265')
       : mal('gerou um código que só falharia na casa do amigo', JSON.stringify(manual.soH265));
+
+    /* ============ 58. as réguas de quadro viraram buffer circular ============ */
+    console.log('\n=== 58. push+shift saíram do laço por quadro, sem perder a conta? ===');
+    const anel = await A.evaluate(async () => {
+      // pulso: é global e único — mede o passo, sem nenhum push/shift no meio
+      const eraQ = pulso.quadros, eraIdx = pulso.idx, eraQtd = pulso.qtd;
+      pulso.quadros = new Float32Array(600); pulso.idx = 0; pulso.qtd = 0;
+      const semPushShift = typeof pulso.quadros.push !== 'function' &&
+                           typeof pulso.quadros.shift !== 'function';
+      // 650 amostras: passa da capacidade de 600, tem que dar a volta sem crescer
+      for (let i = 0; i < 650; i++) {
+        pulso.quadros[pulso.idx] = 10 + (i % 5);
+        pulso.idx = (pulso.idx + 1) % 600;
+        if (pulso.qtd < 600) pulso.qtd++;
+      }
+      const capacidadeFixa = pulso.quadros.length === 600;
+      const qtdCravouNoTeto = pulso.qtd === 600;
+      const resumo = resumoDoPulso();
+      pulso.quadros = eraQ; pulso.idx = eraIdx; pulso.qtd = eraQtd;
+
+      // par.intervalos: por pessoa, some e volta quando o medidor reinicia
+      const p = [...pares.values()][0];
+      const eraI = { buf: p.intervalos, idx: p.intervalosIdx, qtd: p.intervalosQtd };
+      p.intervalos = new Float32Array(240); p.intervalosIdx = 0; p.intervalosQtd = 0;
+      for (let i = 0; i < 15; i++) {
+        p.intervalos[p.intervalosIdx] = 16 + i;
+        p.intervalosIdx = (p.intervalosIdx + 1) % 240;
+        if (p.intervalosQtd < 240) p.intervalosQtd++;
+      }
+      const poucoAindaNaoConta = pacingDe(p);   // <20 amostras: null
+      for (let i = 0; i < 220; i++) {
+        p.intervalos[p.intervalosIdx] = 16;
+        p.intervalosIdx = (p.intervalosIdx + 1) % 240;
+        if (p.intervalosQtd < 240) p.intervalosQtd++;
+      }
+      const jaConta = pacingDe(p);
+      p.intervalos = eraI.buf; p.intervalosIdx = eraI.idx; p.intervalosQtd = eraI.qtd;
+
+      return { semPushShift, capacidadeFixa, qtdCravouNoTeto, resumo, poucoAindaNaoConta, jaConta };
+    });
+    info('resumo do pulso com 650 amostras numa capacidade de 600: ' + JSON.stringify(anel.resumo));
+    anel.semPushShift
+      ? ok('Float32Array não tem push/shift — não tem como reintroduzir o custo por acidente')
+      : mal('a régua ainda é um array comum');
+    (anel.capacidadeFixa && anel.qtdCravouNoTeto)
+      ? ok('650 escritas numa capacidade de 600: o índice deu a volta e a contagem parou em 600',
+           'sem crescer o array e sem faltar nenhuma amostra')
+      : mal('a capacidade ou a contagem saiu do esperado', JSON.stringify(anel));
+    (anel.resumo && anel.resumo.fps > 0)
+      ? ok('e o resumo sai normal depois da volta completa do índice', JSON.stringify(anel.resumo))
+      : mal('o resumo quebrou depois de dar a volta no buffer', JSON.stringify(anel.resumo));
+    (anel.poucoAindaNaoConta === null && anel.jaConta && anel.jaConta.fps > 0)
+      ? ok('e por pessoa continua exigindo 20 amostras antes de opinar — nada mudou aí',
+           JSON.stringify(anel.jaConta))
+      : mal('a exigência de amostra mínima se perdeu na troca', JSON.stringify(anel));
+
+    /* ============ 59. a etiqueta do nome some no modo liso ============ */
+    console.log('\n=== 59. Com uma tela só, a etiqueta some e libera o vídeo para o hardware? ===');
+    const L2 = await faz(1000);
+    await L2.goto(BASE, { waitUntil: 'load' });
+    await espera(500);
+    const etiqueta = await L2.evaluate(() => {
+      montarQuadro('sozinho', 'tela sozinha', true, null);
+      arrumarPalco();
+      // um quadro recém-criado se apresenta por 3,4s (.revelar) — é o
+      // ESTADO ESTÁVEL, depois que ele se apresentou, que este teste
+      // quer conferir, não o instante da criação
+      document.getElementById('q-sozinho').classList.remove('revelar');
+      const tag = document.querySelector('#q-sozinho .quadro-tag');
+      const opacidadeLiso = document.body.classList.contains('liso')
+        ? getComputedStyle(tag).opacity : null;
+      // segundo quadro: agora tem DUAS, liso tem que desligar sozinho
+      montarQuadro('sozinho2', 'outra tela', true, null);
+      arrumarPalco();
+      const lisoComDuas = document.body.classList.contains('liso');
+      const opacidadeComDuas = getComputedStyle(
+        document.querySelector('#q-sozinho .quadro-tag')).opacity;
+      document.getElementById('q-sozinho2').remove();
+      document.getElementById('q-sozinho').remove();
+      est.foco = null; arrumarPalco();
+      return { opacidadeLiso, lisoComDuas, opacidadeComDuas };
+    });
+    info('opacidade da etiqueta em liso: ' + etiqueta.opacidadeLiso +
+         ' | com duas telas: ' + etiqueta.opacidadeComDuas);
+    (etiqueta.opacidadeLiso === '0')
+      ? ok('com uma tela só (liso ligado), a etiqueta fica invisível por padrão',
+           'era ela, redonda e semitransparente, que forçava o vídeo para underlay')
+      : mal('a etiqueta continua sempre visível em cima do vídeo', String(etiqueta.opacidadeLiso));
+    (!etiqueta.lisoComDuas && etiqueta.opacidadeComDuas === '1')
+      ? ok('com duas telas o liso desliga sozinho, e aí a etiqueta volta a aparecer sempre',
+           'não tem ambiguidade de "de quem é" quando só existe um quadro')
+      : mal('o comportamento com duas telas não é o esperado', JSON.stringify(etiqueta));
+    await L2.close();
+
+    /* ============ 60. o medidor de voz sem divisão dentro do laço ============ */
+    console.log('\n=== 60. Tirar a divisão de dentro do laço deu o MESMO número? ===');
+    const voz = await A.evaluate(() => {
+      const fabricar = (padrao) => {
+        const a = new Uint8Array(1024);
+        for (let i = 0; i < a.length; i++) a[i] = padrao(i);
+        return a;
+      };
+      const rodar = (a) => {
+        const eraAnalisador = est.analisador, eraBalde = est.balde;
+        est.balde = a;
+        est.analisador = { fftSize: a.length, getByteTimeDomainData: (dst) => dst.set(a) };
+        const r = nivel();
+        est.analisador = eraAnalisador; est.balde = eraBalde;
+        return r;
+      };
+      // três formas de onda bem diferentes: silêncio, cheia, e uma senoide
+      const silencio = rodar(fabricar(() => 128));
+      const cheia = rodar(fabricar((i) => (i % 2 ? 0 : 255)));
+      // amplitude pequena de propósito: com 100 ela clampava no mesmo teto
+      // da onda cheia (as duas em 100), e a comparação não provava nada
+      const senoide = rodar(fabricar((i) => Math.round(128 + 15 * Math.sin(i / 12))));
+      return { silencio, cheia, senoide };
+    });
+    info('silêncio: ' + voz.silencio + ' | cheia: ' + voz.cheia + ' | senoide: ' + voz.senoide);
+    (voz.silencio === 0)
+      ? ok('silêncio continua dando zero')
+      : mal('silêncio deixou de dar zero', String(voz.silencio));
+    (voz.cheia > voz.senoide && voz.senoide > voz.silencio)
+      ? ok('a ordem entre as três formas de onda se mantém: cheia > senoide > silêncio',
+           voz.cheia + ' > ' + voz.senoide + ' > ' + voz.silencio)
+      : mal('a conta nova não bate com a conta antiga', JSON.stringify(voz));
+
+    /* ============ 61. o foco não força layout no mesmo instante ============ */
+    console.log('\n=== 61. Focar uma tela lê a geometria depois de escrever, não junto? ===');
+    const semReflow = await A.evaluate(async () => {
+      // par de mentira, com o vídeo no ID que avisarTamanho($('v-p-'+id))
+      // realmente procura — um peer de verdade da suíte não serve aqui
+      // porque essa função sai antes de tocar em p.avisei quando não acha
+      // o elemento, e isso mascararia a pergunta que este teste faz.
+      const fabricarPar = (id) => {
+        const par = { id, canal: { readyState: 'open' }, pc: {}, avisei: 999,
+                      larguraQueQuer: 0 };
+        montarQuadro('p-' + id, 'tela ' + id, true, null, par);
+        pares.set(id, par);
+        return par;
+      };
+      const p1 = fabricarPar('foco1'), p2 = fabricarPar('foco2');
+      arrumarPalco();
+
+      alternarFoco('foco1');
+      // no instante seguinte ao clique, ainda não pode ter rodado —
+      // é exatamente essa folga que tira o reflow forçado do meio do clique
+      const logoDepois = p1.avisei;
+      await new Promise((r) => setTimeout(r, 50));
+      const depoisDaFolga = p1.avisei;
+
+      pares.delete('foco1'); pares.delete('foco2');
+      document.getElementById('q-p-foco1').remove();
+      document.getElementById('q-p-foco2').remove();
+      est.foco = null; arrumarPalco();
+      return { logoDepois, depoisDaFolga };
+    });
+    info('avisei logo depois do clique: ' + semReflow.logoDepois +
+         ' | depois de uma folga: ' + semReflow.depoisDaFolga);
+    (semReflow.logoDepois === 999)
+      ? ok('avisarTamanhos não roda no MESMO instante que arrumarPalco escreve as classes',
+           'escrever e já ler geometria ali seria o gatilho de reflow forçado')
+      : mal('a leitura de geometria ainda acontece colada na escrita', String(semReflow.logoDepois));
+    (semReflow.depoisDaFolga !== 999)
+      ? ok('e roda logo em seguida, numa folga — o amigo focado recebe o tamanho novo mesmo assim')
+      : mal('a leitura nunca chegou a acontecer', String(semReflow.depoisDaFolga));
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
