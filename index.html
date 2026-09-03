@@ -2256,7 +2256,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.8 — 03/09 — congelada ou só lenta';
+const VERSAO = '6.9 — 03/09 — sufocada ou o teto de verdade';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -4325,6 +4325,7 @@ function medianaDe(H){
 function zerarSocorroCaptura(){
   est.socorro = { degrau:0, fase:'parado', quando:0, antes:0, desistiu:false };
   est.tamBaseCaptura = null;
+  est.sozinhoAvaliou = false;
 }
 
 async function aplicarDegrauCaptura(n){
@@ -4490,6 +4491,9 @@ async function testarCaptura(){
 
 async function socorrerCaptura(){
   if(!est.streamTela || cfg.socorroCaptura===false) return;
+  // dá ao Sozinho a PRIMEIRA tentativa (baixar fps, não resolução) —
+  // ver o comentário grande em escolherSozinho
+  if(cfg.qualidade==='auto' && !est.sozinhoAvaliou) return;
   /* Não adianta socorrer a captura quando o compressor é que está no
      processador: encolher a imagem alivia um pouco e não resolve. Avisa
      e sai do caminho. */
@@ -4582,6 +4586,7 @@ async function escolherSozinho(){
   const H = est.histFonte || [];
   if(H.length < 20) return;                                  // ~20s de medida
   if(Date.now() - (est.sozinhoQuando||0) < 30000) return;    // e sem ficar remexendo
+  est.sozinhoAvaliou = true;   // chegou a olhar os dados — mesmo que não mude nada
 
   const nat = est.tamBaseCaptura || tamanhoDaCaptura();
   if(!nat || !nat.l) return;
@@ -5556,12 +5561,26 @@ async function investigarCongelamento(agora, alvoF){
     amostras.push(amostrarVideoNumerico(v));
     if(i<2) await new Promise(r=>setTimeout(r, 400));
   }
-  if(!jaAcordada) pararDeDesenharPrevia();
-
   const validas = amostras.filter(Boolean);
   let congelada = validas.length>=2;
   for(let i=1; congelada && i<validas.length; i++)
     if(diferencaEntreAmostras(validas[i-1], validas[i]) > 0.6) congelada = false;
+
+  // se está viva, mede o RITMO de verdade — pixel não conta essa história
+  let jitter = null;
+  if(!congelada){
+    const fake = { intervalos: new Float32Array(240), intervalosIdx:0, intervalosQtd:0,
+                   fluxo: est.streamTela, olhandoQuadros:false, videoOlhado:null };
+    olharQuadrosPintados(v, fake);
+    await new Promise(r=>setTimeout(r, 1800));
+    fake.olhandoQuadros = false;
+    const p = pacingDe(fake);
+    // buraco muito maior que o intervalo médio, de forma consistente, é a
+    // marca de "a placa entrega em rajada, não num fio contínuo"
+    if(p) jitter = p.buraco > (1000/p.fps)*3;
+  }
+
+  if(!jaAcordada) pararDeDesenharPrevia();
 
   if(congelada){
     marcar('a captura está CONGELADA (mesmo quadro se repetindo) — isso é bloqueio do '+
@@ -5571,6 +5590,23 @@ async function investigarCongelamento(agora, alvoF){
            'EXCLUSIVA de verdade — mais rara hoje em dia, mas existe). Não existe ajuste aqui '+
            'dentro que resolva: troque o jogo para "Janela Sem Borda" nas configurações de '+
            'vídeo dele.','mal');
+  }else if(jitter === true){
+    marcar('a tela entrega '+agora+' quadros em RAJADAS irregulares — a placa está sufocada, '+
+           'não bloqueada');
+    recado('Sua tela está viva, mas os quadros chegam em rajadas — alguns colados, depois um '+
+           'buraco grande. Isso é a placa de vídeo com fôlego só para o jogo: o jogo está '+
+           'consumindo perto de 100% dela e a captura fica com as sobras. Trave o limite de '+
+           'FPS do jogo (por exemplo 120 ou 144) para abrir uma folga, ou confira o '+
+           '"Agendamento de GPU acelerado por hardware" nas configurações gráficas do '+
+           'Windows.','mal');
+  }else if(jitter === false){
+    marcar('a tela entrega '+agora+' quadros de forma REGULAR — parece ser o teto de verdade, '+
+           'não sufoco');
+    recado('Sua tela entrega só '+agora+' quadros por segundo, mas de forma regular — o mesmo '+
+           'espaço entre um quadro e outro, sempre. Isso não parece sufoco momentâneo: parece '+
+           'ser mesmo o teto do seu monitor ou do jogo nesse modo. O Bigas Voice já se adapta '+
+           'sozinho a esse número (modo Sozinho) — travar o FPS do jogo aqui provavelmente '+
+           'não muda nada.','mal');
   }else{
     marcar('a tela entrega '+agora+' quadros FIRMES e você pediu '+alvoF+
            ' — a imagem está viva, só mais devagar que o alvo (não é o envio do Bigas Voice)');

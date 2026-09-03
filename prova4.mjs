@@ -2817,9 +2817,9 @@ async function principal() {
     /CONGELADA/.test(autoDetector.congelada)
       ? ok('três amostras idênticas: acusa CONGELADA (bloqueio do Windows, não falta de placa)')
       : mal('não reconheceu o congelamento de verdade', autoDetector.congelada);
-    (/viva/.test(autoDetector.viva) && !/CONGELADA/.test(autoDetector.viva))
-      ? ok('três amostras diferentes, mesma contagem de quadros baixa: diz que está VIVA, só devagar',
-           autoDetector.viva)
+    !/CONGELADA/.test(autoDetector.viva)
+      ? ok('três amostras diferentes, mesma contagem de quadros baixa: NÃO diz que está bloqueada',
+           autoDetector.viva.slice(0, 70))
       : mal('confundiu imagem viva e devagar com imagem bloqueada', autoDetector.viva);
 
     /* ============ 66. o teste manual (🔬) também separa os dois casos ============ */
@@ -2855,6 +2855,141 @@ async function principal() {
     /Janela Sem Borda/.test(manualCongelado)
       ? ok('e dá o único conserto que existe para isto — trocar o modo de tela do jogo')
       : mal('não disse o que fazer', manualCongelado);
+
+    /* ============ 67. socorrerCaptura espera o Sozinho avaliar uma vez ============ */
+    console.log('\n=== 67. Duas escadas de captura, o mesmo sinal — o Sozinho tem a primeira tentativa? ===');
+    const coordenacao = await A.evaluate(async () => {
+      const eraQ = cfg.qualidade;
+      const eraAuto = Object.assign({}, PERFIS.auto);
+      const eraHist = est.histFonte;
+      const eraSoc = est.socorro;
+      const eraAvaliou = est.sozinhoAvaliou;
+      const eraTam = est.tamBaseCaptura;
+      const eraSozQuando = est.sozinhoQuando;
+      const eraCompressor = est.compressorNaPlaca;
+
+      let chamouDegrau = 0;
+      const eraAplicar = window.aplicarDegrauCaptura;
+      window.aplicarDegrauCaptura = async () => { chamouDegrau++; return true; };
+
+      const preparar = () => {
+        zerarSocorroCaptura();
+        est.socorro.quando = Date.now() - 20000;   // já passou dos 15s de espera
+        est.histFonte = Array.from({ length: 30 }, (_, i) => 20 + (i % 3));  // firme e baixo
+        est.tamBaseCaptura = { l: 1920, a: 1080 };
+        Object.assign(PERFIS.auto, { l: 1920, a: 1080, fps: 60, mbps: 8 });
+        est.compressorNaPlaca = true;
+      };
+
+      // (a) auto, Sozinho ainda não avaliou: não pode agir
+      cfg.qualidade = 'auto'; est.sozinhoAvaliou = false; preparar();
+      await socorrerCaptura();
+      const antesDeAvaliar = chamouDegrau;
+
+      // (b) o Sozinho avaliou — mesmo sem mudar nada — e isso já libera.
+      // preparar() chama zerarSocorroCaptura(), que reseta sozinhoAvaliou
+      // de propósito — então marca DEPOIS de preparar, não antes.
+      chamouDegrau = 0; preparar(); est.sozinhoAvaliou = true;
+      await socorrerCaptura();
+      const depoisDeAvaliar = chamouDegrau;
+
+      // (c) perfil manual nunca dependeu do Sozinho
+      chamouDegrau = 0; cfg.qualidade = '1080-60-8'; est.sozinhoAvaliou = false; preparar();
+      await socorrerCaptura();
+      const perfilManual = chamouDegrau;
+
+      // (d) escolherSozinho marca "avaliou" mesmo quando decide não mudar nada —
+      // senão um caso SAUDÁVEL travaria o socorro para sempre
+      cfg.qualidade = 'auto'; est.sozinhoAvaliou = false; est.sozinhoQuando = 0;
+      Object.assign(PERFIS.auto, { l: 1920, a: 1080, fps: 60, mbps: 8 });
+      est.compressorNaPlaca = true;
+      est.histFonte = Array.from({ length: 25 }, () => 60);   // já no alvo
+      est.tamBaseCaptura = { l: 1920, a: 1080 };
+      await escolherSozinho();
+      const avaliouSemMudar = est.sozinhoAvaliou;
+
+      // (e) uma nova transmissão reseta o marcador
+      zerarSocorroCaptura();
+      const resetado = est.sozinhoAvaliou;
+
+      window.aplicarDegrauCaptura = eraAplicar;
+      cfg.qualidade = eraQ; Object.assign(PERFIS.auto, eraAuto);
+      est.histFonte = eraHist; est.socorro = eraSoc; est.sozinhoAvaliou = eraAvaliou;
+      est.tamBaseCaptura = eraTam; est.sozinhoQuando = eraSozQuando;
+      est.compressorNaPlaca = eraCompressor;
+      return { antesDeAvaliar, depoisDeAvaliar, perfilManual, avaliouSemMudar, resetado };
+    });
+    info(JSON.stringify(coordenacao));
+    (coordenacao.antesDeAvaliar === 0)
+      ? ok('no Sozinho, socorrerCaptura não mexe em resolução antes de o Sozinho avaliar uma vez')
+      : mal('agiu antes do Sozinho ter a primeira chance', String(coordenacao.antesDeAvaliar));
+    (coordenacao.depoisDeAvaliar >= 1)
+      ? ok('depois que o Sozinho avaliou (mesmo sem mudar nada), socorrerCaptura pode agir')
+      : mal('ficou bloqueado para sempre, mesmo com o Sozinho já tendo avaliado',
+            String(coordenacao.depoisDeAvaliar));
+    (coordenacao.perfilManual >= 1)
+      ? ok('num perfil manual (sem Sozinho ligado), socorrerCaptura nunca dependeu disso')
+      : mal('o perfil manual ficou preso esperando um Sozinho que nem está ligado',
+            String(coordenacao.perfilManual));
+    (coordenacao.avaliouSemMudar === true)
+      ? ok('escolherSozinho marca "avaliou" mesmo sem mudar nada — senão travaria o socorro para sempre')
+      : mal('só marca avaliou quando muda algo — bloquearia o socorro pra sempre num caso saudável',
+            String(coordenacao.avaliouSemMudar));
+    (coordenacao.resetado === false)
+      ? ok('e uma nova transmissão (zerarSocorroCaptura) reseta o marcador')
+      : mal('o marcador sobreviveu a uma nova transmissão', String(coordenacao.resetado));
+
+    /* ============ 68. o ritmo separa "sufocada" de "é mesmo o teto" ============ */
+    console.log('\n=== 68. Mesma contagem de quadros: rajada (sufoco) ou regular (teto de verdade)? ===');
+    const ritmo = await A.evaluate(async () => {
+      const eraAmostra = window.amostrarVideoNumerico;
+      const eraOlhar = window.olharQuadrosPintados;
+      const eraPacing = window.pacingDe;
+      const eraAvisou = est.avisouCaptura;
+      const eraTimeout = window.setTimeout;
+      window.setTimeout = (fn, ms) => eraTimeout(fn, ms > 1000 ? 50 : ms);
+
+      let n = 0;
+      // pixels sempre diferentes: nunca cai no ramo CONGELADA, sempre chega no ritmo
+      window.amostrarVideoNumerico = () => {
+        n++; return { luma: new Float32Array(4).fill(100 + n * 50), media: 100, min: 90,
+                       max: 110, vivos: 4, total: 4 };
+      };
+      window.olharQuadrosPintados = () => {};   // o pacing vem todo do mock abaixo
+
+      const rodar = async (pacing) => {
+        est.avisouCaptura = false;
+        window.pacingDe = () => pacing;
+        await investigarCongelamento(31, 60);
+        return registro.marcos[registro.marcos.length - 1].txt;
+      };
+
+      // limiar real é (1000/30)*3 = 100ms — 180 fica bem acima, sem ambiguidade
+      const rajada = await rodar({ fps: 30, pior: 10, buraco: 180 });
+      // buraco de 35ms contra ~33ms de média = o mesmo espaço, sempre
+      const regular = await rodar({ fps: 30, pior: 28, buraco: 35 });
+      // pouca amostra: pacingDe devolveria null na vida real
+      const semDados = await rodar(null);
+
+      window.amostrarVideoNumerico = eraAmostra;
+      window.olharQuadrosPintados = eraOlhar;
+      window.pacingDe = eraPacing;
+      window.setTimeout = eraTimeout;
+      est.avisouCaptura = eraAvisou;
+      return { rajada, regular, semDados };
+    });
+    info('rajada: ' + ritmo.rajada.slice(0, 55) + '… | regular: ' + ritmo.regular.slice(0, 55) + '…');
+    /RAJADAS irregulares/.test(ritmo.rajada)
+      ? ok('buraco bem maior que o intervalo médio: acusa a placa SUFOCADA, não bloqueio',
+           'manda travar o FPS do jogo — conserto diferente de "trocar pra janela sem borda"')
+      : mal('não reconheceu o padrão de rajada', ritmo.rajada);
+    /forma REGULAR/.test(ritmo.regular)
+      ? ok('espaçamento parelho entre quadros: diz que É O TETO de verdade, não sufoco',
+           'e avisa que travar o FPS do jogo pode não mudar nada')
+      : mal('não reconheceu o ritmo regular', ritmo.regular);
+    (!/RAJADAS/.test(ritmo.semDados) && !/REGULAR/.test(ritmo.semDados) && !/CONGELADA/.test(ritmo.semDados))
+      ? ok('sem amostra de ritmo suficiente, cai no aviso genérico de sempre — não inventa veredito')
+      : mal('inventou um veredito sem dado suficiente', ritmo.semDados);
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
