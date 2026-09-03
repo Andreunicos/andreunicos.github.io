@@ -271,7 +271,7 @@ body.desenho-canvas .quadro-tag{background:rgba(8,9,12,.95)}
 body.desenho-canvas .controles{background:rgba(18,20,25,.98)}
 .quadro-tag{
   position:absolute;left:12px;top:12px;display:flex;align-items:center;gap:7px;
-  padding:6px 13px;background:rgba(8,9,12,.95);
+  padding:6px 13px;background:rgba(8,9,12,.95);z-index:95;
   border:1px solid rgba(255,255,255,.09);border-radius:30px;font-size:12px;font-weight:600;
 }
 .quadro-tag .luz{width:7px;height:7px;border-radius:50%;background:var(--vermelho);animation:pisca 2s infinite}
@@ -280,7 +280,7 @@ body.desenho-canvas .controles{background:rgba(18,20,25,.98)}
    monitor você nunca passa o mouse. Então eles se apresentam sozinhos
    quando o quadro nasce, e depois somem discretamente. Quem usa teclado
    também precisa vê-los: daí o focus-within. */
-.quadro-acoes{position:absolute;right:12px;top:12px;display:flex;gap:7px;opacity:0;transition:opacity .25s}
+.quadro-acoes{position:absolute;right:12px;top:12px;display:flex;gap:7px;opacity:0;transition:opacity .25s;z-index:95}
 .quadro:hover .quadro-acoes,
 .quadro:focus-within .quadro-acoes,
 .quadro.revelar .quadro-acoes{opacity:1}
