@@ -2991,6 +2991,101 @@ async function principal() {
       ? ok('sem amostra de ritmo suficiente, cai no aviso genérico de sempre — não inventa veredito')
       : mal('inventou um veredito sem dado suficiente', ritmo.semDados);
 
+    /* ============ 69. getStats de todo mundo ao mesmo tempo ============ */
+    console.log('\n=== 69. atualizarNumeros busca os relatórios de TODOS ao mesmo tempo, não em fila? ===');
+    const paralelo = await A.evaluate(async () => {
+      document.getElementById('painel').classList.add('aberto');   // precisaAgora = true
+
+      const chamadas = [];
+      const falsos = ['zzz1','zzz2','zzz3'].map(id => {
+        const f = { id, pc: { getStats: () => {
+          chamadas.push(performance.now());
+          return new Promise(res => setTimeout(() => res(new Map()), 150));
+        } } };
+        pares.set(id, f);
+        return f;
+      });
+
+      const antes = performance.now();
+      await atualizarNumeros();
+      const total = performance.now() - antes;
+
+      falsos.forEach(f => pares.delete(f.id));
+      document.getElementById('painel').classList.remove('aberto');
+
+      const espalhamento = chamadas.length ? Math.max(...chamadas) - Math.min(...chamadas) : -1;
+      return { total, espalhamento, n: chamadas.length };
+    });
+    info('3 pessoas, 150ms cada: total ' + paralelo.total.toFixed(0) + 'ms | disparo espalhado por ' +
+         paralelo.espalhamento.toFixed(1) + 'ms');
+    (paralelo.n === 3)
+      ? ok('as três pessoas tiveram o getStats chamado nesta rodada')
+      : mal('não chamou para as três', String(paralelo.n));
+    (paralelo.espalhamento < 50)
+      ? ok('as três chamadas saíram quase juntas — nenhuma esperou a outra terminar para começar',
+           paralelo.espalhamento.toFixed(1) + 'ms de diferença entre a primeira e a última')
+      : mal('uma pessoa esperou a resposta da outra antes de perguntar a sua', paralelo.espalhamento.toFixed(1));
+    (paralelo.total < 350)
+      ? ok('o tempo total ficou perto de UMA espera de 150ms, não da soma das três (450ms+)',
+           paralelo.total.toFixed(0) + 'ms')
+      : mal('o tempo total bateu perto da soma sequencial das três esperas', paralelo.total.toFixed(0));
+
+    /* ============ 70. a fonte de recados que fechou de vez se reconecta ============ */
+    console.log('\n=== 70. Uma fonte de recados fechada de vez tenta se reconectar, com limite? ===');
+    const reconexao = await A.evaluate(async () => {
+      const eraFontes = sala.fontes.slice();
+      const eraLigada = sala.ligada;
+      const eraTentativas = Object.assign({}, sala.tentativasFonte);
+      const relogioReal = window.setTimeout;
+      window.setTimeout = (fn, ms) => relogioReal(fn, 5);   // não esperar de verdade
+
+      let chamouEscutar = 0;
+      const eraEscutar = window.escutar;
+      window.escutar = (base) => { chamouEscutar++; return { base, close(){} }; };
+
+      let avisouRuim = false;
+      const eraRecado = window.recado;
+      window.recado = (txt, tipo) => { if (tipo === 'ruim') avisouRuim = true; };
+
+      // (a) primeira falha de vez: sai da lista e tenta de novo
+      sala.ligada = true; sala.tentativasFonte = {};
+      const morta = { readyState: 2 };   // 2 = EventSource.CLOSED
+      sala.fontes = [morta];
+      recuperarFonte('base-teste', morta);
+      await new Promise(r => relogioReal(r, 30));
+      const tentouDeNovo = chamouEscutar;
+      const sumiu = !sala.fontes.includes(morta);
+
+      // (b) já esgotou as tentativas: desiste e avisa, se ninguém mais escuta
+      sala.tentativasFonte['base-teste'] = 5;
+      sala.fontes = [];
+      recuperarFonte('base-teste', { readyState: 2 });
+      await new Promise(r => relogioReal(r, 30));
+
+      // (c) sala fechada nesse meio-tempo: não insiste
+      chamouEscutar = 0; sala.ligada = false; sala.tentativasFonte = {};
+      recuperarFonte('base-teste', { readyState: 2 });
+      await new Promise(r => relogioReal(r, 30));
+      const insistiuFechada = chamouEscutar;
+
+      window.setTimeout = relogioReal; window.escutar = eraEscutar; window.recado = eraRecado;
+      sala.fontes = eraFontes; sala.ligada = eraLigada; sala.tentativasFonte = eraTentativas;
+      return { tentouDeNovo, sumiu, avisouRuim, insistiuFechada };
+    });
+    info(JSON.stringify(reconexao));
+    (reconexao.sumiu === true)
+      ? ok('a fonte morta sai da lista assim que percebe que fechou de vez')
+      : mal('a fonte morta continuou na lista', String(reconexao.sumiu));
+    (reconexao.tentouDeNovo >= 1)
+      ? ok('tenta escutar a mesma base de novo, em vez de ficar surda para sempre')
+      : mal('não tentou reconectar', String(reconexao.tentouDeNovo));
+    (reconexao.avisouRuim === true)
+      ? ok('depois de esgotar as tentativas sem sobrar nenhuma fonte viva, avisa a pessoa')
+      : mal('esgotou as tentativas calado', String(reconexao.avisouRuim));
+    (reconexao.insistiuFechada === 0)
+      ? ok('já tendo saído da sala, não insiste em reconectar')
+      : mal('insistiu em reconectar depois de a sala já ter fechado', String(reconexao.insistiuFechada));
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

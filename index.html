@@ -1666,7 +1666,7 @@ const sala = {
   ligada:false, dono:false, id:null, chaveTxt:null, chave:null,
   eu:null, ele:null, fontes:[], bases:[], vistos:new Set(),
   fila:[], seq:0, batendo:null, adeus:null, banidos:new Set(),
-  cheios:{}, mudo:0, avisouCheio:false,
+  cheios:{}, mudo:0, avisouCheio:false, tentativasFonte:{},
 };
 
 function idAleatorio(n){
@@ -1789,7 +1789,35 @@ function escutar(base){
     }
     try{ await tratarSinal(m); }catch(e){ console.warn('sinal',e); }
   };
+  /* ---------------------------------------------------------------------
+   * A FONTE QUE MORRE E NINGUÉM PERCEBE
+   * ---------------------------------------------------------------------
+   * O EventSource tenta de novo sozinho numa falha passageira de rede.
+   * Mas se o servidor fechar a escuta de vez ele para para sempre, sem
+   * avisar ninguém — daí recicla: sai da lista e tenta escutar a mesma
+   * base de novo, com a mesma espera crescente do reenvio de proposta.
+   * ------------------------------------------------------------------ */
+  fonte.onerror = ()=>{
+    if(fonte.readyState === EventSource.CLOSED) recuperarFonte(base, fonte);
+  };
   return fonte;
+}
+
+function recuperarFonte(base, fonteMorta){
+  sala.fontes = sala.fontes.filter(f=>f!==fonteMorta);
+  if(!sala.ligada) return;                          // já saiu da sala, não insiste
+  const n = (sala.tentativasFonte[base] = (sala.tentativasFonte[base]||0)+1);
+  if(n>5){
+    if(!sala.fontes.length)
+      recado('Perdi a escuta de todos os servidores de recados — recarregue a página.','ruim');
+    return;
+  }
+  // 8/12/18/27/40s — rápido não ajuda se o motivo foi cota de servidor
+  setTimeout(()=>{
+    if(!sala.ligada) return;
+    const nova = escutar(base);
+    if(nova){ sala.fontes.push(nova); sala.tentativasFonte[base]=0; }
+  }, 8000*Math.pow(1.5, n-1));
 }
 
 /* ---------- o combinado ---------- */
@@ -2256,7 +2284,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.9.1 — 03/09 — botões acima dos avisos';
+const VERSAO = '6.9.2 — 03/09 — paralelo, reciclado e sem mover ficha';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3126,8 +3154,10 @@ function pintarGente(){
     f.classList.toggle('mudo', mudo);
     f.classList.toggle('esperando', esperando);
 
-    // põe na ordem certa só se estiver fora do lugar
-    if(caixa.children[ordem] !== f) caixa.insertBefore(f, caixa.children[ordem] || null);
+    // a ordem visual vem do CSS (a barra já é flex) — trocar o `order`
+    // não mexe na árvore do DOM; mover o nó com insertBefore mexia, e
+    // fichas vivas não precisam ser deslocadas fisicamente para reordenar
+    if(f.style.order !== String(ordem)) f.style.order = ordem;
   });
 
   // e só agora tira quem realmente saiu
@@ -6214,8 +6244,22 @@ async function atualizarNumeros(){
   let piorPing=0;
   const porPessoa=[];
 
-  for(const par of gente){
-    const rel=await par.pc.getStats().catch(()=>null);
+  /* ---------------------------------------------------------------------
+   * PEDIR A TODO MUNDO AO MESMO TEMPO, NÃO UM DE CADA VEZ
+   * ---------------------------------------------------------------------
+   * getStats() é uma ida e volta até a camada de rede do navegador — não
+   * é instantâneo. Um await dentro do laço fazia a pessoa 5 da lista só
+   * começar a ser perguntada depois que a 1ª, 2ª, 3ª e 4ª já tivessem
+   * respondido: numa sala cheia, o ajuste automático da última pessoa
+   * reagia visivelmente depois do da primeira, todo segundo. Disparar
+   * todas as perguntas juntas e só depois processar não muda uma linha
+   * do que cada pessoa recebe — só faz a espera ser de UMA ida e volta,
+   * não da soma de todas.
+   * ------------------------------------------------------------------ */
+  const relatorios = await Promise.all(gente.map(async par =>
+    ({ par, rel: await par.pc.getStats().catch(()=>null) })));
+
+  for(const {par, rel} of relatorios){
     if(!rel) continue;
     let sv=null,ev=null,ea=null,pardeIce=null,eco=null,fonte=null; const cs=new Map();
     rel.forEach(s=>{ if(s.type==='codec') cs.set(s.id,s.mimeType); });
@@ -7877,7 +7921,10 @@ function pedirCaderninho(par, prazo){
 
 async function responderDiagnostico(par){
   let txt=''; try{ txt=await resumoParaOAmigo(); }catch(e){ txt='falhou: '+e; }
-  enviar(par,{t:'diag!', v:txt});
+  // mesmo teto do caderninho (responderCaderninho): o relatório cresce
+  // com o número de gente na sala, e sem limite um grupo cheio manda um
+  // bloco grande demais pelo canal de dados de uma vez só
+  enviar(par,{t:'diag!', v:String(txt).slice(0,8000)});
 }
 
 function pedirDiagnostico(par, prazo){
