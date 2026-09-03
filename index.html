@@ -12,8 +12,8 @@
      arquivo único: nenhum arquivo novo, nenhuma biblioteca de fora.
      Sem "#" em lugar nenhum aqui dentro — num endereço "data:" o "#"
      corta o resto fora, então as cores vão em rgb(). -->
-<link rel="manifest" href='data:application/manifest+json,{"name":"Bigas%20Voice","short_name":"Bigas%20Voice","description":"Voz%20e%20tela%20direto%20entre%20amigos","display":"standalone","orientation":"any","start_url":"./","background_color":"rgb(12,13,16)","theme_color":"rgb(91,124,250)","icons":[{"src":"data:image/svg%2Bxml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20512%20512%27%3E%3Crect%20width=%27512%27%20height=%27512%27%20rx=%27110%27%20fill=%27rgb(91,124,250)%27/%3E%3Cpath%20d=%27M300%2060%20170%20280h90l-40%20172%20170-240h-96z%27%20fill=%27rgb(255,255,255)%27/%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml","purpose":"any"}]}'>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='rgb(91,124,250)'/%3E%3Cpath d='M300 60 170 280h90l-40 172 170-240h-96z' fill='rgb(255,255,255)'/%3E%3C/svg%3E">
+<link rel="manifest" href='data:application/manifest+json,{"name":"Bigas%20Voice","short_name":"Bigas%20Voice","description":"Voz%20e%20tela%20direto%20entre%20amigos","display":"standalone","orientation":"any","start_url":"./","background_color":"rgb(12,13,16)","theme_color":"rgb(8,145,178)","icons":[{"src":"data:image/svg%2Bxml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20512%20512%27%3E%3Crect%20width=%27512%27%20height=%27512%27%20rx=%27110%27%20fill=%27rgb(8,145,178)%27/%3E%3Cpath%20d=%27M300%2060%20170%20280h90l-40%20172%20170-240h-96z%27%20fill=%27rgb(255,255,255)%27/%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml","purpose":"any"}]}'>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='rgb(8,145,178)'/%3E%3Cpath d='M300 60 170 280h90l-40 172 170-240h-96z' fill='rgb(255,255,255)'/%3E%3C/svg%3E">
 <title>Bigas Voice</title>
 <style>
 /* =====================================================================
@@ -23,7 +23,7 @@
   --preto:#0c0d10; --fundo:#121419; --sup:#171a21; --sup2:#1d212a; --sup3:#252a35;
   --linha:#2a2f3a; --linha2:#353b48;
   --txt:#eef1f6; --txt2:#a2aab8; --txt3:#6d7583;
-  --azul:#5b7cfa; --azul2:#7b95ff; --azul-fraco:#1a2145;
+  --azul:#0891b2; --azul2:#22d3ee; --azul-fraco:#072830;
   --verde:#3fd07a; --amarelo:#f0b429; --vermelho:#f2564a;
   --r:12px; --r2:16px;
   --sombra:0 18px 50px rgba(0,0,0,.55);
@@ -74,9 +74,8 @@ button,input,select,textarea{font-family:inherit;font-size:inherit}
 .aviso-tx{
   position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99999;
   display:flex;align-items:center;gap:11px;padding:8px 10px 8px 15px;
-  border-radius:30px;background:rgba(18,20,26,.94);border:1px solid var(--vermelho);
+  border-radius:30px;background:rgba(10,11,14,.97);border:1px solid var(--vermelho);
   box-shadow:0 8px 26px rgba(0,0,0,.5);font-size:13px;color:var(--txt);
-  backdrop-filter:blur(9px);
 }
 .aviso-tx .luz{width:8px;height:8px;border-radius:50%;background:var(--vermelho);animation:pisca 1.6s infinite;flex-shrink:0}
 .aviso-tx button{
@@ -123,9 +122,11 @@ input[type=range]{width:100%;accent-color:var(--azul)}
 .entrada{
   position:fixed;inset:0;z-index:50;display:grid;place-items:center;
   overflow-y:auto;padding:28px;
-  background:
-    radial-gradient(1100px 620px at 50% -18%,rgba(91,124,250,.18),transparent 68%),
-    var(--preto);
+  background-color:var(--preto);
+  background-image:
+    linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
+  background-size:28px 28px;
 }
 .cartao{
   width:min(600px,100%);background:var(--sup);border:1px solid var(--linha);
@@ -135,8 +136,8 @@ input[type=range]{width:100%;accent-color:var(--azul)}
 .marca{display:flex;align-items:center;gap:15px}
 .logo{
   width:52px;height:52px;flex-shrink:0;display:grid;place-items:center;
-  border-radius:15px;background:linear-gradient(145deg,var(--azul),#4159d6);
-  font-size:25px;color:#fff;box-shadow:0 8px 22px rgba(91,124,250,.35);
+  border-radius:15px;background:linear-gradient(145deg,var(--azul),#0e7490);
+  font-size:25px;color:#fff;box-shadow:0 8px 22px rgba(8,145,178,.4);
 }
 .marca h1{margin:0;font-size:25px;letter-spacing:-.03em}
 .marca p{margin:3px 0 0;font-size:12.5px;color:var(--txt3)}
@@ -270,7 +271,7 @@ body.desenho-canvas .quadro-tag{background:rgba(8,9,12,.95)}
 body.desenho-canvas .controles{background:rgba(18,20,25,.98)}
 .quadro-tag{
   position:absolute;left:12px;top:12px;display:flex;align-items:center;gap:7px;
-  padding:6px 13px;background:rgba(8,9,12,.78);backdrop-filter:blur(10px);
+  padding:6px 13px;background:rgba(8,9,12,.95);
   border:1px solid rgba(255,255,255,.09);border-radius:30px;font-size:12px;font-weight:600;
 }
 .quadro-tag .luz{width:7px;height:7px;border-radius:50%;background:var(--vermelho);animation:pisca 2s infinite}
@@ -284,7 +285,7 @@ body.desenho-canvas .controles{background:rgba(18,20,25,.98)}
 .quadro:focus-within .quadro-acoes,
 .quadro.revelar .quadro-acoes{opacity:1}
 .quadro-acoes button{
-  padding:7px 12px;background:rgba(8,9,12,.78);backdrop-filter:blur(10px);
+  padding:7px 12px;background:rgba(8,9,12,.95);
   border:1px solid rgba(255,255,255,.09);border-radius:9px;color:#fff;
   cursor:pointer;font-size:12px;
 }
@@ -305,7 +306,7 @@ body.desenho-canvas .controles{background:rgba(18,20,25,.98)}
 .controles{
   position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
   display:flex;align-items:center;gap:8px;padding:9px;
-  background:rgba(18,20,25,.92);backdrop-filter:blur(16px);
+  background:rgba(13,15,19,.97);
   border:1px solid var(--linha2);border-radius:50px;box-shadow:var(--sombra);
   z-index:20;transition:opacity .25s,transform .25s;
 }
@@ -482,15 +483,11 @@ body.sem-tela .divisor{display:none}
   }
 }
 
-/* ---- fundo vivo, bem devagar, só na tela de entrada ---- */
+/* ---- uma marca discreta de luz atrás do cartão, parada — sem animação ---- */
 .entrada::before{
   content:'';position:absolute;inset:-25%;z-index:-1;pointer-events:none;
-  background:
-    radial-gradient(620px 420px at 22% 26%,rgba(91,124,250,.17),transparent 62%),
-    radial-gradient(560px 430px at 80% 74%,rgba(63,208,122,.11),transparent 64%);
-  animation:aurora 24s ease-in-out infinite alternate;
+  background:radial-gradient(620px 420px at 50% 30%,rgba(8,145,178,.14),transparent 62%);
 }
-@keyframes aurora{from{transform:translate3d(-3%,-2%,0) scale(1)}to{transform:translate3d(4%,3%,0) scale(1.14)}}
 
 /* ---- o cartão e o que tem dentro entram em sequência ---- */
 .cartao{animation:entra .5s cubic-bezier(.2,.7,.3,1);opacity:1}
@@ -638,6 +635,14 @@ body.sem-tela .divisor{display:none}
 .gente{flex-wrap:wrap}
 .ficha.esperando{opacity:.6}
 .ficha.mudo .av{border-color:var(--vermelho)}
+/* números que mudam a cada segundo: FPS, ping, e toda a coluna do
+   diagnóstico (.num b). Monoespaçada trava a largura; tabular-nums é
+   redundante nela, mas não custa nada deixar para quando herdar de
+   outro lugar. */
+#ping, #fps-agora, .num b{
+  font-family:ui-monospace,'Cascadia Code',Consolas,monospace;
+  font-variant-numeric:tabular-nums;
+}
 #pin-fps{gap:5px}
 #pin-fps b{transition:color .3s}
 #pin-fps b.bom{color:var(--verde)} #pin-fps b.medio{color:var(--amarelo)} #pin-fps b.ruim{color:var(--vermelho)}
@@ -693,7 +698,7 @@ body.sem-tela .divisor{display:none}
 /* ---- janela do teste ---- */
 .modal{
   position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:22px;
-  background:rgba(6,7,10,.72);backdrop-filter:blur(6px);
+  background:rgba(6,7,10,.88);
   animation:entraChamada .2s ease;
 }
 .modal-cx{
@@ -2251,7 +2256,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.4 — 03/09 — a etiqueta que atrapalhava o atalho';
+const VERSAO = '6.5 — 03/09 — identidade: HUD tático';
 
 const LIMITE = 6;
 const pares = new Map();
