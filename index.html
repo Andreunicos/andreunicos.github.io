@@ -2256,7 +2256,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.5 — 03/09 — identidade: HUD tático';
+const VERSAO = '6.6 — 03/09 — piso mesmo em nitidez';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -4945,6 +4945,7 @@ function zerarAuto(par){
   a.degrauBanda=1; a.degrauFps=1; a.fpsRuim=0; a.fpsBom=0; a.quandoFps=0;
   a.euSouOTeto=false; a.folgado=0; a.esperaSubida=15000; a.quandoSubiu=0;
   a.provando=0; a.fpsAntes=0; a.fpsInutil=0; a.avisouTeto=false; a.avisouFonte=false;
+  a.fpsCritico=0; a.fpsBomEmerg=0; a.quandoEmergencia=0;
   par.ultimoRecadoTam=null;
   par.tetoAplicado=0; par.quandoAperto=0;
   par.perfilAplicado=null;
@@ -5175,6 +5176,39 @@ async function ajustarQualidade(par, perda, apertado, banda, fpsAgora){
         await aplicarPerfilVideo(par);
         return;
       }
+    }
+  }
+  else if(cfg.prioridade==='nitidez' && fpsAgora>0){
+    const critico = fpsAgora < alvoFps*0.3;
+    a.fpsCritico = critico ? (a.fpsCritico||0)+1 : 0;
+    const bomMesmoAssim = fpsAgora > alvoFps*0.85;
+    a.fpsBomEmerg = bomMesmoAssim ? (a.fpsBomEmerg||0)+1 : 0;
+    const desdeEmergencia = Date.now()-(a.quandoEmergencia||0);
+
+    if(a.fpsCritico>=3 && desdeEmergencia>180000 && a.degrauFps<DEGRAUS[DEGRAUS.length-1]){
+      const i = Math.max(0, DEGRAUS.indexOf(a.degrauFps));
+      const prox = DEGRAUS[Math.min(DEGRAUS.length-1, i+1)];
+      a.degrauFps=prox; a.quandoEmergencia=Date.now(); a.fpsCritico=0; a.fpsBomEmerg=0;
+      a.degrau=Math.max(a.degrauBanda, a.degrauFps);
+      a.motivo='travando demais mesmo em nitidez — encolhi para não travar de vez';
+      marcar('SOCORRO mesmo em nitidez: '+fpsAgora+' quadros, travado — encolhi um degrau. '+
+             'Nitidez continua ligada; se a máquina respirar, devolvo o tamanho sozinho.');
+      await aplicarPerfilVideo(par);
+      return;
+    }
+    // meio minuto bem, e não faz nem trinta segundos desde a última
+    // emergência: devolve. É mais rápido que a escada normal (25s) de
+    // propósito — quem pediu nitidez quer o tamanho de volta assim que
+    // der, não depois de um teste longo.
+    if(a.degrauFps>1 && a.fpsBomEmerg>=30 && desdeEmergencia>30000){
+      const i = Math.max(0, DEGRAUS.indexOf(a.degrauFps));
+      const antes = DEGRAUS[Math.max(0, i-1)];
+      a.degrauFps=antes; a.quandoEmergencia=Date.now(); a.fpsBomEmerg=0;
+      a.degrau=Math.max(a.degrauBanda, a.degrauFps);
+      if(a.degrau===1) a.motivo='';
+      marcar('a máquina respirou — devolvendo o tamanho que o socorro de nitidez tinha tirado');
+      await aplicarPerfilVideo(par);
+      return;
     }
   }
 

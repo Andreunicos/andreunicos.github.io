@@ -2665,6 +2665,71 @@ async function principal() {
       ? ok('e roda logo em seguida, numa folga — o amigo focado recebe o tamanho novo mesmo assim')
       : mal('a leitura nunca chegou a acontecer', String(semReflow.depoisDaFolga));
 
+    /* ============ 62. o piso de emergência mesmo em nitidez ============ */
+    console.log('\n=== 62. Nitidez trava por vários segundos: existe um piso, e ele devolve sozinho? ===');
+    const socorroNitidez = await A.evaluate(async () => {
+      const p = [...pares.values()][0];
+      const eraPrio = cfg.prioridade;
+      cfg.prioridade = 'nitidez';
+      const a = autoDe(p); zerarAuto(p); a.aquece = 99; a.banda = 0;
+      const alvo = 60; // 1080-60-8
+
+      /* Os números são os do caderninho real de 03/09 (7:11 a 7:14):
+         7, 6, 8, 9 fps num alvo de 60 — a escada normal, com prioridade
+         em nitidez, não faz NADA com isso (ela está inteira desligada). */
+      const antes = a.degrauFps;
+      let socorreu = null;
+      for (const fps of [7, 6, 8]) {
+        await ajustarQualidade(p, 0, false, 0, fps);
+        if (a.degrauFps !== antes) { socorreu = a.degrauFps; break; }
+      }
+      const depoisDe3Ruins = a.degrauFps;
+
+      // sozinha, uma queda de 1-2 segundos não é emergência — só 3 SEGUIDAS
+      zerarAuto(p); a.aquece = 99; a.banda = 0;
+      await ajustarQualidade(p, 0, false, 0, 7);
+      await ajustarQualidade(p, 0, false, 0, 55); // recupera no meio
+      await ajustarQualidade(p, 0, false, 0, 6);
+      const naoSocorreuIsolado = a.degrauFps;
+
+      // a segunda emergência não pode vir colada na primeira
+      zerarAuto(p); a.aquece = 99; a.banda = 0;
+      for (const fps of [7, 6, 8]) await ajustarQualidade(p, 0, false, 0, fps);
+      const primeiraEmergencia = a.degrauFps;
+      for (const fps of [7, 6, 8]) await ajustarQualidade(p, 0, false, 0, fps);
+      const tentouDeNovoLogoEmSeguida = a.degrauFps;
+
+      // e devolve sozinho depois de respirar bem por um tempo — sem
+      // esperar os 30s reais, adianto o relógio da última emergência
+      a.quandoEmergencia = Date.now() - 31000;
+      for (let i = 0; i < 30; i++) await ajustarQualidade(p, 0, false, 0, 58);
+      const devolveu = a.degrauFps;
+
+      cfg.prioridade = eraPrio;
+      zerarAuto(p); p.perfilAplicado = null; await aplicarPerfilVideo(p);
+      return { antes, socorreu, depoisDe3Ruins, naoSocorreuIsolado,
+               primeiraEmergencia, tentouDeNovoLogoEmSeguida, devolveu };
+    });
+    info('antes: ' + socorroNitidez.antes + 'x | socorreu no degrau: ' + socorroNitidez.socorreu +
+         ' | isolado (não deveria mexer): ' + socorroNitidez.naoSocorreuIsolado +
+         ' | devolveu: ' + socorroNitidez.devolveu + 'x');
+    (socorroNitidez.antes === 1 && socorroNitidez.depoisDe3Ruins > 1)
+      ? ok('3 segundos seguidos abaixo de 30% do alvo, mesmo em nitidez, encolhe um degrau',
+           'são os números reais do caderninho: 7, 6, 8 fps num alvo de 60')
+      : mal('nitidez continua travando sem nenhum socorro', JSON.stringify(socorroNitidez));
+    (socorroNitidez.naoSocorreuIsolado === 1)
+      ? ok('mas uma queda de 1-2 segundos, com recuperação no meio, NÃO conta como emergência')
+      : mal('socorreu numa oscilação normal, não numa emergência de verdade',
+            String(socorroNitidez.naoSocorreuIsolado));
+    (socorroNitidez.tentouDeNovoLogoEmSeguida === socorroNitidez.primeiraEmergencia)
+      ? ok('e uma segunda emergência não dispara colada na primeira — o piso não vira uma escada')
+      : mal('disparou duas emergências seguidas, virou uma escada normal escondida',
+            JSON.stringify(socorroNitidez));
+    (socorroNitidez.devolveu < socorroNitidez.primeiraEmergencia)
+      ? ok('e devolve o tamanho sozinho depois de respirar bem — nitidez continua sendo a intenção',
+           socorroNitidez.primeiraEmergencia + 'x -> ' + socorroNitidez.devolveu + 'x')
+      : mal('ficou preso no degrau de emergência para sempre', String(socorroNitidez.devolveu));
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');
