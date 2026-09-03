@@ -1784,17 +1784,43 @@ async function principal() {
 
       // (c) aplicar duas vezes não pode empilhar b=AS
       const duasVezes = melhorarVideo(normal);
+      // medir ANTES de devolver o perfil: o teto e uma pergunta sobre
+      // 1080-60-8, nao sobre o que estava configurado antes do teste
+      const esperado = tetoDoSondadorKbps();
+      // o maior alvo que o SOZINHO consegue concluir, em kbps
+      const maiorDoSozinho = bandaPara(2560, 1440, 120) * 1000;
+      // e o teto declarado para cada perfil da tabela, um por um
+      const porPerfil = {};
+      for (const k of Object.keys(PERFIS)) {
+        cfg.qualidade = k;
+        porPerfil[k] = tetoDoSondadorKbps();
+      }
       cfg.qualidade = antes;
       return { normal: secoes(normal), semC: secoes(semC), duasVezes: secoes(duasVezes),
-               esperado: tetoDoSondadorKbps() };
+               esperado, maiorDoSozinho, porPerfil };
     });
     const soNoVideo = (secs) => secs.every(x =>
       x.m === 'm=video' ? x.bs.length === 1 && /^b=AS:\d+$/.test(x.bs[0]) : x.bs.length === 0);
     info('teto do sondador: ' + teto.esperado + ' kbps | seções: ' +
          JSON.stringify(teto.normal.map(x => x.m + (x.bs.length ? ' ' + x.bs.join() : ''))));
-    (teto.esperado === 12800)
-      ? ok('para 1080p a 8 Mbps ele declara 12800 kbps — acima do que pede por pessoa')
-      : mal('teto do sondador errado', String(teto.esperado));
+    /* Este teto vira b=AS, e b=AS e escrito UMA vez, na hora de combinar a
+       chamada. O SOZINHO so decide o alvo vinte segundos DEPOIS — e o
+       Chrome desempata b=AS contra setParameters pelo MENOR dos dois
+       (encoder_stream_factory.cc). Um teto colado no alvo do primeiro
+       segundo congela tudo o que vier depois: o SOZINHO mede 16,6 Mbps,
+       leva 12,8, e o sondador para ali, entao a banda medida nunca chega
+       a justificar o alvo maior. E a ratoeira um andar acima.
+       Por isso a prova nao e um numero: e que ele nunca seja o menor. */
+    info('maior alvo que o SOZINHO chega a concluir: ' + teto.maiorDoSozinho + ' kbps');
+    (teto.esperado >= teto.maiorDoSozinho)
+      ? ok('o teto declarado no SDP fica ACIMA de tudo que o SOZINHO pode concluir depois',
+           teto.esperado + ' kbps >= ' + teto.maiorDoSozinho + ' kbps')
+      : mal('o SDP congelaria o alvo que o SOZINHO ainda vai medir',
+            teto.esperado + ' < ' + teto.maiorDoSozinho);
+    Object.keys(teto.porPerfil).every(k => teto.porPerfil[k] >= teto.maiorDoSozinho)
+      ? ok('e isso vale para TODOS os perfis da tabela, não só o do teste',
+           JSON.stringify(teto.porPerfil))
+      : mal('algum perfil declara um teto que trava o ajuste', JSON.stringify(teto.porPerfil));
     soNoVideo(teto.normal)
       ? ok('no SDP normal, o b=AS entra só na seção de vídeo')
       : mal('b=AS na seção errada', JSON.stringify(teto.normal));
@@ -2301,6 +2327,177 @@ async function principal() {
         ? ok('e uma versão ANTIGA, que manda só a chave, continua entendida')
         : mal('quebrou com quem está na versão de ontem', JSON.stringify(padrao.antigo));
     }
+
+    /* ============ 55. o que ficava segurando depois que a pessoa sai ============ */
+    console.log('\n=== 55. Quando alguém sai, o áudio dele é SOLTO ou só sai da tela? ===');
+    const vazamento = await A.evaluate(async () => {
+      const ctx = est.ctx || (est.ctx = new AudioContext());
+      // um par de mentira com áudio tocando e o amplificador ligado,
+      // que é o caso de quem pediu volume acima de 100%
+      const dest = ctx.createMediaStreamDestination();
+      const osc = ctx.createOscillator(); osc.connect(dest); osc.start();
+      const el = new Audio();
+      el.srcObject = dest.stream;
+      document.body.appendChild(el);
+
+      const fake = { id: 'teste-vaza', audio: el, volume: 100 };
+      fake.fonteAudio = ctx.createMediaStreamSource(dest.stream);
+      fake.ganho = ctx.createGain();
+      fake.lado = ctx.createStereoPanner();
+      fake.fonteAudio.connect(fake.ganho);
+      fake.ganho.connect(fake.lado);
+      fake.lado.connect(ctx.destination);
+
+      // espiões: desligar é a única coisa que não dá para ver de fora
+      const soltou = { fonte: false, ganho: false, lado: false };
+      for (const k of ['fonte', 'ganho', 'lado']) {
+        const no = fake[k === 'fonte' ? 'fonteAudio' : k];
+        const antes = no.disconnect.bind(no);
+        no.disconnect = (...a) => { soltou[k] = true; return antes(...a); };
+      }
+
+      const faixa = dest.stream.getAudioTracks()[0];
+      pares.set('teste-vaza', fake);
+      tirarPar('teste-vaza');
+
+      return {
+        soltou,
+        srcObject: el.srcObject,
+        noDocumento: document.body.contains(el),
+        faixaViva: faixa.readyState,
+        campoLimpo: fake.audio === null && fake.fonteAudio === null && fake.ganho === null,
+        saiuDoMapa: !pares.has('teste-vaza'),
+      };
+    });
+    info('desligou -> ' + JSON.stringify(vazamento.soltou) + ' | faixa: ' + vazamento.faixaViva);
+    (vazamento.soltou.fonte && vazamento.soltou.ganho && vazamento.soltou.lado)
+      ? ok('as três peças do amplificador são desligadas do AudioContext',
+           'nó LIGADO na saída não é lixo coletável — o contexto é uma raiz viva')
+      : mal('sobrou peça de Web Audio ligada para sempre', JSON.stringify(vazamento.soltou));
+    (vazamento.srcObject === null)
+      ? ok('o elemento larga o stream — era só isto que "remove()" não fazia')
+      : mal('o elemento saiu do documento ainda segurando o stream');
+    (vazamento.faixaViva === 'ended')
+      ? ok('e a faixa é encerrada, não deixada tocando para ninguém')
+      : mal('a faixa continuou viva', vazamento.faixaViva);
+    (!vazamento.noDocumento && vazamento.campoLimpo && vazamento.saiuDoMapa)
+      ? ok('e aí sim sai do documento, do par e do mapa')
+      : mal('sobrou referência em algum lugar', JSON.stringify(vazamento));
+
+    /* ============ 56. a sacola de caminhos no fim da busca ============ */
+    console.log('\n=== 56. Terminou de procurar caminhos: ele ainda espera os 250 ms? ===');
+    /* A busca por caminhos DE VERDADE nao termina de forma confiavel aqui
+       dentro — tentei numa aba limpa e ela fica em "gathering" para sempre,
+       enquanto num navegador recem-aberto termina em 130 ms. Ficar refem
+       disso deixaria o teste passando por uma saida de emergencia, sem
+       provar nada, que e pior que nao ter teste.
+       Entao a prova e da REGRA: sombreando iceGatheringState da para
+       perguntar exatamente o que o tratador faz em cada estado. */
+    const gelo = await A.evaluate(async () => {
+      const par = criarPar('teste-gelo');
+      const pc = par.pc;
+      const temTratador = typeof pc.onicegatheringstatechange === 'function';
+      const fingirEstado = (v) => Object.defineProperty(pc, 'iceGatheringState',
+        { get: () => v, configurable: true });
+
+      let descargas = 0;
+      const antes = window.esvaziarSacola;
+      window.esvaziarSacola = (p) => { if (p === par) descargas++; return antes(p); };
+
+      // ainda procurando: nao pode mexer em nada, o relogio e que junta
+      par.sacolaGelo = [{ candidate: 'x' }];
+      par.relogioGelo = setTimeout(() => {}, 60000);
+      fingirEstado('gathering');
+      pc.onicegatheringstatechange();
+      const procurando = { descargas, relogio: !!par.relogioGelo };
+
+      // terminou: nao sobrou nada para juntar, entao vai agora
+      fingirEstado('complete');
+      pc.onicegatheringstatechange();
+      const terminou = { descargas, relogio: !!par.relogioGelo };
+
+      window.esvaziarSacola = antes;
+      clearTimeout(par.relogioGelo);
+      tirarPar('teste-gelo');
+      return { temTratador, procurando, terminou };
+    });
+    info('procurando -> ' + JSON.stringify(gelo.procurando) +
+         ' | terminou -> ' + JSON.stringify(gelo.terminou));
+    gelo.temTratador
+      ? ok('a conexão escuta o fim da busca por caminhos')
+      : mal('ninguém avisa quando a busca termina');
+    (gelo.procurando.descargas === 0 && gelo.procurando.relogio)
+      ? ok('enquanto ainda procura, ele deixa o relógio de 250 ms juntar — é para isso que ele existe')
+      : mal('mandou a sacola no meio da busca e desfez a economia',
+            JSON.stringify(gelo.procurando));
+    (gelo.terminou.descargas === 1)
+      ? ok('e no instante em que a busca termina ele manda, sem esperar o resto do prazo',
+           'não sobrou nada para juntar: esperar ali é atrasar a conexão de graça')
+      : mal('terminou a busca e a sacola ficou esperando o relógio',
+            JSON.stringify(gelo.terminou));
+    (gelo.terminou.relogio === false)
+      ? ok('e cancela o relógio pendente, para não mandar uma sacola vazia logo depois')
+      : mal('sobrou relógio armado — vem uma mensagem à toa atrás', JSON.stringify(gelo.terminou));
+
+    /* ============ 57. o código curto e o compressor que não cabe nele ============ */
+    console.log('\n=== 57. Com H.265 preferido, o código manual sai honesto ou quebrado? ===');
+    const manual = await A.evaluate(() => {
+      const fp = Array.from({ length: 32 }, (_, i) =>
+        (i + 16).toString(16).padStart(2, '0').toUpperCase()).join(':');
+      const montar = (linhasVideo, mLinha) => [
+        'v=0', 'o=- 1 1 IN IP4 0.0.0.0', 's=-', 't=0 0',
+        'a=ice-ufrag:abcd', 'a=ice-pwd:0123456789abcdefghij',
+        'a=fingerprint:sha-256 ' + fp,
+        'a=extmap:1 urn:ietf:params:rtp-hdrext:sdes:mid',
+        'a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01',
+        'm=audio 9 UDP/TLS/RTP/SAVPF 111', 'c=IN IP4 0.0.0.0',
+        'a=rtpmap:111 opus/48000/2', 'a=ssrc:1111 cname:x',
+        'a=candidate:1 1 udp 2122260223 192.168.0.5 50000 typ host generation 0',
+        mLinha, 'c=IN IP4 0.0.0.0',
+      ].concat(linhasVideo, ['a=ssrc:2222 cname:x']).join('\r\n');
+
+      const tentar = (sdp) => {
+        est.manualTrocouCodec = '';
+        try {
+          const cod = empacotar(sdp, 'convite');
+          const volta = desempacotar(cod);
+          return { ok: true, trocou: est.manualTrocouCodec,
+                   temH264: /a=rtpmap:96 H264\/90000/.test(volta.sdp),
+                   temH265: /H265/.test(volta.sdp) };
+        } catch (e) { return { ok: false, erro: String(e.message || e) }; }
+      };
+
+      // (a) H.265 na frente (é o que a v5.8 faz quando a placa comprime)
+      const comH265 = tentar(montar(
+        ['a=rtpmap:45 H265/90000', 'a=rtpmap:96 H264/90000'],
+        'm=video 9 UDP/TLS/RTP/SAVPF 45 96'));
+      // (b) o caso normal, H.264 na frente
+      const normal = tentar(montar(
+        ['a=rtpmap:96 H264/90000', 'a=rtpmap:98 VP9/90000'],
+        'm=video 9 UDP/TLS/RTP/SAVPF 96 98'));
+      // (c) SÓ H.265: não dá para montar um código curto honesto
+      const soH265 = tentar(montar(
+        ['a=rtpmap:45 H265/90000'], 'm=video 9 UDP/TLS/RTP/SAVPF 45'));
+      est.manualTrocouCodec = '';
+      return { comH265, normal, soH265 };
+    });
+    info('com H265 -> ' + JSON.stringify(manual.comH265) + ' | só H265 -> ' +
+         JSON.stringify(manual.soH265));
+    (manual.comH265.ok && manual.comH265.temH264 && !manual.comH265.temH265)
+      ? ok('com H.265 preferido, o código curto sai em H.264 — o único que todo navegador tem',
+           'oferecer só H.265 num código de 150 bytes é apostar a conexão inteira')
+      : mal('o código curto saiu com um compressor que pode não existir do outro lado',
+            JSON.stringify(manual.comH265));
+    (manual.comH265.trocou === 'H265')
+      ? ok('e ele AVISA que trocou, em vez de descartar a escolha em silêncio')
+      : mal('a troca de compressor foi calada', String(manual.comH265.trocou));
+    (manual.normal.ok && manual.normal.trocou === '')
+      ? ok('no caso normal não avisa nada — aviso que aparece sempre não é aviso')
+      : mal('avisou sem ter trocado', JSON.stringify(manual.normal));
+    (!manual.soH265.ok && /SDP_INCOMPLETO/.test(manual.soH265.erro))
+      ? ok('e sem nenhum compressor que caiba, ele FALHA aqui em vez de gerar um link torto',
+           'antes montava um SDP dizendo VP8 e apontando para o número do H.265')
+      : mal('gerou um código que só falharia na casa do amigo', JSON.stringify(manual.soH265));
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');

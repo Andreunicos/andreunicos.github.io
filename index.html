@@ -1374,9 +1374,38 @@ function empacotar(sdp, papel){
   if(!idMid) throw new Error('SDP_INCOMPLETO');
 
   const ptA = Number(pega(/^a=rtpmap:(\d+) opus\/48000/i) || 111);
+  /* ---------------------------------------------------------------------
+   * O CÓDIGO CURTO SÓ SABE FALAR DE TRÊS COMPRESSORES
+   * ---------------------------------------------------------------------
+   * O modo manual não manda o SDP: ele manda um resumo de ~150 bytes que
+   * o outro lado reconstrói. Para caber, o compressor viaja como UM
+   * ÍNDICE de dois bits nesta lista de três nomes — e H.265 e AV1 não
+   * estão nela.
+   *
+   * Desde a v5.8 o app prefere H.265 quando a placa comprime. Aqui essa
+   * escolha é descartada em silêncio e o código sai com H.264.
+   *
+   * E está CERTO que saia. O SDP reconstruído oferece UM compressor só:
+   * se ele fosse H.265 e o amigo não tivesse H.265, não haveria acordo
+   * possível e a conexão simplesmente não fecharia. H.264 é o único que
+   * todo navegador entende. O modo manual é o plano B de quando a sala
+   * não abre — ele tem que conectar, não tem que ser bonito.
+   *
+   * O que estava errado era o silêncio, e o jeito de errar quando nada
+   * casa: nomeV virava 'VP8' por padrão enquanto ptV continuava sendo o
+   * número de OUTRO compressor. Isso não é cair para VP8, é montar um
+   * SDP que descreve uma coisa e aponta para outra. Um código curto que
+   * não dá para montar direito tem que falhar aqui, alto, e não virar um
+   * link que só falha na casa do amigo. */
   const linhaV = L.find(l=>/^a=rtpmap:\d+ (VP8|H264|VP9)\/90000/i.test(l)) || '';
+  if(!linhaV) throw new Error('SDP_INCOMPLETO');
   const ptV = Number((linhaV.match(/^a=rtpmap:(\d+)/)||[,96])[1]);
-  const nomeV = ((linhaV.match(/(VP8|H264|VP9)/i)||[,'VP8'])[1]).toUpperCase();
+  const nomeV = (linhaV.match(/(VP8|H264|VP9)/i)[1]).toUpperCase();
+  // o compressor que o app teria usado na sala, para poder avisar
+  const primeiro = (L.find(l=>/^a=rtpmap:\d+ (VP8|H264|VP9|H265|HEVC|AV1)\/90000/i.test(l))||'')
+                     .match(/(VP8|H264|VP9|H265|HEVC|AV1)/i);
+  est.manualTrocouCodec = (primeiro && primeiro[1].toUpperCase()!==nomeV)
+                            ? primeiro[1].toUpperCase() : '';
 
   // primeiro ssrc de cada seção de mídia
   const porSecao = [];
@@ -1415,7 +1444,8 @@ function empacotar(sdp, papel){
   const usar = cands.slice(0,5);
 
   const bytes = [];
-  const codV = Math.max(0, CODECS_VIDEO.indexOf(nomeV));
+  const codV = CODECS_VIDEO.indexOf(nomeV);
+  if(codV < 0) throw new Error('SDP_INCOMPLETO');
   bytes.push((papel==='resposta'?1:0) | (codV<<1), ptA, ptV, idMid, idTcc);
   bytes.push(ufrag.length); for(const c of ufrag) bytes.push(c.charCodeAt(0)&255);
   bytes.push(pwd.length);   for(const c of pwd)   bytes.push(c.charCodeAt(0)&255);
@@ -2028,9 +2058,43 @@ function melhorarAudio(sdp){
  * ser sempre >= o que a gente pede por pessoa, senão ele vira a trava.
  * Por isso o 1,6x aqui embaixo.
  * ------------------------------------------------------------------ */
+/* ---------------------------------------------------------------------
+ * POR QUE ESTE TETO NAO PODE SEGUIR O ALVO DE AGORA
+ * ---------------------------------------------------------------------
+ * Este numero vira "b=AS" no SDP, e o SDP e escrito UMA VEZ, na hora de
+ * combinar a chamada. Depois disso ele nao muda mais sozinho.
+ *
+ * So que o modo SOZINHO muda o alvo DEPOIS: ele mede vinte segundos e
+ * reescreve PERFIS.auto. Numa maquina boa com tela 1440p ele conclui
+ * 16,6 Mbps — e o SDP continua dizendo 12,8, congelado no que valia no
+ * primeiro segundo.
+ *
+ * E o Chrome resolve o desempate pelo MENOR dos dois. Esta escrito em
+ * encoder_stream_factory.cc:
+ *
+ *     api_max_bitrate_bps =
+ *         api_max_bitrate_bps.has_value()
+ *             ? std::min(encoder_config.max_bitrate_bps, *api_max_bitrate_bps)
+ *             : encoder_config.max_bitrate_bps;
+ *
+ * Ou seja: o SOZINHO mede certo, pede 16,6, e leva 12,8 sem ninguem
+ * avisar. E o sondador tambem para em 12,8, entao a banda medida nunca
+ * chega a justificar o alvo maior — ele fica preso achando que a linha
+ * nao aguenta. E a ratoeira de novo, um andar acima.
+ *
+ * O conserto e nao deixar este numero ser um alvo. Ele e um TETO: so
+ * precisa ser alto o bastante para nunca ser ele a travar. Quem controla
+ * a taxa de verdade e o setParameters, que e medido e reavaliado a cada
+ * segundo. Declarar folga aqui nao gasta banda nenhuma — o sondador sobe
+ * em passos, medindo, e para onde a rede mandar parar.
+ * ------------------------------------------------------------------ */
 function tetoDoSondadorKbps(){
   const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
-  return Math.max(3000, Math.min(60000, Math.round(p.mbps*1000*1.6)));
+  const doAlvo = Math.round((p.mbps||8)*1000*1.6);
+  // 30 Mbps de piso: acima de qualquer coisa que o SOZINHO possa concluir
+  // (o bandaPara() dele termina em 20 Mbps), com folga para o teto nunca
+  // virar a trava.
+  return Math.max(30000, Math.min(60000, doAlvo));
 }
 
 function melhorarVideo(sdp){
@@ -2181,7 +2245,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.1 — 03/09 — sozinho';
+const VERSAO = '6.3 — 03/09 — teto que nao congela';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2346,6 +2410,17 @@ function criarPar(id){
     if(par.sacolaGelo.length>=12) return esvaziarSacola(par);
     clearTimeout(par.relogioGelo);
     par.relogioGelo = setTimeout(()=>esvaziarSacola(par), 250);
+  };
+
+  /* Os 250 ms existem para JUNTAR caminhos numa mensagem só — e nisso
+     eles acertam. Mas quando o navegador avisa que terminou de procurar,
+     não há mais nada para juntar: esperar o resto do prazo é atrasar a
+     conexão de graça, sem economizar pedido nenhum. */
+  pc.onicegatheringstatechange = ()=>{
+    if(pc.iceGatheringState!=='complete') return;
+    clearTimeout(par.relogioGelo);
+    par.relogioGelo = 0;      // cancelado E esquecido: senao ninguem sabe que foi
+    esvaziarSacola(par);
   };
 
   pc.oniceconnectionstatechange = async ()=>{
@@ -2719,13 +2794,67 @@ function tirarPar(id, motivo){
   if(!par) return;
   clearTimeout(par.relogioMorte);
   try{ par.pc && par.pc.close(); }catch{}
-  try{ par.audio && par.audio.remove(); }catch{}
+  soltarAudioDoPar(par);
   tirarQuadro('p-'+id);
   pares.delete(id);
   if(par.nome){ recado((par.nome)+' saiu'+(motivo?' — '+motivo:''),''); marcar(par.nome+' saiu'+(motivo?' ('+motivo+')':'')); toque(false); }
   pintarGente();
   reequilibrarVideo();
   if(!pares.size && !sala.ligada) pararNumeros();
+}
+
+/* ---------------------------------------------------------------------
+ * SAIR DA PÁGINA NÃO É O MESMO QUE SOLTAR
+ * ---------------------------------------------------------------------
+ * Aqui ia só "par.audio.remove()". Isso tira a etiqueta do documento — e
+ * é tudo o que faz. O elemento continua existindo, continua com o
+ * srcObject apontando para o MediaStream, e o motor do navegador
+ * continua com o buffer de reprodução montado por trás dele. Numa call
+ * onde as pessoas entram e saem várias vezes, isso só cresce.
+ *
+ * E tinha um pedaço PIOR, que é o do amplificador: quem pede volume
+ * acima de 100% ganha três peças de Web Audio (fonte, ganho, lado)
+ * ligadas na saída do AudioContext. Nó de Web Audio LIGADO na saída não
+ * é lixo coletável — o contexto é uma raiz viva, e ele segura a fonte,
+ * que segura o stream. Desligar não era feito em lugar nenhum a não ser
+ * no caminho de erro de ligarAmplificador().
+ *
+ * Então soltar é: parar de tocar, desligar a corrente de áudio, largar o
+ * stream, e só então tirar do documento.
+ * ------------------------------------------------------------------ */
+function soltarAudioDoPar(par){
+  if(!par) return;
+  // primeiro a corrente do amplificador, que é quem segura mais forte
+  try{ par.fonteAudio && par.fonteAudio.disconnect(); }catch{}
+  try{ par.ganho && par.ganho.disconnect(); }catch{}
+  try{ par.lado && par.lado.disconnect(); }catch{}
+  par.fonteAudio = null; par.ganho = null; par.lado = null;
+  const a = par.audio;
+  if(!a) return;
+  try{
+    a.pause();
+    // as faixas já morrem com o pc.close(), mas o stream do elemento é
+    // outro objeto: é este que precisa ser largado explicitamente
+    const st = a.srcObject;
+    if(st && st.getTracks) st.getTracks().forEach(t=>{ try{ t.stop(); }catch{} });
+    a.srcObject = null;
+    a.removeAttribute('src');
+    a.load();          // é o load() que faz o motor desmontar o buffer
+    a.remove();
+  }catch(e){ console.warn('soltar audio', e); }
+  par.audio = null;
+}
+
+/* O código curto não tem espaço para H.265 (ver empacotar). Quem estava
+   com a placa comprimindo de graça precisa saber que, por este caminho,
+   não está mais. */
+function avisarCodecDoManual(){
+  if(!est.manualTrocouCodec || est.avisouCodecManual) return;
+  est.avisouCodecManual = true;
+  marcar('modo manual: o código curto só fala H.264 — '+est.manualTrocouCodec+' ficou de fora');
+  recado('Pelo código manual a imagem vai em H.264, não em '+est.manualTrocouCodec+
+         '. É o único que todo navegador entende, e o código precisa caber num link. '+
+         'Na sala normal o '+est.manualTrocouCodec+' continua sendo usado.','');
 }
 
 function definirNome(par, nome){
@@ -6868,6 +6997,7 @@ async function gerarConvite(){
     await par.pc.setLocalDescription(of);
     await esperarIce(par.pc);
     const cod=empacotar(par.pc.localDescription.sdp,'convite');
+    avisarCodecDoManual();
     $('meu-codigo').value=montarLink('c',cod);
     $('cx-meu').hidden=false;
     $('cx-envio').hidden=false;
