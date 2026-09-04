@@ -1265,9 +1265,16 @@ const est = {
   micLimpar:null, micDev:null,
   mudo:false, surdo:false, falandoAntes:false,
   segurando:false, gravandoTecla:false, relogioTecla:null,
+  janelaFlutuante:null, flutuandoOrigem:null,
 };
 
-const $ = (id)=>document.getElementById(id);
+// Com a janela flutuante aberta, um pedaço da interface (a barra de
+// gente, o quadro de vídeo) mora fisicamente em outro documento — não
+// em outra cópia, o MESMO elemento, só que movido. Procurar ali também
+// quando não acha aqui é o que deixa todo o resto do arquivo continuar
+// funcionando sem precisar saber que essa janela existe.
+const $ = (id)=>document.getElementById(id) ||
+  (est.janelaFlutuante && est.janelaFlutuante.document.getElementById(id));
 
 /* =====================================================================
  * AJUSTES GUARDADOS
@@ -2290,7 +2297,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.9.3 — 03/09 — DTX e áudio na taxa certa';
+const VERSAO = '6.10 — 03/09 — janela flutuante de verdade';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3374,26 +3381,15 @@ function montarQuadro(id, titulo, aoVivo, aoParar, par){
    * ---------------------------------------------------------------------
    * Em quem tem um monitor só, dar Alt+Tab para ler alguma coisa faz a
    * tela do amigo sumir — e some justamente na hora em que ele estava
-   * mostrando o que você precisava ver.
-   *
-   * O navegador já tem um motor para isso e ele é de graça: o vídeo
-   * salta da aba e fica flutuando por cima do Windows, do jogo, de
-   * qualquer coisa. Não custa processamento nenhum a mais, porque é o
-   * MESMO vídeo, só desenhado em outro lugar.
+   * mostrando o que você precisava ver. Ver alternarFlutuante() logo
+   * abaixo: navegador com Document PiP flutua o quadro inteiro (com nome
+   * e barra de gente); sem ela, cai para o vídeo cru de sempre.
    * ------------------------------------------------------------------ */
   if(document.pictureInPictureEnabled){
     const flutuar=document.createElement('button');
     flutuar.type='button'; flutuar.textContent='🗗 Flutuar';
-    flutuar.title='deixa este vídeo por cima de tudo, inclusive do jogo';
-    flutuar.onclick=async (ev)=>{
-      ev.stopPropagation();
-      try{
-        if(document.pictureInPictureElement===v) await document.exitPictureInPicture();
-        else await v.requestPictureInPicture();
-      }catch(err){
-        recado('Não consegui fazer flutuar: '+((err&&err.name)||err),'mal');
-      }
-    };
+    flutuar.title='deixa esta tela e a barra de gente por cima de tudo, inclusive do jogo';
+    flutuar.onclick=(ev)=>{ ev.stopPropagation(); alternarFlutuante(q, v, flutuar); };
     acoes.appendChild(flutuar);
   }
   if(aoParar){
@@ -3714,9 +3710,80 @@ function apagarImagem(q){
   q.pintando=false;
 }
 
+/* ---------------------------------------------------------------------
+ * A JANELA FLUTUANTE DE VERDADE (Document Picture-in-Picture)
+ * ---------------------------------------------------------------------
+ * document.pictureInPictureElement só existe para o <video> cru — por
+ * isso quem decide se já estamos flutuando por ESTA via é
+ * est.janelaFlutuante, não aquela propriedade. Fechar pelo botão de novo
+ * ou pelo X do próprio Windows termina no MESMO lugar: o evento
+ * 'pagehide' da janela é quem devolve tudo à posição original, os dois
+ * caminhos disparam ele.
+ * ------------------------------------------------------------------ */
+async function alternarFlutuante(q, v, botao){
+  if(est.janelaFlutuante){ est.janelaFlutuante.close(); return; }
+
+  if(!('documentPictureInPicture' in window)){
+    // navegador sem a API nova (Firefox, Safari): cai para o vídeo cru
+    try{
+      if(document.pictureInPictureElement===v) await document.exitPictureInPicture();
+      else await v.requestPictureInPicture();
+    }catch(err){ recado('Não consegui fazer flutuar: '+((err&&err.name)||err),'mal'); }
+    return;
+  }
+
+  try{
+    const gente = $('gente');
+    const razao = (v.videoWidth && v.videoHeight) ? v.videoWidth/v.videoHeight : 16/9;
+    const largura = 460;
+    const win = await documentPictureInPicture.requestWindow({
+      width: largura, height: Math.round(largura/razao) + 56,
+    });
+
+    // o CSS é o mesmo <style> da própria página — não uma folha externa,
+    // então basta copiar o texto dele para dentro da janela nova
+    document.querySelectorAll('style').forEach(st=>{
+      win.document.head.appendChild(st.cloneNode(true));
+    });
+    win.document.title = 'Bigas Voice — flutuando';
+    Object.assign(win.document.body.style,
+      { margin:'0', background:'#08090c', display:'flex', flexDirection:'column', height:'100vh' });
+
+    const palcoFalso = win.document.createElement('div');
+    palcoFalso.className = 'palco';
+    palcoFalso.style.flex = '1';
+
+    // guarda de onde cada um veio, para devolver no lugar exato ao fechar
+    est.flutuandoOrigem = [
+      { el:gente, pai:gente.parentNode, antes:gente.nextSibling },
+      { el:q,     pai:q.parentNode,     antes:q.nextSibling     },
+    ];
+    win.document.body.append(gente, palcoFalso);
+    palcoFalso.append(q);
+    est.janelaFlutuante = win;
+    botao.textContent = '🗗 Voltar';
+
+    win.addEventListener('pagehide', ()=>{
+      est.flutuandoOrigem.forEach(({el,pai,antes})=>pai.insertBefore(el, antes));
+      est.flutuandoOrigem = null;
+      est.janelaFlutuante = null;
+      botao.textContent = '🗗 Flutuar';
+      arrumarPalco(); pintarGente();
+    }, { once:true });
+
+    arrumarPalco(); pintarGente();
+  }catch(err){
+    recado('Não consegui abrir a janela flutuante: '+((err&&err.name)||err),'mal');
+  }
+}
+
 function tirarQuadro(id){
   const q=$('q-'+id);
   if(!q) return;
+  // esta é a tela que está flutuando: fecha a janela primeiro — devolve
+  // o quadro para o palco antes de arrancá-lo de vez
+  if(est.janelaFlutuante && est.flutuandoOrigem && est.flutuandoOrigem.some(o=>o.el===q))
+    est.janelaFlutuante.close();
   apagarImagem(q);              // preto na hora, sem borrão do último quadro
   q.classList.add('saindo');
   clearTimeout(q.relogioDeSaida);

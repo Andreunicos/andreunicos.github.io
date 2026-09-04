@@ -2633,7 +2633,12 @@ async function principal() {
       // porque essa função sai antes de tocar em p.avisei quando não acha
       // o elemento, e isso mascararia a pergunta que este teste faz.
       const fabricarPar = (id) => {
-        const par = { id, canal: { readyState: 'open' }, pc: {}, avisei: 999,
+        // getStats precisa existir de verdade: o intervalo de verdade
+        // (a cada 1s) continua rodando por trás desta suíte inteira, e se
+        // ele pegar este par de mentira no meio do caminho sem essa
+        // função, quebra a suíte toda com "getStats is not a function"
+        const par = { id, canal: { readyState: 'open' },
+                      pc: { getStats: () => Promise.resolve(new Map()) }, avisei: 999,
                       larguraQueQuer: 0 };
         montarQuadro('p-' + id, 'tela ' + id, true, null, par);
         pares.set(id, par);
@@ -3090,6 +3095,84 @@ async function principal() {
     (reconexao.insistiuFechada === 0)
       ? ok('já tendo saído da sala, não insiste em reconectar')
       : mal('insistiu em reconectar depois de a sala já ter fechado', String(reconexao.insistiuFechada));
+
+    /* ============ 71. o $ acha elemento que "mudou de janela" ============ */
+    console.log('\n=== 71. Com a janela flutuante aberta, $ acha elemento que está lá dentro? ===');
+    const busca = await A.evaluate(() => {
+      const normal = !!$('painel');   // elemento que sempre existe no documento principal
+      const inexistente = $('isso-nao-existe-em-lugar-nenhum');
+
+      // uma janela de mentira: só precisa parecer um Window com .document
+      const fakeDoc = { getElementById: (id) => (id === 'so-na-janela' ? { marca: 'achei' } : null) };
+      const eraJanela = est.janelaFlutuante;
+      est.janelaFlutuante = { document: fakeDoc };
+
+      const achouNaJanela = $('so-na-janela');
+      const continuaAchandoNormal = !!$('painel');
+
+      est.janelaFlutuante = eraJanela;
+      const sumiuDepoisDeFechar = $('so-na-janela');
+
+      return { normal, inexistente, achouNaJanela: achouNaJanela && achouNaJanela.marca,
+               continuaAchandoNormal, sumiuDepoisDeFechar };
+    });
+    info(JSON.stringify(busca));
+    (busca.normal === true && busca.inexistente == null)
+      ? ok('sem janela flutuante, $ continua se comportando exatamente como antes')
+      : mal('o comportamento normal do $ mudou', JSON.stringify(busca));
+    (busca.achouNaJanela === 'achei')
+      ? ok('com a janela aberta, $ acha um elemento que só existe LÁ dentro')
+      : mal('não foi buscar na janela flutuante', JSON.stringify(busca));
+    (busca.continuaAchandoNormal === true)
+      ? ok('e continua achando o que está no documento principal — busca aqui primeiro')
+      : mal('parou de achar o que sempre esteve aqui', JSON.stringify(busca));
+    (busca.sumiuDepoisDeFechar == null)
+      ? ok('fechando a janela (est.janelaFlutuante=null), o elemento de lá some para o $ de novo')
+      : mal('continuou achando depois de "fechada"', JSON.stringify(busca));
+
+    /* ============ 72. flutuar: fechar sozinho, e não abrir duas vezes ============ */
+    console.log('\n=== 72. Quem flutua sai da call: a janela fecha sozinha antes do quadro morrer? ===');
+    const flutuar = await A.evaluate(async () => {
+      const par = { id:'flut1', canal:{ readyState:'open' },
+                    pc:{ getStats: () => Promise.resolve(new Map()) } };
+      pares.set('flut1', par);
+      const q = montarQuadro('p-flut1', 'tela flut1', true, null, par);
+      arrumarPalco();
+
+      let fechou = 0;
+      // .document precisa existir de verdade: o $ compartilhado por toda
+      // a página consulta est.janelaFlutuante.document o tempo todo (o
+      // intervalo de verdade continua rodando por trás desta suíte) —
+      // sem isso, qualquer busca por um id que não exista aqui quebra
+      est.janelaFlutuante = { close: () => { fechou++; }, document: { getElementById: () => null } };
+      est.flutuandoOrigem = [{ el:q, pai:q.parentNode, antes:q.nextSibling }];
+
+      tirarQuadro('p-flut1');
+      const fechouAoSair = fechou;
+
+      // limpa antes do segundo cenário
+      await new Promise(r => setTimeout(r, 300));
+      pares.delete('flut1');
+      document.getElementById('q-p-flut1')?.remove();
+      est.janelaFlutuante = null; est.flutuandoOrigem = null;
+      arrumarPalco();
+
+      // clicar em "Flutuar" com a janela JÁ aberta: fecha, não abre outra
+      let fechouNoToggle = 0;
+      est.janelaFlutuante = { close: () => { fechouNoToggle++; }, document: { getElementById: () => null } };
+      await alternarFlutuante({}, {}, { textContent:'' });
+      const janelaContinuaSetada = !!est.janelaFlutuante;
+      est.janelaFlutuante = null;
+
+      return { fechouAoSair, fechouNoToggle, janelaContinuaSetada };
+    });
+    info(JSON.stringify(flutuar));
+    (flutuar.fechouAoSair === 1)
+      ? ok('o amigo que estava flutuando saindo da call fecha a janela sozinho, antes de arrancar o quadro')
+      : mal('saiu da call sem fechar a janela flutuante primeiro', JSON.stringify(flutuar));
+    (flutuar.fechouNoToggle === 1)
+      ? ok('clicar em Flutuar com a janela já aberta FECHA — não tenta abrir uma segunda')
+      : mal('não fechou a janela existente ao clicar de novo', JSON.stringify(flutuar));
 
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
