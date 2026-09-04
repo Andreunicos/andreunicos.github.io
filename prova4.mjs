@@ -3174,6 +3174,252 @@ async function principal() {
       ? ok('clicar em Flutuar com a janela já aberta FECHA — não tenta abrir uma segunda')
       : mal('não fechou a janela existente ao clicar de novo', JSON.stringify(flutuar));
 
+    /* ============ 73. leitor de tela e "adicionar à tela de início" ============ */
+    console.log('\n=== 73. Os controles sem texto ganharam nome para leitor de tela? ===');
+    const a11y = await A.evaluate(() => {
+      const fp = document.getElementById('fechar-painel');
+      const fc = document.getElementById('fechar-chat');
+      const ft = document.getElementById('fechar-teste');
+      mostrarAtalhos();
+      const fa = document.querySelector('#atalhos button');
+      const temAtalhoControle = [...document.querySelectorAll('#atalhos .item span')]
+        .some(el => /controle/i.test(el.textContent));
+      mostrarAtalhos();   // fecha de novo — não deixa aberto para o resto da suíte
+
+      const p = [...pares.values()][0];
+      abrirMenuDaPessoa(p, document.body);
+      const slider = document.querySelector('#menu-pessoa input[type="range"]');
+      const rotuloSlider = slider && slider.getAttribute('aria-label');
+      fecharMenuDaPessoa();
+
+      const recados = document.getElementById('recados');
+      const touchIcon = !!document.querySelector('link[rel="apple-touch-icon"]');
+      const webAppMeta = !!document.querySelector('meta[name="apple-mobile-web-app-capable"]');
+
+      return {
+        fp: fp.getAttribute('aria-label'), fc: fc.getAttribute('aria-label'),
+        ft: ft.getAttribute('aria-label'), fa: fa && fa.getAttribute('aria-label'),
+        temAtalhoControle, rotuloSlider,
+        recadosLive: recados.getAttribute('aria-live'), touchIcon, webAppMeta,
+      };
+    });
+    info(JSON.stringify(a11y));
+    ([a11y.fp, a11y.fc, a11y.ft, a11y.fa].every(x => !!x))
+      ? ok('os quatro botões de fechar (×) agora dizem "Fechar" para quem usa leitor de tela')
+      : mal('algum botão de fechar continua mudo para leitor de tela', JSON.stringify(a11y));
+    (!!a11y.rotuloSlider)
+      ? ok('o controle de volume de cada pessoa diz de QUEM é o volume', a11y.rotuloSlider)
+      : mal('o controle de volume continua sem nome', JSON.stringify(a11y));
+    (a11y.temAtalhoControle)
+      ? ok('o combo do controle de Xbox/PlayStation está listado nos atalhos')
+      : mal('o combo do controle não aparece na lista de atalhos', JSON.stringify(a11y));
+    (a11y.recadosLive === 'polite')
+      ? ok('os avisos (#recados) são anunciados sozinhos para quem usa leitor de tela')
+      : mal('os avisos continuam mudos para leitor de tela', String(a11y.recadosLive));
+    (a11y.touchIcon && a11y.webAppMeta)
+      ? ok('iPhone ganha ícone próprio e abre em modo app ao "Adicionar à Tela de Início"')
+      : mal('faltou o ícone ou o modo app do iOS', JSON.stringify(a11y));
+
+    /* ============ 74. o bipe de entrar/sair respeita "surdo" ============ */
+    console.log('\n=== 74. Quem está surdo de propósito também não ouve o bipe de entrar/sair? ===');
+    const bipe = await A.evaluate(() => {
+      const eraSurdo = est.surdo;
+      const eraCtx = est.ctx;
+      let criouOsc = 0;
+      const fakeCtx = { state:'running', currentTime:0,
+        createOscillator: () => { criouOsc++; return { type:'', frequency:{setValueAtTime(){},exponentialRampToValueAtTime(){}},
+                                                        connect(){}, start(){}, stop(){} }; },
+        createGain: () => ({ gain:{setValueAtTime(){},exponentialRampToValueAtTime(){}}, connect(){} }),
+        destination:{}, resume(){} };
+      est.ctx = fakeCtx;
+
+      est.surdo = true;  toque(true);  const comSurdo = criouOsc;
+      criouOsc = 0;
+      est.surdo = false; toque(true);  const semSurdo = criouOsc;
+
+      est.surdo = eraSurdo; est.ctx = eraCtx;
+      return { comSurdo, semSurdo };
+    });
+    info(JSON.stringify(bipe));
+    (bipe.comSurdo === 0)
+      ? ok('surdo de propósito: o bipe de entrar/sair não toca')
+      : mal('tocou o bipe mesmo com a pessoa surda de propósito', String(bipe.comSurdo));
+    (bipe.semSurdo === 1)
+      ? ok('sem estar surdo, o bipe continua tocando normalmente')
+      : mal('parou de tocar o bipe mesmo sem estar surdo', String(bipe.semSurdo));
+
+    /* ============ 75. o combo do controle muta na BORDA, não o tempo todo ============ */
+    console.log('\n=== 75. Segurar o combo do controle muta uma vez só, não a cada quadro? ===');
+    const controle = await A.evaluate(async () => {
+      const proximoQuadro = () => new Promise(r => requestAnimationFrame(r));
+      const eraGetGamepads = navigator.getGamepads;
+      const eraCombo = est.comboMudoAntes;
+      const eraAlternar = window.alternarMudo;
+      let chamadas = 0;
+      window.alternarMudo = () => { chamadas++; };
+      est.comboMudoAntes = false;
+
+      const fakeGamepad = (segura, aperta) => {
+        const buttons = [];
+        buttons[COMBO_MUDO.segurar] = { pressed: segura };
+        buttons[COMBO_MUDO.apertar] = { pressed: aperta };
+        return { buttons };
+      };
+
+      navigator.getGamepads = () => [fakeGamepad(false, false)];
+      await proximoQuadro(); await proximoQuadro(); await proximoQuadro();
+      const semNada = chamadas;
+
+      navigator.getGamepads = () => [fakeGamepad(true, true)];
+      await proximoQuadro(); await proximoQuadro(); await proximoQuadro();
+      const primeiraBorda = chamadas;
+
+      for (let i=0;i<6;i++) await proximoQuadro();
+      const segurando = chamadas;
+
+      navigator.getGamepads = () => [fakeGamepad(false, false)];
+      await proximoQuadro(); await proximoQuadro(); await proximoQuadro();
+      navigator.getGamepads = () => [fakeGamepad(true, true)];
+      await proximoQuadro(); await proximoQuadro(); await proximoQuadro();
+      const segundaBorda = chamadas;
+
+      navigator.getGamepads = eraGetGamepads; window.alternarMudo = eraAlternar;
+      est.comboMudoAntes = eraCombo;
+      return { semNada, primeiraBorda, segurando, segundaBorda };
+    });
+    info(JSON.stringify(controle));
+    (controle.semNada === 0)
+      ? ok('sem o combo, nada dispara')
+      : mal('disparou sem o combo estar apertado', String(controle.semNada));
+    (controle.primeiraBorda === 1)
+      ? ok('apertar o combo (Select/View + R3) muta uma vez, na borda')
+      : mal('não disparou ao apertar o combo', String(controle.primeiraBorda));
+    (controle.segurando === controle.primeiraBorda)
+      ? ok('continuar segurando NÃO fica mutando/desmutando a cada quadro')
+      : mal('disparou de novo enquanto o combo continuava segurado', JSON.stringify(controle));
+    (controle.segundaBorda === controle.primeiraBorda + 1)
+      ? ok('soltar e apertar de novo dispara outra vez — é borda, não nível')
+      : mal('não reconheceu uma segunda borda depois de soltar', JSON.stringify(controle));
+
+    /* ============ 76. o histórico do chat não duplica quando dois amigos mandam o mesmo passado ============ */
+    console.log('\n=== 76. Duas pessoas mandam histórico sobreposto: a duplicata é descartada? ===');
+    const chatSync = await A.evaluate(() => {
+      const eraHist = est.historicoChat; const eraVistos = est.chatVistos;
+      est.historicoChat = []; est.chatVistos = new Set();
+
+      guardarNoHistoricoChat(sala.eu, 1, 'Você', 'oi');
+      guardarNoHistoricoChat(sala.eu, 2, 'Você', 'bora jogar');
+      const depoisDeMim = est.historicoChat.length;
+
+      const linhas = [];
+      const eraEscrever = window.escreverNoChat;
+      window.escreverNoChat = (quem, texto, souEu) => linhas.push({quem, texto, souEu});
+
+      receberHistoricoChat({id:'amigoA'}, [
+        { de:sala.eu, n:1, quem:'Você', texto:'oi' },
+        { de:'fulano', n:5, quem:'Fulano', texto:'cheguei' },
+      ]);
+      receberHistoricoChat({id:'amigoB'}, [
+        { de:sala.eu, n:1, quem:'Você', texto:'oi' },
+        { de:'fulano', n:5, quem:'Fulano', texto:'cheguei' },
+        { de:'fulano', n:6, quem:'Fulano', texto:'e aí?' },
+      ]);
+
+      window.escreverNoChat = eraEscrever;
+      est.historicoChat = eraHist; est.chatVistos = eraVistos;
+      return { depoisDeMim, linhas };
+    });
+    info(JSON.stringify(chatSync));
+    (chatSync.depoisDeMim === 2)
+      ? ok('as suas próprias mensagens entram no seu histórico local')
+      : mal('não guardou as próprias mensagens no histórico', String(chatSync.depoisDeMim));
+    (chatSync.linhas.length === 2)
+      ? ok('dois amigos mandaram histórico sobreposto: só as mensagens NOVAS foram escritas (2, não 4)',
+           JSON.stringify(chatSync.linhas))
+      : mal('duplicou mensagem que já tinha vindo de outro amigo', JSON.stringify(chatSync.linhas));
+    (chatSync.linhas.some(l => l.texto==='e aí?'))
+      ? ok('a mensagem realmente nova (que só o segundo amigo tinha) apareceu')
+      : mal('perdeu uma mensagem nova por causa das duplicatas ao lado dela', JSON.stringify(chatSync.linhas));
+
+    /* ============ 77. o aviso do sistema só dispara quando faz sentido ============ */
+    console.log('\n=== 77. O aviso do sistema só dispara com a aba escondida, ligado e com permissão? ===');
+    const aviso = await A.evaluate(() => {
+      const eraAvisar = cfg.avisarSistema;
+      let escondida = true;
+      Object.defineProperty(document, 'hidden', { configurable:true, get:()=>escondida });
+
+      let criadas = [];
+      const eraNotification = window.Notification;
+      function FakeNotification(titulo, opts){ criadas.push({titulo, opts}); }
+      FakeNotification.permission = 'granted';
+      window.Notification = FakeNotification;
+
+      cfg.avisarSistema = false; escondida = true;  notificarSeEscondido('t1','c1');
+      const semLigar = criadas.length;
+
+      cfg.avisarSistema = true;  escondida = false; notificarSeEscondido('t2','c2');
+      const comAbaAVista = criadas.length;
+
+      cfg.avisarSistema = true;  escondida = true;  notificarSeEscondido('t3','c3');
+      const disparou = criadas.length;
+
+      FakeNotification.permission = 'denied';
+      notificarSeEscondido('t4','c4');
+      const semPermissao = criadas.length;
+
+      window.Notification = eraNotification;
+      delete document.hidden;
+      cfg.avisarSistema = eraAvisar;
+      return { semLigar, comAbaAVista, disparou, semPermissao };
+    });
+    info(JSON.stringify(aviso));
+    (aviso.semLigar===0 && aviso.comAbaAVista===0)
+      ? ok('desligado no ajuste, ou com a aba à vista: não manda aviso nenhum do sistema')
+      : mal('mandou aviso do sistema quando não devia', JSON.stringify(aviso));
+    (aviso.disparou===1)
+      ? ok('ligado e com a aba escondida: manda o aviso do sistema')
+      : mal('não mandou o aviso do sistema na hora certa', JSON.stringify(aviso));
+    (aviso.semPermissao===1)
+      ? ok('sem permissão concedida pelo navegador, não tenta mandar mesmo com tudo ligado')
+      : mal('tentou mandar aviso sem ter permissão', JSON.stringify(aviso));
+
+    /* ============ 78. o Automático mostra o que está fazendo agora ============ */
+    console.log('\n=== 78. O painel mostra o que o Automático decidiu, não só no instante em que muda? ===');
+    const statusAuto = await A.evaluate(() => {
+      const eraQ = cfg.qualidade; const eraStream = est.streamTela; const eraAvaliou = est.sozinhoAvaliou;
+      const eraPorque = est.sozinhoPorque; const eraAuto = Object.assign({}, PERFIS.auto);
+
+      cfg.qualidade = 'manual-qualquer';
+      atualizarStatusSozinho();
+      const manual = document.getElementById('status-sozinho').textContent;
+
+      cfg.qualidade = 'auto'; est.streamTela = null; est.sozinhoAvaliou = false;
+      atualizarStatusSozinho();
+      const semDados = document.getElementById('status-sozinho').textContent;
+
+      est.streamTela = {}; est.sozinhoAvaliou = true;
+      Object.assign(PERFIS.auto, { a:960, fps:30 });
+      est.sozinhoPorque = 'sua tela entrega 30 quadros';
+      atualizarStatusSozinho();
+      const decidiu = document.getElementById('status-sozinho').textContent;
+
+      cfg.qualidade = eraQ; est.streamTela = eraStream; est.sozinhoAvaliou = eraAvaliou;
+      est.sozinhoPorque = eraPorque; Object.assign(PERFIS.auto, eraAuto);
+      atualizarStatusSozinho();
+      return { manual, semDados, decidiu };
+    });
+    info(JSON.stringify(statusAuto));
+    (statusAuto.manual === '')
+      ? ok('num perfil manual, não mostra status do Automático — ele nem está no comando')
+      : mal('mostrou status do Automático mesmo em perfil manual', statusAuto.manual);
+    (/ainda sem dados/.test(statusAuto.semDados))
+      ? ok('sem dados ainda, avisa que está medindo — não inventa número')
+      : mal('não avisou que ainda não tem dados suficientes', statusAuto.semDados);
+    (/960p a 30 fps/.test(statusAuto.decidiu) && /sua tela entrega 30 quadros/.test(statusAuto.decidiu))
+      ? ok('depois de decidir, mostra o número E o motivo — sem precisar esperar mudar de novo',
+           statusAuto.decidiu)
+      : mal('não mostrou o estado atual com o motivo', statusAuto.decidiu);
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');

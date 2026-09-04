@@ -14,6 +14,14 @@
      corta o resto fora, então as cores vão em rgb(). -->
 <link rel="manifest" href='data:application/manifest+json,{"name":"Bigas%20Voice","short_name":"Bigas%20Voice","description":"Voz%20e%20tela%20direto%20entre%20amigos","display":"standalone","orientation":"any","start_url":"./","background_color":"rgb(12,13,16)","theme_color":"rgb(8,145,178)","icons":[{"src":"data:image/svg%2Bxml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%20512%20512%27%3E%3Crect%20width=%27512%27%20height=%27512%27%20rx=%27110%27%20fill=%27rgb(8,145,178)%27/%3E%3Cpath%20d=%27M300%2060%20170%20280h90l-40%20172%20170-240h-96z%27%20fill=%27rgb(255,255,255)%27/%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml","purpose":"any"}]}'>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='rgb(8,145,178)'/%3E%3Cpath d='M300 60 170 280h90l-40 172 170-240h-96z' fill='rgb(255,255,255)'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='rgb(8,145,178)'/%3E%3Cpath d='M300 60 170 280h90l-40 172 170-240h-96z' fill='rgb(255,255,255)'/%3E%3C/svg%3E">
+<!-- 6. Sem isto o iOS abre "Adicionar à Tela de Início" com a barra de
+     endereço do Safari por cima mesmo assim — o manifesto sozinho não
+     basta nele. Com isto, abre como um app de verdade, igual já acontece
+     no Android. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bigas Voice">
 <title>Bigas Voice</title>
 <style>
 /* =====================================================================
@@ -864,7 +872,7 @@ body.sem-tela .divisor{display:none}
 <aside id="painel" class="painel" inert>
   <div class="painel-topo">
     <h2>Qualidade e ajustes</h2>
-    <button id="fechar-painel" type="button">×</button>
+    <button id="fechar-painel" type="button" aria-label="Fechar">×</button>
   </div>
   <div class="painel-corpo">
     <div class="secao">Como está a chamada</div>
@@ -923,6 +931,7 @@ body.sem-tela .divisor{display:none}
       Aqui é conexão direta entre vocês dois: a qualidade depende do seu upload e do download
       dele. 1080p60 pede uns 12 Mbps de subida.
     </p>
+    <p class="ajuda" style="margin-top:0" id="status-sozinho"></p>
 
     <label class="chk" style="margin-top:14px">
       <input id="in-auto" type="checkbox" checked>
@@ -1106,6 +1115,14 @@ body.sem-tela .divisor{display:none}
       diferente dentro do navegador, e esse caminho tem mais jeitos de dar errado.
     </p>
 
+    <div class="secao">Avisos</div>
+    <label class="chk">
+      <input id="in-avisar-sistema" type="checkbox">
+      <span>Avisar no sistema quando alguém entrar ou mandar mensagem (com a aba em segundo plano)</span>
+    </label>
+    <p class="ajuda" style="margin-top:0">Um aviso do próprio Windows, por cima do jogo, sem precisar
+      olhar a aba. Pede a permissão do navegador na hora que você ligar.</p>
+
     <div class="secao">Volume geral</div>
     <label class="campo">
       <span>Todo mundo: <b id="lbl-vol" style="color:var(--azul)">100%</b></span>
@@ -1121,7 +1138,7 @@ body.sem-tela .divisor{display:none}
 <aside id="chat" class="chat" inert>
   <div class="painel-topo">
     <h2>Chat</h2>
-    <button id="fechar-chat" type="button">×</button>
+    <button id="fechar-chat" type="button" aria-label="Fechar">×</button>
   </div>
   <div id="chat-linhas" class="chat-linhas"></div>
   <form id="chat-form" class="chat-envio">
@@ -1135,7 +1152,7 @@ body.sem-tela .divisor{display:none}
   <div class="modal-cx">
     <div class="painel-topo">
       <h2>Testando sua conexão</h2>
-      <button id="fechar-teste" type="button">×</button>
+      <button id="fechar-teste" type="button" aria-label="Fechar">×</button>
     </div>
     <div id="teste-corpo" class="teste-corpo"></div>
     <div class="modal-pe">
@@ -1145,7 +1162,7 @@ body.sem-tela .divisor{display:none}
   </div>
 </div>
 
-<div id="recados" class="recado"></div>
+<div id="recados" class="recado" aria-live="polite" aria-atomic="false"></div>
 
 <script>
 'use strict';
@@ -1292,6 +1309,7 @@ const cfg = {
   espacial:false, portao:12, socorroCaptura:true, previaEconomica:true,
   liso:true,   // atalho de exibicao da placa (tira o canto arredondado)
   migrouSozinho:false,   // ver a migracao em lerAjustes: precisa sobreviver ao guardarAjustes
+  avisarSistema:false,
 };
 
 function lerAjustes(){
@@ -2297,7 +2315,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.10 — 03/09 — janela flutuante de verdade';
+const VERSAO = '6.11 — 03/09 — dez melhorias';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2418,6 +2436,7 @@ function criarPar(id){
       recado((par.nome||'Seu amigo')+' entrou na call','ok');
       marcar((par.nome||'alguém')+' entrou na call');
       toque(true);
+      notificarSeEscondido('Bigas Voice', (par.nome||'Seu amigo')+' entrou na call');
     }
     else if(s==='disconnected'){ pintarGente(); }
     else if(s==='failed' || s==='closed'){
@@ -2518,6 +2537,7 @@ function abrirCanal(par){
     enviar(par,{t:'perfil', v:cfg.qualidade, p:perfilAnunciado()});
     enviar(par,{t:'sumi', v:document.hidden});
     par.avisei=0; setTimeout(()=>avisarTamanho(par), 600);
+    enviarHistoricoChat(par);
     // o que estava esperando na sacola pode ir agora, pelo canal
     esvaziarSacola(par);
   };
@@ -2533,7 +2553,8 @@ function abrirCanal(par){
         ? { a:Math.round(d.p.a), fps:Math.round(d.p.fps) } : null;
       pintarGente();
     }
-    else if(d.t==='msg') receberMensagem(par, d.v);
+    else if(d.t==='msg') receberMensagem(par, d.v, d.n);
+    else if(d.t==='chat_hist') receberHistoricoChat(par, d.v);
     else if(d.t==='sdp') receberSdp(par, d.v);
     else if(d.t==='ice') receberIce(par, d.v);
     else if(d.t==='ponte') aoPonte(d);
@@ -3068,6 +3089,7 @@ function bater(){
    único. Com o jogo em tela cheia, esse toque costuma ser a única forma
    de saber que o amigo chegou. */
 function toque(subindo){
+  if(est.surdo) return;   // pediu para não ouvir ninguém — o bipe também é alguém
   try{
     est.ctx = est.ctx || novoContextoDeAudio();
     if(est.ctx.state==='suspended') est.ctx.resume();
@@ -3220,6 +3242,7 @@ function abrirMenuDaPessoa(par, ancora){
   const ic=document.createElement('span'); ic.textContent='🔊';
   const r=document.createElement('input');
   r.type='range'; r.min='0'; r.max='200'; r.value=String(par.volume==null?100:par.volume);
+  r.setAttribute('aria-label','Volume de '+(par.nome||'esta pessoa'));
   const b=document.createElement('b'); b.textContent=r.value+'%';
   r.oninput=()=>{ par.volume=Number(r.value); b.textContent=r.value+'%'; aplicarVolume(); pintarVolumes(); };
   lv.append(ic,r,b); m.appendChild(lv);
@@ -3922,6 +3945,27 @@ function alternarSurdo(){
   $('btn-surdo').textContent=est.surdo?'🔕':'🎧';
   recado(est.surdo?'Você não está ouvindo ninguém':'Voltou a ouvir', est.surdo?'':'ok');
 }
+
+const COMBO_MUDO = { segurar:8, apertar:11 };   // Select/View + R3, no mapeamento padrão
+function olharControles(){
+  requestAnimationFrame(olharControles);
+  if(!naChamada()) return;
+  try{
+    const lista = navigator.getGamepads ? navigator.getGamepads() : [];
+    let ativo = false;
+    for(const g of lista){
+      if(!g) continue;
+      const b = g.buttons;
+      if(b[COMBO_MUDO.segurar] && b[COMBO_MUDO.segurar].pressed &&
+         b[COMBO_MUDO.apertar] && b[COMBO_MUDO.apertar].pressed) ativo = true;
+    }
+    if(ativo && !est.comboMudoAntes) alternarMudo();
+    est.comboMudoAntes = ativo;
+  }catch{}
+}
+function iniciarGamepad(){
+  if(navigator.getGamepads) requestAnimationFrame(olharControles);
+}
 /* ---------------------------------------------------------------------
  * VOLUME — e por que a barra ia até 200% sem fazer nada
  * ---------------------------------------------------------------------
@@ -4021,6 +4065,7 @@ function pintarVolumes(){
     s.appendChild(b);
     const r=document.createElement('input');
     r.type='range'; r.min='0'; r.max='200'; r.value=String(par.volume==null?100:par.volume);
+    r.setAttribute('aria-label','Volume de '+(par.nome||'esta pessoa'));
     r.oninput=()=>{ par.volume=Number(r.value); b.textContent=r.value+'%'; aplicarVolume(); };
     l.append(s,r);
     caixa.appendChild(l);
@@ -4746,6 +4791,19 @@ async function escolherSozinho(){
   recado('Ajustei sozinho para '+alvo.a+'p a '+alvo.fps+' fps — '+est.sozinhoPorque+'.','ok');
   enviarTodos({t:'perfil', v:cfg.qualidade, p:{a:alvo.a, fps:alvo.fps}});
   await reequilibrarVideo();
+}
+
+function atualizarStatusSozinho(){
+  const el = $('status-sozinho');
+  if(!el) return;
+  if(cfg.qualidade!=='auto'){ el.textContent=''; return; }
+  if(!est.streamTela || !est.sozinhoAvaliou){
+    el.textContent = 'Automático: ainda sem dados suficientes — decide depois de uns 20s transmitindo.';
+    return;
+  }
+  const P = PERFIS.auto;
+  el.textContent = 'Automático, agora: '+P.a+'p a '+P.fps+' fps'+
+                    (est.sozinhoPorque ? ' — '+est.sozinhoPorque+'.' : '.');
 }
 
 async function cuidarDaCaptura(){
@@ -6587,6 +6645,7 @@ async function atualizarNumeros(){
   // FPS sempre à vista enquanto você transmite: é o número que importa
   cuidarDaCaptura();
   escolherSozinho();
+  atualizarStatusSozinho();
   socorrerCaptura();
 
   // o caderninho se alimenta do que já foi colhido aqui em cima
@@ -6889,6 +6948,7 @@ function mostrarAtalhos(){
     ['Esc','fecha o que estiver aberto'],
     ['?','mostra esta lista'],
     ['duplo clique','tela cheia no vídeo'],
+    ['Select/View + R3 (controle)','muta ou desmuta sem largar o controle'],
   ];
   const d=document.createElement('div');
   d.id='atalhos'; d.className='modal';
@@ -6896,6 +6956,7 @@ function mostrarAtalhos(){
   const topo=document.createElement('div'); topo.className='painel-topo';
   const h=document.createElement('h2'); h.textContent='Atalhos';
   const x=document.createElement('button'); x.type='button'; x.textContent='×';
+  x.setAttribute('aria-label','Fechar');
   x.onclick=()=>d.remove();
   topo.append(h,x);
   const corpo=document.createElement('div'); corpo.className='teste-corpo';
@@ -6914,6 +6975,24 @@ function mostrarAtalhos(){
 
 function escapar(t){
   return String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------------------------------------------------------------------
+ * AVISO DO SISTEMA — só quando faz diferença
+ * ---------------------------------------------------------------------
+ * Com a aba na sua frente o recado já aparece na tela; o aviso do
+ * sistema só ganha alguém que está com a aba em segundo plano — a
+ * própria razão de existir do Bigas Voice (jogar de tela cheia). Pedir
+ * permissão sem um clique explícito costuma sair negada sozinha, por
+ * isso ela é pedida no clique do próprio checkbox, não aqui.
+ * ------------------------------------------------------------------ */
+function notificarSeEscondido(titulo, corpo){
+  if(!cfg.avisarSistema || !document.hidden) return;
+  if(typeof Notification==='undefined' || Notification.permission!=='granted') return;
+  try{
+    const n = new Notification(titulo, { body:corpo, tag:'bigas-voice' });
+    n.onclick = ()=>{ try{ window.focus(); }catch{} try{ n.close(); }catch{} };
+  }catch{}
 }
 
 /* =====================================================================
@@ -6938,13 +7017,34 @@ function escreverNoChat(quem, texto, souEu){
   linhas.appendChild(d);
   linhas.scrollTop=linhas.scrollHeight;
 }
-function receberMensagem(par, texto){
+function guardarNoHistoricoChat(de, n, quem, texto){
+  (est.historicoChat || (est.historicoChat=[])).push({de, n, quem, texto});
+  while(est.historicoChat.length>20) est.historicoChat.shift();
+  (est.chatVistos || (est.chatVistos=new Set())).add(de+':'+n);
+}
+function enviarHistoricoChat(par){
+  if(est.historicoChat && est.historicoChat.length) enviar(par,{t:'chat_hist', v:est.historicoChat});
+}
+function receberHistoricoChat(par, lista){
+  if(!Array.isArray(lista)) return;
+  if(!est.chatVistos) est.chatVistos = new Set();
+  for(const m of lista){
+    if(!m || !m.de || m.n==null) continue;
+    const marca = m.de+':'+m.n;
+    if(est.chatVistos.has(marca)) continue;
+    est.chatVistos.add(marca);
+    escreverNoChat(m.quem||'Alguém', String(m.texto||'').slice(0,500), m.de===sala.eu);
+  }
+}
+
+function receberMensagem(par, texto, n){
   // freio: no máximo 12 mensagens a cada 5 s por pessoa
   const agora=Date.now();
   if(agora-(par.janelaChat||0)>5000){ par.janelaChat=agora; par.contaChat=0; }
   if(++par.contaChat>12) return;
 
   const t=String(texto||'').slice(0,500);
+  if(n!=null) guardarNoHistoricoChat(par.id, n, par.nome||'Seu amigo', t);
   escreverNoChat(par.nome||'Seu amigo', t, false);
   if(!$('chat').classList.contains('aberto')){
     est.naoLidas=(est.naoLidas||0)+1;
@@ -6953,6 +7053,7 @@ function receberMensagem(par, texto){
     bol.textContent = est.naoLidas>9 ? '9+' : String(est.naoLidas);
     if(par.contaChat<=3) recado((par.nome||'Seu amigo')+': '+t.slice(0,40)+(t.length>40?'…':''));
   }
+  notificarSeEscondido(par.nome||'Seu amigo', t.slice(0,120));
 }
 
 /* =====================================================================
@@ -8290,7 +8391,9 @@ $('chat-form').onsubmit=(ev)=>{
   const t=$('chat-txt').value.trim();
   if(!t) return;
   if(!naChamada()) return recado('Sem conexão para mandar mensagem.','mal');
-  enviarTodos({t:'msg',v:t});
+  const n = (est.chatSeq = (est.chatSeq||0)+1);
+  enviarTodos({t:'msg', v:t, n});
+  guardarNoHistoricoChat(sala.eu, n, cfg.nome||'Você', t);
   escreverNoChat(cfg.nome||'Você', t, true);
   $('chat-txt').value='';
 };
@@ -8609,11 +8712,24 @@ function aplicarCodigoAutomatico(codigo, tipoDica){
  * Ao abrir: recupera o que ficou guardado da última vez.
  * ------------------------------------------------------------------ */
 lerAjustes();
+iniciarGamepad();
 eu.id = idAleatorio(8);
 eu.nome = cfg.nome||'';
 $('meu-nome').value=cfg.nome||'';
 $('sel-qualidade').value=cfg.qualidade;
 $('in-ruido').checked=cfg.limpar;
+$('in-avisar-sistema').checked=cfg.avisarSistema;
+$('in-avisar-sistema').onchange=async()=>{
+  const ligar = $('in-avisar-sistema').checked;
+  if(ligar && typeof Notification!=='undefined' && Notification.permission==='default'){
+    let p='denied'; try{ p=await Notification.requestPermission(); }catch{}
+    if(p!=='granted'){
+      $('in-avisar-sistema').checked=false; cfg.avisarSistema=false; guardarAjustes();
+      return recado('O navegador não deu permissão para avisos do sistema.','mal');
+    }
+  }
+  cfg.avisarSistema = ligar; guardarAjustes();
+};
 $('sel-fala').value=cfg.fala;
 $('vol').value=cfg.volume; $('lbl-vol').textContent=cfg.volume+'%';
 $('sel-codec').value=cfg.codec||'auto';
