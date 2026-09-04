@@ -2315,7 +2315,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.11 — 03/09 — dez melhorias';
+const VERSAO = '6.12 — 04/09 — o teto de fps agora tenta voltar';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -4471,7 +4471,7 @@ function medianaDe(H){
 }
 
 function zerarSocorroCaptura(){
-  est.socorro = { degrau:0, fase:'parado', quando:0, antes:0, desistiu:false };
+  est.socorro = { degrau:0, fase:'parado', quando:0, antes:0, desistiu:false, esperaMelhora:120000 };
   est.tamBaseCaptura = null;
   est.sozinhoAvaliou = false;
 }
@@ -4690,7 +4690,42 @@ async function socorrerCaptura(){
     return;
   }
 
+  if(s.fase==='melhorando'){
+    if(Date.now()-s.quando < 12000) return;
+    s.fase='parado'; s.quando = Date.now();
+    const piorou = s.antes>0 && agora < s.antes*0.85;
+    if(piorou){
+      marcar('capturar maior de novo não se sustentou ('+s.antes+' -> '+agora+
+             ') — voltando a encolher, e vou esperar mais antes de tentar de novo');
+      s.esperaMelhora = Math.min(600000, (s.esperaMelhora||120000)*1.6);
+      await aplicarDegrauCaptura(Math.min(ESCADA_CAPTURA.length-1, s.degrau+1));
+    }else{
+      marcar('a máquina aguentou capturar maior de novo: mantendo em '+agora+' quadros');
+      recado('Consegui aumentar a captura de novo sem perder quadros.','ok');
+      s.esperaMelhora = 120000;
+    }
+    s.quando = Date.now();
+    return;
+  }
+
   if(s.desistiu) return;
+
+  /* ---------------------------------------------------------------------
+   * TENTAR MELHORAR
+   * ---------------------------------------------------------------------
+   * Confirmar que encolher ajudou não é o fim da história: sem tentar
+   * crescer de novo de propósito, uma redução que fez sentido com o
+   * jogo pesado continua valendo depois que ele fecha. Mesma receita da
+   * banda e do fps do Sozinho logo acima: calma, tentativa, medição
+   * depois, espera dobrando se não colar.
+   * ------------------------------------------------------------------ */
+  if(s.degrau>0 && Date.now()-s.quando > (s.esperaMelhora||120000)){
+    s.antes = agora; s.quando = Date.now(); s.fase='melhorando';
+    if(!await aplicarDegrauCaptura(s.degrau-1)){ s.fase='parado'; return; }
+    marcar('capturando um pouco maior para ver se a máquina aguenta agora');
+    return;
+  }
+
   if(s.degrau >= ESCADA_CAPTURA.length-1) return;
   if(Date.now()-s.quando < 15000) return;
   // capturaSuspeita exige 30 amostras: são uns 25 segundos de convicção
@@ -4765,10 +4800,47 @@ async function escolherSozinho(){
   if(sobe && medianaDe(H) < alvo.fps*0.8) return;
 
   const mudou = alvo.l!==P.l || alvo.a!==P.a || alvo.fps!==P.fps;
-  if(!mudou) return;
+  if(!mudou){
+    /* -------------------------------------------------------------------
+     * A MESMA RATOEIRA DA BANDA, AGORA NO FPS DA CAPTURA
+     * ---------------------------------------------------------------------
+     * Pedir menos fps ao Windows reduz de verdade o esforço do
+     * capturador — então o histórico nunca mais mostra pico acima do que
+     * a gente mesmo pediu. Só o 20/30/60 do Sozinho entra aqui: 120 é
+     * escolha manual de quem sabe que quer isso, não ambição automática.
+     * ------------------------------------------------------------------- */
+    const escada = [20,30,60];
+    const i = escada.indexOf(P.fps);
+    if(i>=0 && i<escada.length-1 && est.streamTela &&
+       Date.now()-(est.sozinhoQuandoTentouSubir||0) > (est.sozinhoEsperaSubida||90000)){
+      const tentativa = escada[i+1];
+      const antesDeProvar = P.fps;
+      est.sozinhoQuandoTentouSubir = Date.now();
+      P.fps = tentativa;
+      est.sozinhoQuando = Date.now();
+      est.tamBaseCaptura = null; est.histFonte = []; est.olhouCaptura = 0;
+      const faixaProva = est.streamTela.getVideoTracks()[0];
+      if(faixaProva && faixaProva.applyConstraints){
+        try{ await faixaProva.applyConstraints({ frameRate:{ideal:tentativa} }); }
+        catch(e){ console.warn('sozinho subida fps',e); }
+      }
+      marcar('SOZINHO: testando se a captura já aguenta mais — '+antesDeProvar+' -> '+
+             tentativa+' fps (calma de '+Math.round((est.sozinhoEsperaSubida||90000)/1000)+
+             's antes de tentar)');
+    }
+    return;
+  }
 
   const antes = P.a+'p a '+P.fps;
+  const desceuFps = alvo.fps < P.fps;
   P.l=alvo.l; P.a=alvo.a; P.fps=alvo.fps; P.mbps=alvo.mbps;
+  if(desceuFps){
+    // a captura não aguentou o valor que estava valendo — sem isto, uma
+    // tentativa de subir de propósito viraria solavanco a cada 90s pra
+    // sempre, em vez de aprender que aqui não cabe e esperar mais
+    est.sozinhoQuandoTentouSubir = Date.now();
+    est.sozinhoEsperaSubida = Math.min(480000, (est.sozinhoEsperaSubida||90000)*1.6);
+  }
   est.sozinhoQuando = Date.now();
   est.sozinhoPorque = teto
     ? 'sua tela entrega '+teto+' quadros'

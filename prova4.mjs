@@ -3420,6 +3420,128 @@ async function principal() {
            statusAuto.decidiu)
       : mal('não mostrou o estado atual com o motivo', statusAuto.decidiu);
 
+    /* ============ 79. o Sozinho tenta subir o fps de propósito, e sabe recuar ============ */
+    console.log('\n=== 79. Sem tentar de propósito, o teto de fps nunca sobe sozinho — e com isso, sabe recuar? ===');
+    const subidaFps = await A.evaluate(async () => {
+      const eraQ = cfg.qualidade;
+      const eraStream = est.streamTela;
+      const eraHist = est.histFonte;
+      const eraTam = est.tamBaseCaptura;
+      const eraCompressor = est.compressorNaPlaca;
+      const eraAuto = Object.assign({}, PERFIS.auto);
+      const eraSozQuando = est.sozinhoQuando;
+      const eraTentou = est.sozinhoQuandoTentouSubir;
+      const eraEspera = est.sozinhoEsperaSubida;
+      const eraAvaliou = est.sozinhoAvaliou;
+
+      const chamadas = [];
+      cfg.qualidade = 'auto';
+      est.streamTela = { getVideoTracks: () => [{ applyConstraints: async (c) => { chamadas.push(c); } }] };
+      est.tamBaseCaptura = { l:1920, a:1080 };
+      est.compressorNaPlaca = true;
+      Object.assign(PERFIS.auto, { l:1920, a:1080, fps:30, mbps:5 });
+      est.sozinhoQuando = 0;
+      est.sozinhoQuandoTentouSubir = 0;
+      est.sozinhoEsperaSubida = undefined;
+
+      // (a) firme em 30, calma suficiente: tenta subir para 60 de propósito
+      est.histFonte = Array.from({ length: 25 }, () => 30);
+      await escolherSozinho();
+      const subiu = { fps: PERFIS.auto.fps, chamou: chamadas.length };
+
+      // (b) não colou: a captura só aguenta 32 nesse tamanho novo — recua,
+      // e a próxima tentativa vai ter que esperar mais que da última vez
+      est.sozinhoQuando = 0;
+      est.histFonte = Array.from({ length: 25 }, () => 32);
+      await escolherSozinho();
+      const recuou = { fps: PERFIS.auto.fps, espera: est.sozinhoEsperaSubida };
+
+      // (c) tentar de novo rápido demais: não insiste antes da espera passar
+      est.sozinhoQuando = 0;
+      est.histFonte = Array.from({ length: 25 }, () => 30);
+      await escolherSozinho();
+      const cedoDemais = { fps: PERFIS.auto.fps, chamou: chamadas.length };
+
+      cfg.qualidade = eraQ; est.streamTela = eraStream; est.histFonte = eraHist;
+      est.tamBaseCaptura = eraTam; est.compressorNaPlaca = eraCompressor;
+      Object.assign(PERFIS.auto, eraAuto);
+      est.sozinhoQuando = eraSozQuando; est.sozinhoQuandoTentouSubir = eraTentou;
+      est.sozinhoEsperaSubida = eraEspera; est.sozinhoAvaliou = eraAvaliou;
+      return { subiu, recuou, cedoDemais };
+    });
+    info(JSON.stringify(subidaFps));
+    (subidaFps.subiu.fps === 60 && subidaFps.subiu.chamou === 1)
+      ? ok('firme em 30 há tempo: tenta 60 de propósito, sozinho — sem isso nunca saberia que cabe mais')
+      : mal('não tentou subir mesmo com calma de sobra', JSON.stringify(subidaFps.subiu));
+    (subidaFps.recuou.fps === 30 && subidaFps.recuou.espera > 90000)
+      ? ok('a tentativa não se sustentou: recuou para 30 E a próxima espera cresceu',
+           'espera agora: ' + subidaFps.recuou.espera + 'ms')
+      : mal('não recuou direito ou não aumentou a espera', JSON.stringify(subidaFps.recuou));
+    (subidaFps.cedoDemais.fps === 30 && subidaFps.cedoDemais.chamou === 2)
+      ? ok('logo depois de falhar, NÃO tenta de novo — vira solavanco a cada 90s senão',
+           'nenhuma chamada nova de applyConstraints')
+      : mal('insistiu cedo demais depois de uma tentativa que já tinha falhado', JSON.stringify(subidaFps.cedoDemais));
+
+    /* ============ 80. socorrerCaptura tenta crescer de novo depois de encolher ============ */
+    console.log('\n=== 80. Depois de confirmar que encolher ajudou, ele tenta crescer de novo mais tarde? ===');
+    const melhorar = await A.evaluate(async () => {
+      const eraQ = cfg.qualidade; const eraAvaliou = est.sozinhoAvaliou;
+      const eraSocorroCaptura = cfg.socorroCaptura; const eraStream = est.streamTela;
+      const eraHist = est.histFonte; const eraSocorro = est.socorro;
+      const eraAplicar = window.aplicarDegrauCaptura;
+
+      cfg.qualidade = 'auto'; est.sozinhoAvaliou = true;
+      cfg.socorroCaptura = true; est.streamTela = {};
+
+      const chamadas = [];
+      window.aplicarDegrauCaptura = async (n) => { chamadas.push(n); est.socorro.degrau = n; return true; };
+
+      // (a) reduzido há tempo, calmo: tenta crescer um degrau
+      est.socorro = { degrau:1, fase:'parado', quando: Date.now()-999999, antes:0,
+                      desistiu:false, esperaMelhora:120000 };
+      est.histFonte = Array.from({ length: 15 }, () => 45);
+      await socorrerCaptura();
+      const tentou = { fase: est.socorro.fase, degrau: est.socorro.degrau, chamou: chamadas.length };
+
+      // (b) cresceu e SUSTENTOU o fps: fica no tamanho maior
+      est.socorro.quando = Date.now()-999999;
+      est.histFonte = Array.from({ length: 15 }, () => 44);   // perto do que tinha antes (45)
+      await socorrerCaptura();
+      const sustentou = { fase: est.socorro.fase, degrau: est.socorro.degrau,
+                          espera: est.socorro.esperaMelhora, chamou: chamadas.length };
+
+      // (c) uma segunda vez, agora a tentativa NÃO se sustenta: volta a encolher
+      // e espera mais da próxima vez
+      chamadas.length = 0;
+      est.socorro = { degrau:1, fase:'parado', quando: Date.now()-999999, antes:0,
+                      desistiu:false, esperaMelhora:120000 };
+      est.histFonte = Array.from({ length: 15 }, () => 45);
+      await socorrerCaptura();               // entra em 'melhorando', tenta degrau 0
+      est.socorro.quando = Date.now()-999999;
+      est.histFonte = Array.from({ length: 15 }, () => 20);   // caiu muito: não se sustentou
+      await socorrerCaptura();
+      const naoSustentou = { fase: est.socorro.fase, degrau: est.socorro.degrau,
+                             espera: est.socorro.esperaMelhora, chamou: [...chamadas] };
+
+      cfg.qualidade = eraQ; est.sozinhoAvaliou = eraAvaliou; cfg.socorroCaptura = eraSocorroCaptura;
+      est.streamTela = eraStream; est.histFonte = eraHist; est.socorro = eraSocorro;
+      window.aplicarDegrauCaptura = eraAplicar;
+      return { tentou, sustentou, naoSustentou };
+    });
+    info(JSON.stringify(melhorar));
+    (melhorar.tentou.fase === 'melhorando' && melhorar.tentou.degrau === 0 && melhorar.tentou.chamou === 1)
+      ? ok('reduzido e calmo há tempo: tenta crescer um degrau de propósito, sozinho')
+      : mal('não tentou crescer de novo mesmo depois de calmo', JSON.stringify(melhorar.tentou));
+    (melhorar.sustentou.fase === 'parado' && melhorar.sustentou.degrau === 0 &&
+     melhorar.sustentou.espera === 120000 && melhorar.sustentou.chamou === 1)
+      ? ok('o fps se sustentou no tamanho maior: fica lá, sem chamar aplicarDegrauCaptura de novo')
+      : mal('não manteve o tamanho maior mesmo tendo se sustentado', JSON.stringify(melhorar.sustentou));
+    (melhorar.naoSustentou.fase === 'parado' && melhorar.naoSustentou.degrau === 1 &&
+     melhorar.naoSustentou.espera > 120000 && melhorar.naoSustentou.chamou.length === 2)
+      ? ok('não se sustentou: volta a encolher (degrau 1) E aumenta a espera da próxima tentativa',
+           'espera agora: ' + melhorar.naoSustentou.espera + 'ms')
+      : mal('não recuou direito quando crescer de novo não se sustentou', JSON.stringify(melhorar.naoSustentou));
+
     /* ============ 11. nada explodiu ============ */
     console.log('\n=== 11. Sobrou algum erro? ===');
     ok('nenhuma exceção não capturada (as de cima teriam falhado sozinhas)');
