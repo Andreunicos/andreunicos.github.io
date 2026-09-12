@@ -91,6 +91,10 @@ button,input,select,textarea{font-family:inherit;font-size:inherit}
   background:var(--vermelho);color:#fff;font:inherit;font-weight:700;font-size:12.5px;
 }
 .aviso-tx button:hover{background:#ff6b60}
+/* o botão de cortar som não é um "Parar" — vermelho ali do lado ia parecer
+   um segundo botão de parar a transmissão, e não é isso que ele faz */
+.aviso-tx button.secundario{background:var(--sup3);color:var(--txt)}
+.aviso-tx button.secundario:hover{background:var(--linha2)}
 .aviso-tx.escondido{opacity:.28}
 .aviso-tx.escondido:hover{opacity:1}
 /* no quadro local os botoes ficam sempre visiveis */
@@ -2322,7 +2326,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.13 — 04/09 — a marca Sinal';
+const VERSAO = '6.15 — 12/09 — cortar o som da tela sem parar';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -4959,8 +4963,45 @@ function mostrarAvisoTx(ligado){
   const bt=document.createElement('button'); bt.type='button'; bt.textContent='⏹ Parar';
   bt.onclick=(e)=>{ e.stopPropagation(); pararTela(); };
   a.append(luz,txt,bt);
+  // só existe o que cortar quando esta transmissão levou som do sistema
+  // junto — sem faixa de áudio o botão não teria o que fazer
+  if(est.streamTela && est.streamTela.getAudioTracks()[0]){
+    const btSom=document.createElement('button');
+    btSom.type='button'; btSom.id='btn-cortar-som-tela'; btSom.className='secundario';
+    btSom.textContent = est.somDaTelaCortado ? '🔊 Devolver som da tela' : '🔇 Cortar som da tela';
+    btSom.onclick=(e)=>{ e.stopPropagation(); alternarSomDaTela(); };
+    a.append(btSom);
+  }
   a.onclick=()=>a.classList.toggle('escondido');
   (document.fullscreenElement||$('chamada')).appendChild(a);
+}
+
+/* ---------------------------------------------------------------------
+ * CORTAR O SOM DO SISTEMA SEM PARAR DE TRANSMITIR
+ * ---------------------------------------------------------------------
+ * O botão que o comentário ali embaixo prometia e nunca existiu. Serve
+ * para o instante em que o eco do amigo já apareceu: em vez de parar a
+ * tela inteira e recomeçar sem som, corta só a faixa de áudio do sistema
+ * — jogo, vídeo e tudo mais continuam do jeito que estavam, só o som some
+ * da transmissão até você mandar voltar.
+ *
+ * `replaceTrack(null)` não fecha a captura: a faixa de áudio original
+ * continua viva dentro de `est.streamTela`, só não está mais sendo
+ * enviada. Por isso "devolver" é só mandar a mesma faixa de volta.
+ * ------------------------------------------------------------------ */
+async function alternarSomDaTela(){
+  if(!est.streamTela) return;
+  const aud = est.streamTela.getAudioTracks()[0];
+  if(!aud) return;
+  est.somDaTelaCortado = !est.somDaTelaCortado;
+  for(const par of pares.values()){
+    if(!par.senderTelaAudio) continue;
+    try{ await par.senderTelaAudio.replaceTrack(est.somDaTelaCortado ? null : aud); }catch{}
+  }
+  const bt = $('btn-cortar-som-tela');
+  if(bt) bt.textContent = est.somDaTelaCortado ? '🔊 Devolver som da tela' : '🔇 Cortar som da tela';
+  marcar(est.somDaTelaCortado ? 'cortei o som do sistema sem parar de transmitir' :
+                                 'devolvi o som do sistema para a transmissão');
 }
 
 async function alternarTela(){
@@ -5018,17 +5059,29 @@ async function pegarTela(){
    * de volta para eles, com atraso. Cada um se ouve.
    *
    * Não existe API de navegador que separe "o som do jogo" do "som da
-   * chamada": o que chega é uma mistura só, já pronta. Fone resolve na
-   * hora, porque aí a voz deles nunca passa pela caixa.
+   * chamada": o que chega é uma mistura só, já pronta.
    *
-   * Então: avisar na hora em que acontece, com o conserto junto, e um
-   * botão para cortar o som do sistema sem parar a transmissão.
+   * ISTO AQUI ESTAVA ESCRITO ERRADO: "fone resolve, porque a voz deles
+   * nunca passa pela caixa". Fone resolve o eco de MICROFONE — a caixa
+   * tocando e o microfone captando esse som de volta pelo ar. Aqui é
+   * outra coisa: "compartilhar o som" pega o áudio digital que está
+   * sendo mandado pra saída, direto, sem passar pelo ar. Fone ligado ou
+   * não, se a voz do amigo está saindo pela mesma saída que o Windows
+   * está espelhando, ela entra na gravação de qualquer jeito.
+   *
+   * O conserto de verdade mora no Windows, não aqui: Mixer de Volume >
+   * mandar a voz do programa de chamada (Discord etc.) para uma SAÍDA
+   * DIFERENTE da que está sendo compartilhada. Sem isso, o máximo que dá
+   * para fazer daqui é cortar o som da transmissão inteiro — por isso o
+   * botão de cortar o som do sistema sem parar a transmissão.
    * ------------------------------------------------------------------ */
   if(aud && quantosRecebem()>0 && !est.avisouEcoDaTela){
     est.avisouEcoDaTela = true;
-    recado('Você está mandando o som do sistema. Se NÃO estiver de fone, a voz dos seus '+
-           'amigos vai junto e eles vão se ouvir. Use fone — ou desligue o som da tela em Ajustes.','mal');
-    marcar('transmitindo com som do sistema — sem fone isso devolve a voz dos amigos para eles');
+    recado('Você está mandando o som do sistema. Se a voz de alguém (Discord etc.) sai pela '+
+           'mesma saída de áudio, ela vai junto e essa pessoa se ouve — fone não resolve isso, '+
+           'é captura digital. Solução: no Mixer de Volume do Windows, mande a voz desse programa '+
+           'para uma saída diferente da compartilhada. Ou corte o som da tela no botão da transmissão.','mal');
+    marcar('transmitindo com som do sistema — voz de outro programa na mesma saída volta para quem falou');
   }
 
   /* O modo canvas é uma saída de emergência para driver quebrado, não um
@@ -5073,7 +5126,7 @@ async function pegarTela(){
       console.warn('tela para '+par.id,e);
     }
   }
-  est.capturaEm=1; est.capturaFirme=0;
+  est.capturaEm=1; est.capturaFirme=0; est.somDaTelaCortado=false;
   zerarSocorroCaptura();
   est.falhasDaTela=falhas;
   marcar('comecei a transmitir ('+p.a+'p a '+p.fps+' fps pedidos, para '+quantosRecebem()+')');
@@ -7949,7 +8002,16 @@ async function montarDiagnostico(){
          diagnóstico é chute. */
       dz('  PEDI: '+p2.l+'×'+p2.a+' a '+p2.fps+' fps  ->  RECEBI: '+c.width+'×'+c.height+
          ' a '+Math.round(c.frameRate||0)+' fps');
-      if(Math.abs((c.width||0)-p2.l) > 8)
+      /* Falso alarme visto no caderninho do André (04/09): captura de
+         JANELA (não de monitor inteiro) acusando "não aplicou" com 1238
+         contra um pedido de 1280 — 42px de diferença, 3%. Numa janela
+         de verdade isso é normal: ela pode ter sido redimensionada entre
+         a medida que virou alvo e a leitura de agora, e o content-area
+         nunca bate pixel a pixel com a borda. Monitor inteiro não tem
+         essa desculpa — a resolução da tela não muda sozinha — por isso
+         só a janela ganha a régua mais frouxa. */
+      const tolerancia = c.displaySurface==='window' ? Math.max(24, p2.l*0.05) : 8;
+      if(Math.abs((c.width||0)-p2.l) > tolerancia)
         dz('  >>> O TAMANHO PEDIDO NÃO FOI APLICADO. Trocar a qualidade não está mudando '+
            'a captura — por isso o número de quadros não muda junto.');
     }
