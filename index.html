@@ -70,6 +70,27 @@ button,input,select,textarea{font-family:inherit;font-size:inherit}
 .sala-cx{margin-top:11px}
 .sala-cx textarea{font-size:12.5px}
 .sala-estado{display:flex;align-items:center;gap:9px;margin-top:11px;font-size:13px;color:var(--txt2)}
+.voce-pronto{
+  display:flex;align-items:center;gap:8px;margin-top:13px;padding:8px 12px;
+  border-radius:10px;background:var(--sup2);border:1px solid var(--linha);
+  font-size:12.5px;color:var(--txt2);
+}
+.voce-pronto-luz{
+  width:8px;height:8px;border-radius:50%;background:var(--verde);flex-shrink:0;
+  position:relative;
+}
+/* o anel que pulsa é um ::after com transform+opacity, não box-shadow — a
+   placa de vídeo anima isso de graça, sem repintar nada por baixo (mesma
+   receita do .av.fala::after ali em cima) */
+.voce-pronto-luz::after{
+  content:'';position:absolute;inset:-4px;border-radius:50%;
+  border:2px solid var(--verde);opacity:.6;pointer-events:none;
+  animation:voce-pronto-pulso 2s ease-out infinite;
+}
+@keyframes voce-pronto-pulso{
+  0%       {opacity:.6;transform:scale(1)}
+  70%,100% {opacity:0;  transform:scale(2.4)}
+}
 .manual{margin:18px 30px 0;border-top:1px solid var(--linha);padding-top:14px}
 .manual>summary{cursor:pointer;font-size:13px;color:var(--txt3);list-style:none;user-select:none}
 .manual>summary::-webkit-details-marker{display:none}
@@ -767,6 +788,9 @@ body.sem-tela .divisor{display:none}
           <button id="btn-sala-copiar" class="b b-cinza" type="button">Copiar</button>
         </div>
         <p class="ajuda" id="aviso-link" hidden style="color:var(--amarelo)"></p>
+        <!-- só de espera pro link virar link não parece que "eu já to na sala" —
+             esse selo fica aqui pra dizer isso enquanto ninguém mais entrou -->
+        <div class="voce-pronto"><span class="voce-pronto-luz"></span>Você já está pronto — só falta seu amigo clicar</div>
         <div class="sala-estado" id="sala-estado"><span class="girando" id="sala-girando"></span><span id="sala-txt">esperando seu amigo abrir o link…</span></div>
         <button id="btn-sala-denovo" class="b b-cinza b-largo" type="button" style="margin-top:11px" hidden>Tentar de novo</button>
       </div>
@@ -2326,7 +2350,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.15 — 12/09 — cortar o som da tela sem parar';
+const VERSAO = '6.16 — 13/09 — você já está pronto, enquanto espera';
 
 const LIMITE = 6;
 const pares = new Map();
