@@ -969,6 +969,12 @@ body.sem-tela .divisor{display:none}
     <p class="ajuda" style="margin-top:0" id="status-sozinho"></p>
 
     <label class="chk" style="margin-top:14px">
+      <input id="in-nitidez" type="checkbox">
+      <span>Nitidez extra — 1,5× de internet pra imagem</span>
+    </label>
+    <p class="ajuda" style="margin-top:0">Jogo de tiro em movimento borra menos. Só faz diferença se o seu upload tem sobra; se não tiver, a adaptação baixa sozinha como sempre.</p>
+
+    <label class="chk" style="margin-top:14px">
       <input id="in-auto" type="checkbox" checked>
       <span>Ajustar sozinho quando a internet apertar</span>
     </label>
@@ -1345,6 +1351,7 @@ const cfg = {
   liso:true,   // atalho de exibicao da placa (tira o canto arredondado)
   migrouSozinho:false,   // ver a migracao em lerAjustes: precisa sobreviver ao guardarAjustes
   avisarSistema:false,
+  nitidezExtra:false,    // 1,5x de banda pra imagem: tiro/movimento borra menos (a adaptação continua mandando)
 };
 
 function lerAjustes(){
@@ -2350,7 +2357,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.17 — 14/09 — degraus de 40 e 48 fps no Sozinho';
+const VERSAO = '6.18 — 14/09 — nitidez extra (1,5× de banda) pra quem tem upload sobrando';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -4203,8 +4210,22 @@ function tamanhoDaCaptura(){
   }catch{ return null; }
 }
 
+/* ---------------------------------------------------------------------
+ * NITIDEZ EXTRA
+ * ---------------------------------------------------------------------
+ * 8 Mbps em 1080p60 é o padrão do Discord e chega bem — até o tiroteio.
+ * Movimento rápido em tela cheia é o pior caso pra qualquer compressor:
+ * com a mesma banda ele borra. Quem tem upload sobrando pode pedir 1,5x.
+ * É só o TETO que sobe: a adaptação de banda (a.fator) continua mandando,
+ * então numa internet que não aguenta a cobrança cai sozinha, como sempre.
+ * ------------------------------------------------------------------ */
+function comNitidezExtra(p){
+  if(!cfg.nitidezExtra) return p;
+  return Object.assign({}, p, { mbps: Math.min(30, +(p.mbps*1.5).toFixed(1)) });
+}
+
 function perfilReal(){
-  const p = PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
+  const p = comNitidezExtra(PERFIS[cfg.qualidade]||PERFIS['1080-60-8']);
   const r = tamanhoDaCaptura();
   if(!r || r.l >= p.l) return p;
   // menos pixels pedem menos banda, quase na mesma proporção
@@ -8896,6 +8917,13 @@ eu.nome = cfg.nome||'';
 $('meu-nome').value=cfg.nome||'';
 $('sel-qualidade').value=cfg.qualidade;
 $('in-ruido').checked=cfg.limpar;
+$('in-nitidez').checked=!!cfg.nitidezExtra;
+$('in-nitidez').onchange=async()=>{
+  cfg.nitidezExtra=$('in-nitidez').checked; guardarAjustes();
+  pares.forEach(p=>{ p.perfilAplicado=null; });
+  await reequilibrarVideo();
+  recado(cfg.nitidezExtra ? 'Nitidez extra ligada: pedindo 1,5× de banda pra imagem.' : 'Nitidez extra desligada.', 'ok');
+};
 $('in-avisar-sistema').checked=cfg.avisarSistema;
 $('in-avisar-sistema').onchange=async()=>{
   const ligar = $('in-avisar-sistema').checked;
