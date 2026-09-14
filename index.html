@@ -2357,7 +2357,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.18 — 14/09 — nitidez extra (1,5× de banda) pra quem tem upload sobrando';
+const VERSAO = '6.19 — 14/09 — som da tela separado da voz (volume próprio) + aviso de tela sem som nos dois lados';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2408,14 +2408,29 @@ function criarPar(id){
   pc.ontrack = (ev)=>{
     const faixa = ev.track;
     if(faixa.kind==='audio'){
-      if(!par.audio){
-        par.audio = new Audio();
-        par.audio.autoplay = true;
-        par.audio.srcObject = new MediaStream();
-        document.body.appendChild(par.audio);
+      /* -----------------------------------------------------------------
+       * VOZ E SOM DA TELA SÃO DOIS ELEMENTOS, NÃO UM
+       * -----------------------------------------------------------------
+       * Os dois iam no MESMO <audio>. Funcionava — até alguém passar o
+       * volume da pessoa de 100%: aí entra o amplificador (AudioContext),
+       * que só lê a PRIMEIRA faixa do stream. O som da tela, que chega
+       * depois, sumia CALADO. E não tinha como abaixar o jogo sem abaixar
+       * a voz. Agora a segunda vaga de áudio (a da tela) tem o próprio
+       * elemento, o próprio volume e o próprio amplificador.
+       * -------------------------------------------------------------- */
+      const audios = pc.getTransceivers().filter(t=>t.receiver && t.receiver.track && t.receiver.track.kind==='audio');
+      const ehTela = ev.transceiver && audios.indexOf(ev.transceiver)===1;
+      const chave = ehTela ? 'audioTela' : 'audio';
+      if(!par[chave]){
+        par[chave] = new Audio();
+        par[chave].autoplay = true;
+        par[chave].srcObject = new MediaStream();
+        par[chave].dataset.papel = ehTela ? 'tela' : 'voz';
+        document.body.appendChild(par[chave]);
       }
-      par.audio.srcObject.addTrack(faixa);
-      par.audio.play().catch(()=>{});
+      par[chave].srcObject.addTrack(faixa);
+      par[chave].play().catch(()=>{});
+      if(ehTela){ par.idFaixaTela = faixa.id; par.telaSilenciosaDesde = 0; par.avisouTelaMuda = false; }
       aplicarVolume();
     }else{
       // menos atraso: o navegador guarda quadros para amortecer solavancos;
@@ -2587,6 +2602,7 @@ function abrirCanal(par){
     let d; try{ d=JSON.parse(ev.data); }catch{ return; }
     if(d.t==='mudo'){ par.mudo=!!d.v; pintarGente(); }
     else if(d.t==='fala'){ par.falando=!!d.v; marcarFala(par); }
+    else if(d.t==='telaMuda'){ recado((par.nome||'Seu amigo')+' está recebendo sua tela SEM som. O jogo está tocando numa saída que não é a padrão do Windows — no app, escolhe "Só do jogo" em Transmitir.','mal'); }
     else if(d.t==='nome'){ definirNome(par, d.v); }
     else if(d.t==='perfil'){
       par.qualidadeDele = String(d.v||'').slice(0,20);
@@ -2944,20 +2960,25 @@ function soltarAudioDoPar(par){
   try{ par.ganho && par.ganho.disconnect(); }catch{}
   try{ par.lado && par.lado.disconnect(); }catch{}
   par.fonteAudio = null; par.ganho = null; par.lado = null;
-  const a = par.audio;
-  if(!a) return;
-  try{
-    a.pause();
-    // as faixas já morrem com o pc.close(), mas o stream do elemento é
-    // outro objeto: é este que precisa ser largado explicitamente
-    const st = a.srcObject;
-    if(st && st.getTracks) st.getTracks().forEach(t=>{ try{ t.stop(); }catch{} });
-    a.srcObject = null;
-    a.removeAttribute('src');
-    a.load();          // é o load() que faz o motor desmontar o buffer
-    a.remove();
-  }catch(e){ console.warn('soltar audio', e); }
-  par.audio = null;
+  try{ par.fonteTela && par.fonteTela.disconnect(); }catch{}
+  try{ par.ganhoTela && par.ganhoTela.disconnect(); }catch{}
+  par.fonteTela = null; par.ganhoTela = null;
+  for(const chave of ['audio','audioTela']){
+    const a = par[chave];
+    if(!a) continue;
+    try{
+      a.pause();
+      // as faixas já morrem com o pc.close(), mas o stream do elemento é
+      // outro objeto: é este que precisa ser largado explicitamente
+      const st = a.srcObject;
+      if(st && st.getTracks) st.getTracks().forEach(t=>{ try{ t.stop(); }catch{} });
+      a.srcObject = null;
+      a.removeAttribute('src');
+      a.load();          // é o load() que faz o motor desmontar o buffer
+      a.remove();
+    }catch(e){ console.warn('soltar audio', e); }
+    par[chave] = null;
+  }
 }
 
 /* O código curto não tem espaço para H.265 (ver empacotar). Quem estava
@@ -3288,6 +3309,23 @@ function abrirMenuDaPessoa(par, ancora){
   const b=document.createElement('b'); b.textContent=r.value+'%';
   r.oninput=()=>{ par.volume=Number(r.value); b.textContent=r.value+'%'; aplicarVolume(); pintarVolumes(); };
   lv.append(ic,r,b); m.appendChild(lv);
+
+  // o som da tela dela, separado da voz (só aparece quando existe)
+  if(par.audioTela){
+    const lt=document.createElement('div'); lt.className='linha-vol';
+    const it=document.createElement('span'); it.textContent='🖥'; it.title='Som da tela dela';
+    const rt=document.createElement('input');
+    rt.type='range'; rt.min='0'; rt.max='200'; rt.value=String(par.volumeTela==null?100:par.volumeTela);
+    rt.setAttribute('aria-label','Som da tela de '+(par.nome||'esta pessoa'));
+    const bt2=document.createElement('b'); bt2.textContent=rt.value+'%';
+    rt.oninput=()=>{ par.volumeTela=Number(rt.value); bt2.textContent=rt.value+'%'; aplicarVolume(); };
+    lt.append(it,rt,bt2); m.appendChild(lt);
+    if(par.temTela && par.telaSilenciosaDesde && Date.now()-par.telaSilenciosaDesde>8000){
+      const av=document.createElement('div'); av.className='sub';
+      av.textContent='⚠ a tela chegou sem som — o jogo dele deve estar tocando em outra saída';
+      m.appendChild(av);
+    }
+  }
 
   // silenciar
   const bs=document.createElement('button');
@@ -3635,6 +3673,53 @@ function pacingDe(par){
     pior:   Math.round(1000/p99),          // o 1% pior, em quadros por segundo
     buraco: Math.round(ord[ord.length-1]), // o maior salto entre dois quadros, em ms
   };
+}
+
+/* ---------------------------------------------------------------------
+ * TELA SEM SOM — dos dois lados, com nome e endereço
+ * ---------------------------------------------------------------------
+ * "Não ouço a transmissão dele" tinha três suspeitos: eu não toco, ele
+ * não manda, ou o Windows dele entrega silêncio (o jogo toca numa saída
+ * que não é a padrão). Quem recebe mede o nível do que CHEGA; quem manda
+ * mede o nível do que CAPTUROU. Cada lado avisa uma vez só.
+ * ------------------------------------------------------------------ */
+function vigiarSomDaTelaQueChega(par, s){
+  if(!par.temTela || est.surdo) { par.telaSilenciosaDesde = 0; return; }
+  const nivel = Number(s.audioLevel||0);
+  par.nivelTela = nivel;
+  if(nivel > 0.002){ par.telaSilenciosaDesde = 0; return; }
+  if(!par.telaSilenciosaDesde) par.telaSilenciosaDesde = Date.now();
+  else if(Date.now()-par.telaSilenciosaDesde > 12000 && !par.avisouTelaMuda){
+    par.avisouTelaMuda = true;
+    marcar('a tela de '+(par.nome||par.id)+' está chegando SEM som há 12 s (nível 0) — o lado dele captura silêncio');
+    recado('A tela de '+(par.nome||'seu amigo')+' está chegando sem som. Não é aqui: o jogo dele deve estar tocando numa saída que não é a padrão do Windows. No app, ele escolhe "Só do jogo" em Transmitir.','mal');
+    enviar(par,{t:'telaMuda'});
+  }
+}
+function vigiarSomDaTelaQueSai(stream){
+  clearInterval(est.vigiaSomTela); est.vigiaSomTela=null;
+  const aud = stream && stream.getAudioTracks()[0];
+  if(!aud) return;
+  let an=null, fonte=null;
+  try{
+    if(!est.ctx) est.ctx = novoContextoDeAudio();
+    fonte = est.ctx.createMediaStreamSource(new MediaStream([aud]));
+    an = est.ctx.createAnalyser(); an.fftSize = 1024; fonte.connect(an);
+  }catch(e){ return; }
+  const buf = new Float32Array(an.fftSize);
+  let mudoDesde = Date.now(), avisou = false;
+  est.vigiaSomTela = setInterval(()=>{
+    if(est.streamTela!==stream || aud.readyState!=='live'){ clearInterval(est.vigiaSomTela); est.vigiaSomTela=null; try{ fonte.disconnect(); }catch{} return; }
+    if(est.somDaTelaCortado){ mudoDesde = Date.now(); return; }
+    an.getFloatTimeDomainData(buf);
+    let pico=0; for(let i=0;i<buf.length;i++){ const v=Math.abs(buf[i]); if(v>pico) pico=v; }
+    if(pico > 0.001){ mudoDesde = Date.now(); return; }
+    if(!avisou && Date.now()-mudoDesde > 12000){
+      avisou = true;
+      marcar('o som da tela que estou mandando está em SILÊNCIO há 12 s — a captura do Windows não está pegando o jogo');
+      recado('Estou mandando a tela, mas o som dela está em silêncio há 12 s. Se o jogo está tocando, ele está numa saída que não é a padrão do Windows. No app: Transmitir › De onde › "Só do jogo". No navegador: põe o jogo na saída padrão.','mal');
+    }
+  }, 1000);
 }
 
 function mostrarTela(par){
@@ -4066,7 +4151,36 @@ function espalharVozes(){
   });
 }
 
+function ligarAmplificadorTela(par){
+  if(par.ganhoTela) return true;
+  try{
+    if(!est.ctx) est.ctx = novoContextoDeAudio();
+    if(est.ctx.state==='suspended') est.ctx.resume();
+    if(!par.audioTela || !par.audioTela.srcObject) return false;
+    par.fonteTela = est.ctx.createMediaStreamSource(par.audioTela.srcObject);
+    par.ganhoTela = est.ctx.createGain();
+    par.fonteTela.connect(par.ganhoTela); par.ganhoTela.connect(est.ctx.destination);
+    par.audioTela.volume = 0;
+    return true;
+  }catch(e){
+    console.warn('amplificador da tela',e);
+    try{ par.fonteTela && par.fonteTela.disconnect(); }catch{}
+    par.fonteTela=null; par.ganhoTela=null;
+    return false;
+  }
+}
+function aplicarVolumeTela(p){
+  if(!p.audioTela) return;
+  const v = est.surdo ? 0 : (cfg.volume/100) * ((p.volumeTela==null?100:p.volumeTela)/100);
+  if(v>1 && !p.ganhoTela) ligarAmplificadorTela(p);
+  if(p.ganhoTela){
+    try{ if(est.ctx && est.ctx.state==='suspended') est.ctx.resume(); }catch{}
+    p.audioTela.volume = 0;
+    try{ p.ganhoTela.gain.value = Math.max(0, Math.min(3, v)); }catch{}
+  }else p.audioTela.volume = Math.max(0, Math.min(1, v));
+}
 function aplicarVolume(){
+  pares.forEach(aplicarVolumeTela);
   pares.forEach(p=>{
     if(!p.audio) return;
     const v = est.surdo ? 0 : (cfg.volume/100) * ((p.volume==null?100:p.volume)/100);
@@ -5159,6 +5273,7 @@ async function pegarTela(){
   // ficava indistinguível.
   est.streamTela=stream;
   v.addEventListener('ended',pararTela);
+  vigiarSomDaTelaQueSai(stream);
   quadroLocal(stream);
   mostrarAvisoTx(true);
   acordarControles();
@@ -6588,7 +6703,10 @@ async function atualizarNumeros(){
       if(s.type==='media-source'&&s.kind==='video') fonte=s;
       if(s.type==='outbound-rtp'&&s.kind==='video'&&s.bytesSent) sv=s;
       if(s.type==='inbound-rtp'&&s.kind==='video'&&s.bytesReceived) ev=s;
-      if(s.type==='inbound-rtp'&&s.kind==='audio'&&s.bytesReceived) ea=s;
+      if(s.type==='inbound-rtp'&&s.kind==='audio'&&s.bytesReceived){
+        if(par.idFaixaTela && s.trackIdentifier===par.idFaixaTela) vigiarSomDaTelaQueChega(par, s);
+        else ea=s;
+      }
       if(s.type==='remote-inbound-rtp'&&s.kind==='video') eco=s;
       if(s.type==='candidate-pair'&&s.state==='succeeded'&&s.nominated) pardeIce=s;
     });
