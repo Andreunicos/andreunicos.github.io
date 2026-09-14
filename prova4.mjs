@@ -3470,9 +3470,10 @@ async function principal() {
       return { subiu, recuou, cedoDemais };
     });
     info(JSON.stringify(subidaFps));
-    (subidaFps.subiu.fps === 60 && subidaFps.subiu.chamou === 1)
-      ? ok('firme em 30 há tempo: tenta 60 de propósito, sozinho — sem isso nunca saberia que cabe mais')
-      : mal('não tentou subir mesmo com calma de sobra', JSON.stringify(subidaFps.subiu));
+    // v6.17: a escada ganhou 40 e 48 no meio — sobe UM degrau (30 -> 40), não pula pra 60
+    (subidaFps.subiu.fps === 40 && subidaFps.subiu.chamou === 1)
+      ? ok('firme em 30 há tempo: tenta o degrau seguinte (40) de propósito, sozinho — sem isso nunca saberia que cabe mais')
+      : mal('não tentou subir um degrau mesmo com calma de sobra', JSON.stringify(subidaFps.subiu));
     (subidaFps.recuou.fps === 30 && subidaFps.recuou.espera > 90000)
       ? ok('a tentativa não se sustentou: recuou para 30 E a próxima espera cresceu',
            'espera agora: ' + subidaFps.recuou.espera + 'ms')

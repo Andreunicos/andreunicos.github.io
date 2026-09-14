@@ -2350,7 +2350,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.16 — 13/09 — você já está pronto, enquanto espera';
+const VERSAO = '6.17 — 14/09 — degraus de 40 e 48 fps no Sozinho';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -4783,9 +4783,22 @@ function perfilAnunciado(){
 /* De 32 quadros medidos não sai um alvo de "32": sai 30. Alvo quebrado
    faz toda comparação de "está bom?" virar sorte, e o compressor gosta
    de números redondos. */
+/* ---------------------------------------------------------------------
+ * DEGRAUS DE FPS
+ * ---------------------------------------------------------------------
+ * Só 20/30/60 aqui jogava quadro fora: medido no PC do André com o jogo
+ * pesado, a captura entregava 37 a 47 — e "47" virava 30, porque não
+ * chegava a 50. Treze quadros por segundo no lixo para ter um número
+ * redondo. Com 40 e 48 no meio, o pedido fica colado no que a máquina
+ * entrega de verdade: 43 medidos viram 40 pedidos e recebidos, não 30.
+ * ------------------------------------------------------------------ */
+const DEGRAUS_FPS = [20,30,40,48,60];
+
 function arredondarFps(f){
   if(f >= 100) return 120;
-  if(f >= 50)  return 60;
+  if(f >= 54)  return 60;
+  if(f >= 44)  return 48;
+  if(f >= 36)  return 40;
   if(f >= 25)  return 30;
   return 20;
 }
@@ -4841,10 +4854,10 @@ async function escolherSozinho(){
      * ---------------------------------------------------------------------
      * Pedir menos fps ao Windows reduz de verdade o esforço do
      * capturador — então o histórico nunca mais mostra pico acima do que
-     * a gente mesmo pediu. Só o 20/30/60 do Sozinho entra aqui: 120 é
+     * a gente mesmo pediu. Só os degraus do Sozinho entram aqui: 120 é
      * escolha manual de quem sabe que quer isso, não ambição automática.
      * ------------------------------------------------------------------- */
-    const escada = [20,30,60];
+    const escada = DEGRAUS_FPS;
     const i = escada.indexOf(P.fps);
     if(i>=0 && i<escada.length-1 && est.streamTela &&
        Date.now()-(est.sozinhoQuandoTentouSubir||0) > (est.sozinhoEsperaSubida||90000)){
