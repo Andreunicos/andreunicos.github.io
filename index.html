@@ -2357,7 +2357,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.19 — 14/09 — som da tela separado da voz (volume próprio) + aviso de tela sem som nos dois lados';
+const VERSAO = '6.20 — 15/09 — transmitir a tela mesmo sozinho na sala (quem entra depois já entra vendo)';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -5179,7 +5179,9 @@ async function alternarSomDaTela(){
 async function alternarTela(){
   if(est.streamTela) return pararTela();
   if(est.pegandoTela) return;             // dois cliques abriam duas capturas
-  if(!vivos().length) return recado('Ninguém conectado ainda.','mal');
+  // sozinho na sala pode transmitir: quem entrar depois já entra vendo
+  // (prepararMidia troca as faixas de quem chega). Só bloqueia sem sala.
+  if(!vivos().length && !sala.ligada) return recado('Ninguém conectado ainda.','mal');
   est.pegandoTela=true; $('btn-tela').disabled=true;
   try{ await pegarTela(); }
   finally{ est.pegandoTela=false; $('btn-tela').disabled=false; }
