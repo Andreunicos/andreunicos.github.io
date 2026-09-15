@@ -2357,7 +2357,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.20 — 15/09 — transmitir a tela mesmo sozinho na sala (quem entra depois já entra vendo)';
+const VERSAO = '6.21 — 15/09 — sozinho na sala não avisa "nenhum quadro sai daqui" (não tem pra quem sair)';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2732,6 +2732,7 @@ async function prepararMidia(par){
     try{ if(v && par.senderVideo) await par.senderVideo.replaceTrack(v); }catch{}
     try{ if(a && par.senderTelaAudio) await par.senderTelaAudio.replaceTrack(a); }catch{}
     await aplicarPerfilVideo(par);
+    vigiarPrimeirosQuadros();   // agora tem pra quem sair: confere em 8 s
   }
 }
 
@@ -5350,6 +5351,7 @@ function vigiarPrimeirosQuadros(){
       });
     }
     if(saiu>0) return;                      // está saindo quadro, tudo bem
+    if(!vivos().length) return;             // sozinho na sala: não tem pra quem sair — confere quando alguém entrar
 
     recado('A tela não está saindo daqui. Vou tentar consertar.','mal');
     if(cfg.codec!=='auto'){
