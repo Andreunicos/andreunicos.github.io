@@ -926,6 +926,11 @@ body.sem-tela .divisor{display:none}
       teclado e o jogo ligados: se a barra passar do risquinho sozinha, o seu microfone está
       abrindo à toa e vazando isso para a call. Arraste para a <b>direita</b> até parar de passar.
     </p>
+    <label class="chk" style="margin-top:8px">
+      <input id="in-portao-corta" type="checkbox">
+      <span>Cortar o microfone abaixo do ponto (sensibilidade, como no Discord)</span>
+    </label>
+    <p class="ajuda" style="margin-top:0">Desligado, o ponto só acende o "está falando". Ligado, abaixo do ponto nada sai — nem teclado, nem ventilador.</p>
     <label class="chk" style="margin-top:14px">
       <input id="in-ruido" type="checkbox" checked>
       <span>Cortar ruído de fundo e eco</span>
@@ -1347,7 +1352,7 @@ const cfg = {
   codec:'auto', auto:true, turn:'', site:'', versaoAjustes:0,
   sobrepor:true, teclaMudo:'', nomeTeclaMudo:'', comWindows:false,
   prioridade:'fps', desenho:'normal', latencia:'estavel',
-  espacial:false, portao:12, socorroCaptura:true, previaEconomica:true,
+  espacial:false, portao:12, portaoCorta:false, socorroCaptura:true, previaEconomica:true,
   liso:true,   // atalho de exibicao da placa (tira o canto arredondado)
   migrouSozinho:false,   // ver a migracao em lerAjustes: precisa sobreviver ao guardarAjustes
   avisarSistema:false,
@@ -2329,7 +2334,12 @@ function iniciarMedidor(){
   est.loopNivel=setInterval(()=>{
     const n=nivel();
     if($('painel').classList.contains('aberto')) $('medidor').style.width=n+'%';
-    const falando = !est.mudo && n>(cfg.portao||12) && (cfg.fala!=='ptt' || est.segurando);
+    const acima = n>(cfg.portao||12);
+    // o portão: abre na hora, fecha só depois de 700 ms abaixo do ponto
+    const agora = Date.now();
+    if(acima){ est.portaoFechaEm = agora+700; if(est.portaoAberto!==true){ est.portaoAberto=true; if(cfg.portaoCorta) aplicarMudo(); } }
+    else if(est.portaoAberto!==false && agora > (est.portaoFechaEm||0)){ est.portaoAberto=false; if(cfg.portaoCorta) aplicarMudo(); }
+    const falando = !est.mudo && acima && (cfg.fala!=='ptt' || est.segurando);
     const av=$('av-eu'); if(av) av.classList.toggle('fala',falando);
     if(falando!==est.falandoAntes){
       est.falandoAntes=falando;
@@ -2357,7 +2367,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.21 — 15/09 — sozinho na sala não avisa "nenhum quadro sai daqui" (não tem pra quem sair)';
+const VERSAO = '6.22 — 15/09 — sensibilidade do microfone: o ponto de corte pode fechar o mic de verdade (como no Discord)';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -4039,9 +4049,22 @@ function arrumarPalco(){
  * uma reconferida por segundo no laço de números. Um mudo que depende de
  * eu ter lembrado de reaplicar em cinco lugares não é um mudo.
  * ------------------------------------------------------------------ */
+/* ---------------------------------------------------------------------
+ * SENSIBILIDADE (o portão que corta)
+ * ---------------------------------------------------------------------
+ * O ponto de corte (cfg.portao) sempre existiu — mas só acendia o "está
+ * falando". Com cfg.portaoCorta ligado ele faz o que o Discord faz: em
+ * voz aberta, abaixo do ponto o microfone fecha de verdade (a faixa
+ * desliga); acima abre. Fecha com 700 ms de espera pra não picotar entre
+ * palavras. Sem medidor (mic sem contexto de áudio) fica sempre aberto.
+ * ------------------------------------------------------------------ */
+function portaoDeixaPassar(){
+  if(cfg.fala==='ptt' || !cfg.portaoCorta) return true;
+  return est.portaoAberto !== false;
+}
 function aplicarMudo(){
   if(!est.streamMic) return false;
-  const aberto = !est.mudo && (cfg.fala!=='ptt' || est.segurando);
+  const aberto = !est.mudo && (cfg.fala!=='ptt' || est.segurando) && portaoDeixaPassar();
   est.streamMic.getAudioTracks().forEach(t=>{ if(t.enabled!==aberto) t.enabled=aberto; });
   return aberto;
 }
@@ -9072,6 +9095,9 @@ $('sel-prioridade').value=cfg.prioridade||'fps';
   campo.oninput  = ()=>{ cfg.portao = Number(campo.value)||12; pintar(); };
   campo.onchange = ()=>{ guardarAjustes(); recado('Ponto de corte da voz em '+cfg.portao+'.','ok'); };
   pintar();
+  const corta = $('in-portao-corta');
+  corta.checked = !!cfg.portaoCorta;
+  corta.onchange = ()=>{ cfg.portaoCorta = corta.checked; guardarAjustes(); aplicarMudo(); recado(cfg.portaoCorta ? 'Abaixo do ponto o microfone fecha.' : 'O ponto só marca "falando" agora.','ok'); };
 })();
 agruparPainel();
 $('sel-espacial').value = cfg.espacial ? 'sim' : 'nao';
