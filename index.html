@@ -722,11 +722,13 @@ body.sem-tela .divisor{display:none}
 #pin-quantos{color:var(--txt3)}
 
 /* ---- várias telas ao mesmo tempo ---- */
-.palco.varios{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));
-  align-content:center;
+/* 2+ quadros: em vez de uma grade que deixa buraco, o maior tamanho que
+   cabe (colunas × linhas calculadas em arrumarPalco), centralizado */
+.palco.varios, .palco.dois{
+  display:flex;flex-wrap:wrap;justify-content:center;align-content:center;
+  grid-template-columns:none;
 }
-.palco.varios .quadro{aspect-ratio:16/9}
+.palco.varios .quadro, .palco.dois .quadro{aspect-ratio:16/9;flex:0 0 auto}
 #volumes .campo{margin-bottom:12px}
 
 /* ---- janela do teste ---- */
@@ -2367,7 +2369,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.22 — 15/09 — sensibilidade do microfone: o ponto de corte pode fechar o mic de verdade (como no Discord)';
+const VERSAO = '6.23 — 17/09 — várias telas no palco: o maior tamanho que cabe (2×2 em vez de uma fileira de miniaturas)';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -3997,6 +3999,35 @@ function alternarFoco(id){
   setTimeout(avisarTamanhos, 0);
 }
 
+/* ---------------------------------------------------------------------
+ * ENCAIXAR OS QUADROS — o maior tamanho que cabe
+ * ---------------------------------------------------------------------
+ * Três telas num palco largo ficavam numa fileira de miniaturas com o
+ * resto vazio. Aqui testa 1..n colunas, calcula o quadro 16:9 que cabe
+ * em cada arranjo e fica com o maior. Com 3 quadros em 1553×934 dá 2×2
+ * (quadros de 770 px) em vez de 3×1 (510 px). Recalcula quando o palco
+ * muda de tamanho (ResizeObserver).
+ * ------------------------------------------------------------------ */
+function encaixarQuadros(p, todos, n, focando){
+  if(n<2 || focando){ todos.forEach(q=>{ q.style.width=''; q.style.height=''; }); return; }
+  const cs = getComputedStyle(p);
+  const gap = parseFloat(cs.gap||cs.columnGap)||10;
+  const W = p.clientWidth - (parseFloat(cs.paddingLeft)||0) - (parseFloat(cs.paddingRight)||0);
+  const H = p.clientHeight - (parseFloat(cs.paddingTop)||0) - (parseFloat(cs.paddingBottom)||0);
+  if(W<50 || H<50) return;
+  let melhor = {l:0};
+  for(let cols=1; cols<=n; cols++){
+    const rows = Math.ceil(n/cols);
+    const l = Math.min((W - gap*(cols-1))/cols, ((H - gap*(rows-1))/rows)*16/9);
+    if(l > melhor.l) melhor = {l, cols};
+  }
+  const l = Math.floor(melhor.l);
+  todos.forEach(q=>{ q.style.width = l+'px'; q.style.height = Math.floor(l*9/16)+'px'; });
+}
+try{
+  new ResizeObserver(()=>{ if(!est.relogioEncaixe) est.relogioEncaixe=setTimeout(()=>{ est.relogioEncaixe=null; arrumarPalco(); }, 120); }).observe($('palco'));
+}catch{}
+
 function arrumarPalco(){
   cuidarDaTravaDeTela();
   setTimeout(avisarTamanhos,200);
@@ -4021,6 +4052,7 @@ function arrumarPalco(){
   $('nada').hidden = todos.length>0;
   p.classList.toggle('dois', n===2);
   p.classList.toggle('varios', n>2);
+  encaixarQuadros(p, todos, n, focando);
   /* Uma tela só = liga o atalho de exibição da placa. Com duas ou mais,
      ou no modo desenho, o atalho não vale mesmo, então nem tenta. */
   document.body.classList.toggle('liso',
