@@ -2369,7 +2369,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.24 — 19/09 — tela pelo servidor (SFU): sobe uma vez, todo mundo assiste em 1080p60; sem servidor, direto como antes';
+const VERSAO = '6.25 — 19/09 — servidor só com 2+ assistindo (1 amigo = direto, de graça); o pulso conta os bytes de verdade; fora da aba solta o vídeo do servidor';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2482,6 +2482,7 @@ function criarPar(id){
         const marca = par.quadrosAntes||0;
         par.relogioSumir = setTimeout(()=>{
           if((par.quadrosAntes||0) > marca) return;   // voltou a chegar imagem
+          if(par.telaSfu && !par.telaSfu.videoSolto) return;   // a imagem vem do servidor: a vaga direta calar é normal
           par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
         }, 2200);
       };
@@ -2610,8 +2611,9 @@ function abrirCanal(par){
     enviar(par,{t:'sumi', v:document.hidden});
     par.avisei=0; setTimeout(()=>avisarTamanho(par), 600);
     enviarHistoricoChat(par);
-    // já transmitindo pelo servidor: convida quem acabou de abrir o canal
-    if(est.streamTela && SFU.pub && !par.semSfu && !par.viaSfu) entregarTela(par);
+    // já transmitindo: pelo servidor, convida quem acabou de abrir o canal;
+    // direto, confere se com mais este já vale a pena subir pro servidor
+    if(est.streamTela){ if(SFU.pub){ if(!par.semSfu && !par.viaSfu) entregarTela(par); } else reconsiderarServidor(); }
     // o que estava esperando na sacola pode ir agora, pelo canal
     esvaziarSacola(par);
   };
@@ -2953,6 +2955,7 @@ function tirarPar(id, motivo){
   soltarAudioDoPar(par);
   tirarQuadro('p-'+id);
   pares.delete(id);
+  reconsiderarServidor();
   if(par.nome){ recado((par.nome)+' saiu'+(motivo?' — '+motivo:''),''); marcar(par.nome+' saiu'+(motivo?' ('+motivo+')':'')); toque(false); }
   pintarGente();
   reequilibrarVideo();
@@ -3376,8 +3379,9 @@ function abrirMenuDaPessoa(par, ancora){
       par.temTela=false;
       clearTimeout(par.relogioSumir); clearTimeout(par.relogioVazio);
       tirarQuadro('p-'+par.id);
+      soltarVideoDoSfu(par);
       recado('Você parou de assistir a tela de '+(par.nome||'seu amigo')+'.','');
-    }else recado('Voltando a assistir…','ok');
+    }else{ recado('Voltando a assistir…','ok'); puxarVideoDoSfu(par); }
     // pede ao navegador para parar/voltar a receber esse vídeo: economiza
     // internet de verdade, não é só esconder o quadro
     try{
@@ -5278,7 +5282,13 @@ async function alternarTela(){
  *   quem assiste   -> {t:'telaSfuOk', v:true|false}          "puxei" / "não consigo, manda direto"
  *   quem transmite -> {t:'telaSfu', v:false}                 "esquece o servidor, vai direto"
  * =================================================================== */
-const SFU = { pub:null, puxa:null, relogioPulso:null, falhouEm:0, PULSO_MS:5*60*1000 };
+const SFU = { pub:null, puxa:null, relogioPulso:null, falhouEm:0, PULSO_MS:2*60*1000, bytesContados:0, publicando:false };
+
+/* Com UM amigo assistindo o direto entrega a mesma coisa (o upload cabe
+   inteiro nele) e não gasta um byte de servidor. O servidor só compensa
+   quando a tela teria que ser dividida: 2 ou mais. */
+const quantosNaCall = ()=> [...pares.values()].filter(p=>p.conectado || canalDe(p)).length;
+function servidorValeAPena(){ return quantosNaCall() >= 2; }
 
 function sfuDisponivel(){
   if(cfg.servidorTela===false) return false;
@@ -5402,6 +5412,31 @@ async function quadrosSaindoPeloSfu(){
   return n;
 }
 
+/* Mudou quem está na call: vale a pena (ainda) usar o servidor?
+   Chegou o segundo assistindo → sobe pro servidor e move todo mundo.
+   Sobrou um só → volta pro direto e para de gastar. */
+async function reconsiderarServidor(){
+  if(!est.streamTela || SFU.publicando) return;
+  const n = quantosNaCall();
+  if(!SFU.pub && n>=2 && sfuDisponivel()){
+    SFU.publicando = true;
+    const pub = await publicarTelaNoSfu(est.streamTela).catch(()=>null);
+    SFU.publicando = false;
+    if(!pub || !est.streamTela) return;
+    marcar(n+' na call: a tela passou pro servidor');
+    pares.forEach(par=>{ if(!par.semSfu && canalDe(par)) entregarTela(par); });
+  }else if(SFU.pub && n<=1){
+    const resto = [...pares.values()].filter(p=>p.viaSfu);
+    await pararTelaNoSfu();
+    marcar('só '+n+' na call: a tela voltou pro direto (não gasta servidor)');
+    for(const par of resto){
+      clearTimeout(par.relogioSfu); par.viaSfu=null;
+      enviar(par,{t:'telaSfu', v:false});
+      await entregarDireto(par).catch(()=>{});
+    }
+  }
+}
+
 /* Entregar a tela para UMA pessoa: pelo servidor se der, direto se não. */
 async function entregarTela(par){
   if(!est.streamTela) return;
@@ -5416,7 +5451,7 @@ async function entregarTela(par){
       enviar(par,{t:'telaSfu', v:false});
       entregarDireto(par).catch(()=>{});
       marcar((par.nome||'o amigo')+' não respondeu sobre o servidor — mandando direto');
-    }, 3500);
+    }, 8000);
     return;
   }
   await entregarDireto(par);
@@ -5439,6 +5474,8 @@ async function entregarDireto(par){
 /* a resposta de quem assiste */
 async function aoTelaSfuOk(par, ok){
   clearTimeout(par.relogioSfu);
+  if(par.viaSfu!=='pedido' && par.viaSfu!=='sim'){ if(ok) enviar(par,{t:'telaSfu', v:false}); return; }   // resposta atrasada: já desisti e mandei direto
+  if(ok && !SFU.pub){ ok = false; enviar(par,{t:'telaSfu', v:false}); }   // enquanto ele respondia, já tinha voltado pro direto
   if(ok){
     par.viaSfu = 'sim';
     // se antes ia direto, para de gastar upload com ele
@@ -5481,28 +5518,62 @@ async function puxarTelaDoSfu(par, d){
       S.id = sess.sessionId;
       SFU.puxa = S;
     }
-    const S = SFU.puxa;
-    const pedidos = [{location:'remote', sessionId:d.sessao, trackName:d.video}];
-    if(d.audio) pedidos.push({location:'remote', sessionId:d.sessao, trackName:d.audio});
-    const r = await sfuPedir('POST', '/sessao/'+S.id+'/faixas', { tracks:pedidos });
-    const faixas = (r.tracks||[]).filter(t=>t.mid && !t.errorCode);
-    if(!faixas.length) throw new Error((r.tracks||[]).map(t=>t.errorDescription||t.errorCode).filter(Boolean).join(' · ') || 'servidor não achou a tela');
-    faixas.forEach(t=>S.donos.set(t.mid, {par, ehAudio: t.trackName===d.audio}));
-    par.telaSfu = { sessao:d.sessao, video:d.video, audio:d.audio, mids:faixas.map(t=>t.mid) };
-    if(r.requiresImmediateRenegotiation && r.sessionDescription){
-      await S.pc.setRemoteDescription(r.sessionDescription);
-      const resp = await S.pc.createAnswer();
-      await S.pc.setLocalDescription(resp);
-      await sfuPedir('PUT', '/sessao/'+S.id+'/renegociar', { sessionDescription:{ type:'answer', sdp:resp.sdp } });
-    }
+    par.telaSfu = { sessao:d.sessao, video:d.video, audio:d.audio, mids:[], midVideo:null, midAudio:null, videoSolto:false };
+    const nomes = [{nome:d.video, ehAudio:false}];
+    if(d.audio) nomes.push({nome:d.audio, ehAudio:true});
+    await pedirFaixasDoSfu(par, nomes);
     marcar('assistindo '+(par.nome||'o amigo')+' pelo servidor');
     ligarPulso();
     return true;
   }catch(e){
-    sfuFalhou(e, 'puxar');
+    if(!e.cancelado) sfuFalhou(e, 'puxar');
     desfazerTelaDoSfu(par);
     return false;
   }
+}
+/* pede ao servidor faixas de UMA sessão (a do amigo) e anota os mids */
+async function pedirFaixasDoSfu(par, nomes){
+  const S = SFU.puxa, t = par.telaSfu;
+  if(!S || !t) throw new Error('sem sessão');
+  const r = await sfuPedir('POST', '/sessao/'+S.id+'/faixas', { tracks: nomes.map(n=>({location:'remote', sessionId:t.sessao, trackName:n.nome})) });
+  const faixas = (r.tracks||[]).filter(x=>x.mid && !x.errorCode);
+  if(!faixas.length) throw new Error((r.tracks||[]).map(x=>x.errorDescription||x.errorCode).filter(Boolean).join(' · ') || 'servidor não achou a tela');
+  if(par.telaSfu!==t || SFU.puxa!==S){
+    // enquanto o pedido viajava, o amigo mandou "vai direto": devolve o que veio
+    try{ await sfuPedir('PUT', '/sessao/'+S.id+'/fechar', { tracks:faixas.map(x=>({mid:x.mid})), force:true }); }catch{}
+    const e = new Error('cancelado'); e.cancelado = true; throw e;
+  }
+  faixas.forEach(x=>{
+    const ehAudio = !!(nomes.find(n=>n.nome===x.trackName)||{}).ehAudio;
+    S.donos.set(x.mid, {par, ehAudio});
+    t.mids.push(x.mid);
+    if(ehAudio) t.midAudio = x.mid; else { t.midVideo = x.mid; t.videoSolto = false; }
+  });
+  if(r.requiresImmediateRenegotiation && r.sessionDescription){
+    await S.pc.setRemoteDescription(r.sessionDescription);
+    const resp = await S.pc.createAnswer();
+    await S.pc.setLocalDescription(resp);
+    await sfuPedir('PUT', '/sessao/'+S.id+'/renegociar', { sessionDescription:{ type:'answer', sdp:resp.sdp } });
+  }
+}
+/* fora da aba (ou "parar de assistir"): solta SÓ o vídeo — o som do jogo
+   continua, e o servidor para de mandar os 8 Mbps de imagem à toa */
+async function soltarVideoDoSfu(par){
+  const t = par.telaSfu, S = SFU.puxa;
+  if(!t || !S || !t.midVideo || t.videoSolto) return;
+  const mid = t.midVideo;
+  t.videoSolto = true; t.midVideo = null;
+  t.mids = t.mids.filter(m=>m!==mid); S.donos.delete(mid);
+  clearTimeout(par.relogioSumir); clearTimeout(par.relogioVazio);
+  par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
+  marcar('soltei o vídeo de '+(par.nome||'o amigo')+' no servidor (fora da aba); o som continua');
+  try{ await sfuPedir('PUT', '/sessao/'+S.id+'/fechar', { tracks:[{mid}], force:true }); }catch(e){ console.warn('soltar vídeo', e); }
+}
+async function puxarVideoDoSfu(par){
+  const t = par.telaSfu;
+  if(!t || !t.videoSolto || !SFU.puxa || par.naoQueroVer) return;
+  try{ await pedirFaixasDoSfu(par, [{nome:t.video, ehAudio:false}]); marcar('voltei a puxar o vídeo de '+(par.nome||'o amigo')+' do servidor'); }
+  catch(e){ marcar('não consegui voltar a puxar o vídeo: '+e.message); }
 }
 function receberFaixaDoSfu(par, faixa, ehAudio){
   if(pares.get(par.id)!==par || !par.telaSfu) return;
@@ -5528,6 +5599,17 @@ function receberFaixaDoSfu(par, faixa, ehAudio){
   par.temTela = true;
   mostrarTela(par);
   faixa.addEventListener('ended', ()=>{ if(par.faixaVideo===faixa){ par.temTela=false; tirarQuadro('p-'+par.id); pintarGente(); } });
+  // prova de vida: 4 s sem imagem = a faixa veio vazia (acontece na volta
+  // depois de soltar) — pede de novo uma vez em vez de deixar o quadro preto
+  clearTimeout(par.relogioSfuVazio);
+  par.relogioSfuVazio = setTimeout(async ()=>{
+    const v = $('v-p-'+par.id);
+    if(!par.telaSfu || par.faixaVideo!==faixa || (v && v.videoWidth>0)) return;
+    if(par.repuxou && Date.now()-par.repuxou < 15000) return;
+    par.repuxou = Date.now();
+    marcar('vídeo do servidor sem imagem em 4 s — puxando de novo');
+    try{ await soltarVideoDoSfu(par); par.naoQueroVer ? 0 : await puxarVideoDoSfu(par); }catch(e){ marcar('não consegui puxar de novo: '+e.message); }
+  }, 4000);
 }
 /* solta as faixas no servidor e volta a vaga direta ao lugar */
 async function soltarTelaDoSfu(par){
@@ -5536,8 +5618,14 @@ async function soltarTelaDoSfu(par){
   const S = SFU.puxa; if(!S) return;
   try{ await sfuPedir('PUT', '/sessao/'+S.id+'/fechar', { tracks:t.mids.map(m=>({mid:m})), force:true }); }catch{}
   if(![...pares.values()].some(p=>p.telaSfu)){
-    // ninguém mais pelo servidor: fecha a conexão (e para de contar tráfego)
+    // ninguém mais pelo servidor: acerta os últimos bytes, fecha a conexão
+    try{
+      const agora = await bytesRecebidosDoSfu();
+      const bytes = Math.max(0, agora - SFU.bytesContados);
+      if(bytes>0) await sfuPedir('POST', '/pulso', { faixas:[t.video], bytes });
+    }catch{}
     if(SFU.puxa===S){ SFU.puxa=null; try{ S.pc.close(); }catch{} }
+    SFU.bytesContados = 0;
     pararPulso();
   }
 }
@@ -5556,14 +5644,28 @@ function desfazerTelaDoSfu(par){
 }
 /* o pulso: a cada 5 min, quem assiste diz ao porteiro o que está puxando
    — é assim que o tráfego do mês é contado (e o teto, respeitado) */
+/* quantos bytes já chegaram do servidor (imagem + som), somando as faixas */
+async function bytesRecebidosDoSfu(){
+  const S = SFU.puxa; if(!S) return SFU.bytesContados;
+  const rel = await S.pc.getStats().catch(()=>null); if(!rel) return SFU.bytesContados;
+  let n=0; rel.forEach(x=>{ if(x.type==='inbound-rtp') n += (x.bytesReceived||0) + (x.headerBytesReceived||0); });
+  return n;
+}
+async function pulsar(){
+  const faixas = [...pares.values()].filter(p=>p.telaSfu).map(p=>p.telaSfu.video);
+  if(!faixas.length) return pararPulso();
+  const agora = await bytesRecebidosDoSfu();
+  const bytes = Math.max(0, agora - SFU.bytesContados);
+  SFU.bytesContados = agora;
+  const r = await sfuPedir('POST', '/pulso', { faixas, bytes });
+  if(r && r.morto) throw Object.assign(new Error('teto do mês'), {morto:true});
+  return r;
+}
 function ligarPulso(){
   if(SFU.relogioPulso) return;
   const bater = async ()=>{
-    const faixas = [...pares.values()].filter(p=>p.telaSfu).map(p=>p.telaSfu.video);
-    if(!faixas.length) return pararPulso();
     try{
-      const r = await sfuPedir('POST', '/pulso', { faixas });
-      if(r && r.morto) throw Object.assign(new Error('teto do mês'), {morto:true});
+      await pulsar();
     }catch(e){
       if(!e.morto && !/porteiro respondeu 5|sem porteiro/.test(e.message||'')) return;   // soluço de rede: tenta no próximo
       sfuFalhou(e, 'pulso');
@@ -5572,8 +5674,8 @@ function ligarPulso(){
       pararPulso();
     }
   };
-  bater();
   SFU.relogioPulso = setInterval(bater, SFU.PULSO_MS);
+  bater();
 }
 function pararPulso(){ clearInterval(SFU.relogioPulso); SFU.relogioPulso=null; }
 
@@ -5674,8 +5776,8 @@ async function pegarTela(){
 
   const falhas=[];
   let foi=0;
-  // primeiro o servidor (sobe uma vez); quem não puder recebe direto
-  const pub = await publicarTelaNoSfu(stream);
+  // primeiro o servidor (sobe uma vez) — só com 2+ assistindo; quem não puder recebe direto
+  const pub = servidorValeAPena() ? await publicarTelaNoSfu(stream) : null;
   for(const par of pares.values()){
     if(pub && !par.semSfu && canalDe(par)){ entregarTela(par); foi++; continue; }
     if(!par.senderVideo){ falhas.push((par.nome||par.id)+': sem vaga de vídeo negociada'); continue; }
@@ -8556,7 +8658,7 @@ async function montarDiagnostico(){
     const f=est.streamTela.getVideoTracks()[0];
     const a=est.streamTela.getAudioTracks()[0];
     dz('capturando: SIM');
-    dz('  servidor de tela: '+(SFU.pub ? ('SIM (sessão '+SFU.pub.id.slice(0,8)+'…, '+[...pares.values()].filter(x=>x.viaSfu==='sim').length+' assistindo por lá)') : ('não'+(sfuDisponivel()?'':' (indisponível'+(SFU.falhouEm?' — falhou há '+Math.round((Date.now()-SFU.falhouEm)/1000)+' s':'')+')'))));
+    dz('  servidor de tela: '+(SFU.pub ? ('SIM (sessão '+SFU.pub.id.slice(0,8)+'…, '+[...pares.values()].filter(x=>x.viaSfu==='sim').length+' assistindo por lá)') : ('não'+(sfuDisponivel()?(quantosNaCall()<2?' (só '+quantosNaCall()+' na call: direto é de graça)':''):' (indisponível'+(SFU.falhouEm?' — falhou há '+Math.round((Date.now()-SFU.falhouEm)/1000)+' s':'')+')'))));
     if(f){
       const c=f.getSettings();
       dz('  faixa: '+f.readyState+' | ligada: '+f.enabled+' | muda: '+f.muted);
@@ -9276,7 +9378,7 @@ document.addEventListener('visibilitychange', ()=>{
     // a trava de tela é solta sozinha quando a aba some: pede de novo
     cuidarDaTravaDeTela();
     marcar('você voltou para a aba');
-    pares.forEach(p=>{ enviar(p,{t:'sumi', v:false}); p.avisei=0; });
+    pares.forEach(p=>{ enviar(p,{t:'sumi', v:false}); p.avisei=0; puxarVideoDoSfu(p); });
     setTimeout(avisarTamanhos, 300);
     return;
   }
@@ -9286,7 +9388,7 @@ document.addEventListener('visibilitychange', ()=>{
   est.relogioSumi = setTimeout(()=>{
     if(!document.hidden || est.naoEconomizar) return;
     marcar('20s fora da aba — os outros passam a economizar banda');
-    pares.forEach(p=>enviar(p,{t:'sumi', v:true}));
+    pares.forEach(p=>{ enviar(p,{t:'sumi', v:true}); soltarVideoDoSfu(p); });
   }, 20000);
 });
 
