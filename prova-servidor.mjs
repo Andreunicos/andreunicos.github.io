@@ -130,6 +130,40 @@ async function principal() {
     (pC && pC.semSfu && pC.videoDireto) ? ok('A manda direto para C') : mal('A não marcou C como direto', JSON.stringify(pC));
     (await A.evaluate(() => quantosRecebem())) === 1 ? ok('só C conta na divisão do upload') : mal('divisão errada');
 
+    titulo('2b. Codec comum, camada leve, números do servidor');
+    const rids = await A.evaluate(() => SFU.pub && SFU.pub.tv ? SFU.pub.tv.sender.getParameters().encodings.map(e => e.rid).join(',') : null);
+    rids === 'a,b' ? ok('A sobe duas camadas (a = inteira, b = leve)') : mal('sem simulcast', String(rids));
+    const pode = await A.evaluate(() => [...pares.values()].map(p => (p.nome || '?') + '=' + (Array.isArray(p.podeDescomprimir) ? p.podeDescomprimir.join('/') : '-')).join(' '));
+    /Bruno=[a-z0-9]+.*vp8|Bruno=.*vp8/.test(pode) ? ok('cada amigo avisou o que descomprime (posso)', pode) : mal('sem lista de codecs', pode);
+    const codecOk = await A.evaluate(() => registro.marcos.some(m => /servidor: .* fora/.test(m.txt)) ? 'excluiu' : 'nada a excluir');
+    ok('a escolha do codec pro servidor rodou', codecOk);
+    const numerosA = await ateQue(async () => A.evaluate(() => !!(SFU.stat && SFU.stat.sv && SFU.stat.kbps > 0 && SFU.stat.sv.frameWidth > 0 && SFU.stat.fpsEnviado > 0)), 20000, 600);
+    numerosA ? ok('quem transmite mede a subida pro servidor', await A.evaluate(() => SFU.stat.sv.frameWidth + 'x' + SFU.stat.sv.frameHeight + ' ' + SFU.stat.fpsEnviado + 'fps ' + SFU.stat.kbps + 'kbps ' + SFU.stat.codecEnv)) : mal('sem números de subida', JSON.stringify(await A.evaluate(() => SFU.stat && { kbps: SFU.stat.kbps, fps: SFU.stat.fpsEnviado })));
+    const numerosB = await ateQue(async () => B.evaluate(() => { const p = [...pares.values()].find(x => x.nome === 'Andre'); return !!(p && p.evSfu && p.evSfu.framesDecoded > 0); }), 20000, 600);
+    numerosB ? ok('quem assiste mede a faixa que vem do servidor', await B.evaluate(() => { const p = [...pares.values()].find(x => x.nome === 'Andre'); return p.evSfu.frameWidth + 'x' + p.evSfu.frameHeight + ' ' + p.evSfu.framesDecoded + ' quadros ' + (p.evSfu.codecSfu || ''); })) : mal('B sem números do servidor');
+    const cad = await ateQue(async () => A.evaluate(() => registro.linhas.some(l => l.quem === 'servid' && l.kbps > 0 && l.larg > 0)), 15000, 600);
+    cad ? ok('o caderninho de A anota a linha do servidor') : mal('caderninho sem o servidor');
+    const cadB = await ateQue(async () => B.evaluate(() => registro.linhas.some(l => l.quem === 'Andre' && l.recFps > 0 && l.recL > 0)), 15000, 600);
+    cadB ? ok('o caderninho de B anota a recepção vinda do servidor') : mal('caderninho de B sem recepção');
+    await A.evaluate(() => { document.getElementById('painel').classList.add('aberto'); });
+    const painel = await ateQue(async () => A.evaluate(() => /pelo servidor/.test(document.getElementById('numeros').textContent) && /Subindo pro servidor/.test(document.getElementById('numeros').textContent)), 8000, 500);
+    painel ? ok('o painel mostra a seção do servidor') : mal('painel sem servidor', (await A.evaluate(() => document.getElementById('numeros').textContent)).slice(0, 200));
+    await A.evaluate(() => { document.getElementById('painel').classList.remove('aberto'); });
+    const diag = await A.evaluate(async () => (await montarDiagnostico()));
+    /servidor de tela: SIM/.test(diag) && /subida: \d+×\d+/.test(diag) && /camada leve/.test(diag) ? ok('o diagnóstico traz subida, camada leve e quem está por onde') : mal('diagnóstico sem servidor', (diag.match(/servidor de tela[^\n]*\n[^\n]*/) || [''])[0]);
+
+    titulo('2c. Tropeço: a conexão cai e volta sozinha');
+    const sessaoAntes = await A.evaluate(() => SFU.pub.id);
+    await B.evaluate(() => { const pc = SFU.puxa.pc; pc.close(); pc.onconnectionstatechange(); });
+    const bVoltou = await ateQue(async () => { const b = await B.evaluate(ESTADO); const a = b.gente.find(g => g.nome === 'Andre'); return b.puxa && a && a.telaSfu && a.largura > 0 && b.pulso; }, 25000, 600);
+    bVoltou ? ok('B caiu do servidor e puxou de novo sozinho (sem pedir direto)') : mal('B não voltou', JSON.stringify(await B.evaluate(ESTADO)));
+    (await A.evaluate(() => { const p = [...pares.values()].find(x => x.nome === 'Bruno'); return p.viaSfu === 'sim' && !(p.senderVideo && p.senderVideo.track); })) ? ok('A continua sem mandar direto pro B') : mal('A passou a mandar direto');
+    await A.evaluate(() => { const pc = SFU.pub.pc; pc.close(); pc.onconnectionstatechange(); });
+    const aVoltou = await ateQue(async () => { const a = await A.evaluate(ESTADO); const id = await A.evaluate(() => SFU.pub && SFU.pub.id); return a.pub && id && id !== sessaoAntes && a.gente.find(g => g.nome === 'Bruno').viaSfu === 'sim'; }, 30000, 600);
+    aVoltou ? ok('A caiu do servidor, subiu de novo (sessão nova) e B voltou pro servidor') : mal('A não retomou', JSON.stringify(await A.evaluate(ESTADO)));
+    const bNova = await ateQue(async () => { const b = await B.evaluate(ESTADO); const a = b.gente.find(g => g.nome === 'Andre'); return a && a.telaSfu && a.largura > 0; }, 25000, 600);
+    bNova ? ok('B vê a imagem pela sessão nova') : mal('B sem imagem na sessão nova', JSON.stringify(await B.evaluate(ESTADO)));
+
     titulo('3. B sai da aba: solta o VÍDEO no servidor (o som fica); volta: puxa de novo');
     await B.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
     const soltou = await ateQue(async () => { const b = await B.evaluate(() => [...pares.values()].map(p => ({ nome: p.nome, t: p.telaSfu && { solto: p.telaSfu.videoSolto, midAudio: !!p.telaSfu.midAudio, midVideo: !!p.telaSfu.midVideo }, quadro: !!document.getElementById('q-p-' + p.id) }))); const a = b.find(x => x.nome === 'Andre'); return a && a.t && a.t.solto && !a.t.midVideo && !a.quadro; }, 35000, 700);
