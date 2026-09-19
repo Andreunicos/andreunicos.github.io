@@ -2369,7 +2369,7 @@ function iniciarMedidor(){
 /* Carimbo da versão. Serve para uma coisa só: quando alguém manda um
    diagnóstico, saber EXATAMENTE qual arquivo está rodando. Sem isso já
    perdi duas rodadas achando que era uma versão e era outra. */
-const VERSAO = '6.23 — 17/09 — várias telas no palco: o maior tamanho que cabe (2×2 em vez de uma fileira de miniaturas)';
+const VERSAO = '6.24 — 19/09 — tela pelo servidor (SFU): sobe uma vez, todo mundo assiste em 1080p60; sem servidor, direto como antes';
 
 const LIMITE = 6;
 const pares = new Map();
@@ -2451,10 +2451,13 @@ function criarPar(id){
       ajustarAmortecedor(par);
       // A vaga de vídeo nasce vazia e "muda". Ela só ganha imagem quando
       // a pessoa começa a transmitir — e o aviso disso é o 'unmute'.
-      par.fluxo = ev.streams[0] || new MediaStream([faixa]);
-      par.faixaVideo = faixa;
+      par.fluxoP2P = ev.streams[0] || new MediaStream([faixa]);
+      if(!par.telaSfu){ par.fluxo = par.fluxoP2P; par.faixaVideo = faixa; }
       const aparecer = ()=>{
         if(par.naoQueroVer) return;
+        // chegou imagem direta: é ela que vale (o servidor, se tinha, já foi dispensado)
+        if(par.telaSfu) desfazerTelaDoSfu(par);
+        par.fluxo = par.fluxoP2P; par.faixaVideo = faixa;
         clearTimeout(par.relogioSumir); par.relogioSumir=null;
         par.temTela=true; mostrarTela(par);
         // prova de vida: se em 4 s o vídeo continuar sem tamanho, não
@@ -2607,6 +2610,8 @@ function abrirCanal(par){
     enviar(par,{t:'sumi', v:document.hidden});
     par.avisei=0; setTimeout(()=>avisarTamanho(par), 600);
     enviarHistoricoChat(par);
+    // já transmitindo pelo servidor: convida quem acabou de abrir o canal
+    if(est.streamTela && SFU.pub && !par.semSfu && !par.viaSfu) entregarTela(par);
     // o que estava esperando na sacola pode ir agora, pelo canal
     esvaziarSacola(par);
   };
@@ -2631,10 +2636,18 @@ function abrirCanal(par){
     else if(d.t==='tela'){
       if(d.v===false){
         clearTimeout(par.relogioSumir); clearTimeout(par.relogioVazio);
+        soltarTelaDoSfu(par);
         par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
         marcar((par.nome||'seu amigo')+' parou de transmitir');
       }
     }
+    else if(d.t==='telaSfu'){
+      if(d.v===false){ soltarTelaDoSfu(par); }
+      else if(!sfuDisponivel()){ enviar(par,{t:'telaSfuOk', v:false}); }
+      else puxarTelaDoSfu(par, {sessao:String(d.sessao||''), video:String(d.video||''), audio:d.audio?String(d.audio):null})
+             .then(ok=>enviar(par,{t:'telaSfuOk', v:ok}));
+    }
+    else if(d.t==='telaSfuOk'){ aoTelaSfuOk(par, !!d.v); }
     else if(d.t==='porque'){
       const v = d.v||{};
       par.porqueDele = { q:String(v.q||'').slice(0,120), l:Number(v.l)||0,
@@ -2739,11 +2752,9 @@ async function prepararMidia(par){
 
   // se você já está transmitindo, quem chega depois entra vendo
   if(est.streamTela){
-    const v = est.streamTela.getVideoTracks()[0];
-    const a = est.streamTela.getAudioTracks()[0];
-    try{ if(v && par.senderVideo) await par.senderVideo.replaceTrack(v); }catch{}
-    try{ if(a && par.senderTelaAudio) await par.senderTelaAudio.replaceTrack(a); }catch{}
-    await aplicarPerfilVideo(par);
+    // pelo servidor o convite vai quando o canal abrir (onopen); direto vai agora
+    if(SFU.pub && !par.semSfu){ if(canalDe(par)) entregarTela(par); }
+    else await entregarDireto(par).catch(()=>{});
     vigiarPrimeirosQuadros();   // agora tem pra quem sair: confere em 8 s
   }
 }
@@ -2936,8 +2947,9 @@ function avisarTamanhos(){ pares.forEach(avisarTamanho); }
 function tirarPar(id, motivo){
   const par = pares.get(id);
   if(!par) return;
-  clearTimeout(par.relogioMorte);
+  clearTimeout(par.relogioMorte); clearTimeout(par.relogioSfu);
   try{ par.pc && par.pc.close(); }catch{}
+  soltarTelaDoSfu(par);
   soltarAudioDoPar(par);
   tirarQuadro('p-'+id);
   pares.delete(id);
@@ -4296,7 +4308,8 @@ function pintarVolumes(){
    upload com quem estava assistindo de verdade. Numa call de três com um
    deles fora, os outros dois ficavam com dois terços do que podiam ter. */
 function quantosRecebem(){
-  return Math.max(1, vivos().filter(p=>!p.naoAssiste).length);
+  // quem assiste pelo servidor não divide o upload: a tela dele sai uma vez só
+  return Math.max(1, vivos().filter(p=>!p.naoAssiste && p.viaSfu!=='sim').length);
 }
 
 /* ---------------------------------------------------------------------
@@ -5243,6 +5256,327 @@ async function alternarTela(){
   finally{ est.pegandoTela=false; $('btn-tela').disabled=false; }
 }
 
+/* =====================================================================
+ * A TELA PELO SERVIDOR (SFU)
+ * ---------------------------------------------------------------------
+ * Na malha, quem transmite comprime e sobe a MESMA tela uma vez para
+ * cada pessoa: com três assistindo, o upload é dividido por três e a
+ * imagem cai para "o que cabe". O diagnóstico do André mostrou isso —
+ * 10 Mbps de subida virando 4,5 por pessoa.
+ *
+ * Com o servidor, a tela sobe UMA vez (1080p60, 8–12 Mbps) e o servidor
+ * entrega uma cópia para cada um. A voz continua direto, ponto a ponto:
+ * é leve, e não vale gastar cota de servidor com ela.
+ *
+ * O servidor só existe dentro do app (precisa da conta do Bigas para
+ * passar pelo porteiro). Quem está no site pelo navegador responde "não
+ * uso" e recebe direto, como sempre. Se o porteiro disser que o servidor
+ * está desligado (teto do mês), tudo volta para o direto sozinho.
+ *
+ * Conversa pelo canal de dados:
+ *   quem transmite -> {t:'telaSfu', sessao, video, audio}   "está no servidor, puxa daí"
+ *   quem assiste   -> {t:'telaSfuOk', v:true|false}          "puxei" / "não consigo, manda direto"
+ *   quem transmite -> {t:'telaSfu', v:false}                 "esquece o servidor, vai direto"
+ * =================================================================== */
+const SFU = { pub:null, puxa:null, relogioPulso:null, falhouEm:0, PULSO_MS:5*60*1000 };
+
+function sfuDisponivel(){
+  if(cfg.servidorTela===false) return false;
+  if(!(window.bigasApp && typeof window.bigasApp.sfu==='function')) return false;
+  if(SFU.falhouEm && Date.now()-SFU.falhouEm < 10*60*1000) return false;   // deu errado há pouco: dá um tempo
+  return true;
+}
+async function sfuPonte(){
+  if(!sfuDisponivel()) return null;
+  try{ const r = await window.bigasApp.sfu(); return (r && r.url && r.token) ? r : null; }catch{ return null; }
+}
+async function sfuPedir(metodo, rota, corpo){
+  const ponte = await sfuPonte();
+  if(!ponte) throw new Error('sem porteiro');
+  const r = await fetch(ponte.url+rota, {
+    method:metodo,
+    headers:{ 'Authorization':'Bearer '+ponte.token, 'Content-Type':'application/json' },
+    body: corpo ? JSON.stringify(corpo) : undefined,
+  });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok || j.erro || j.errorCode){
+    const e = new Error(j.erro || j.errorDescription || ('porteiro respondeu '+r.status));
+    e.morto = !!j.morto;
+    throw e;
+  }
+  return j;
+}
+function sfuFalhou(e, onde){
+  SFU.falhouEm = Date.now();
+  marcar('servidor de tela ('+onde+'): '+(e && e.message || e)+(e && e.morto ? ' — desligado este mês' : '')+' — direto por 10 min');
+}
+function sfuNovoPc(){
+  const c = RTC();
+  c.iceServers = [{urls:'stun:stun.cloudflare.com:3478'}].concat(c.iceServers||[]);
+  c.bundlePolicy = 'max-bundle';
+  return new RTCPeerConnection(c);
+}
+function esperarConectar(pc, ms){
+  return new Promise((ok, falha)=>{
+    const fim = setTimeout(()=>falha(new Error('não conectou no servidor em '+Math.round(ms/1000)+' s')), ms);
+    const olhar = ()=>{
+      const e = pc.connectionState;
+      if(e==='connected'){ clearTimeout(fim); ok(); }
+      else if(e==='failed' || e==='closed'){ clearTimeout(fim); falha(new Error('conexão com o servidor: '+e)); }
+    };
+    pc.addEventListener('connectionstatechange', olhar); olhar();
+  });
+}
+
+/* ---- quem TRANSMITE: sobe a tela uma vez ---- */
+async function publicarTelaNoSfu(stream){
+  if(!sfuDisponivel()) return null;
+  const v = stream.getVideoTracks()[0], a = stream.getAudioTracks()[0];
+  if(!v) return null;
+  const pc = sfuNovoPc();
+  const pub = { id:'', pc, video:'tela-'+idAleatorio(8), audio: a ? 'som-'+idAleatorio(8) : null, tv:null, ta:null };
+  try{
+    pub.tv = pc.addTransceiver(v, {direction:'sendonly'});
+    if(a) pub.ta = pc.addTransceiver(a, {direction:'sendonly'});
+    try{ await preferirCodec(pc); }catch{}
+    const sess = await sfuPedir('POST', '/sessao');
+    pub.id = sess.sessionId;
+    const of = await pc.createOffer();
+    await pc.setLocalDescription(of);
+    const perfil = perfilReal();
+    const faixas = [{location:'local', mid:pub.tv.mid, trackName:pub.video}];
+    if(pub.ta) faixas.push({location:'local', mid:pub.ta.mid, trackName:pub.audio});
+    const r = await sfuPedir('POST', '/sessao/'+pub.id+'/faixas', {
+      sessionDescription:{ type:'offer', sdp:pc.localDescription.sdp },
+      tracks: faixas,
+      mbps: +(perfil.mbps + 0.2).toFixed(1),     // o porteiro conta a banda por esse número
+    });
+    if(!r.sessionDescription) throw new Error('servidor não respondeu a oferta');
+    await pc.setRemoteDescription(r.sessionDescription);
+    await esperarConectar(pc, 8000);
+    SFU.pub = pub;
+    await aplicarPerfilNoSfu();
+    setTimeout(()=>{ if(SFU.pub===pub) aplicarPerfilNoSfu(); }, 5000);   // a captura pode revelar o tamanho real depois
+    pc.onconnectionstatechange = ()=>{
+      if(SFU.pub!==pub) return;
+      if(pc.connectionState==='failed' || pc.connectionState==='closed'){
+        // caiu no meio: quem estava no servidor passa a receber direto
+        SFU.pub = null; sfuFalhou(new Error('caiu ('+pc.connectionState+')'), 'transmitindo');
+        try{ pc.close(); }catch{}
+        pares.forEach(par=>{ if(par.viaSfu){ par.viaSfu=null; enviar(par,{t:'telaSfu', v:false}); entregarDireto(par).catch(()=>{}); } });
+      }
+    };
+    marcar('tela no servidor: sessão '+pub.id.slice(0,8)+'… '+perfil.l+'×'+perfil.a+'@'+perfil.fps+' '+perfil.mbps+' Mbps'+(pub.audio?' com som':''));
+    return pub;
+  }catch(e){
+    try{ pc.close(); }catch{}
+    sfuFalhou(e, 'publicar');
+    return null;
+  }
+}
+async function aplicarPerfilNoSfu(){
+  const pub = SFU.pub; if(!pub || !pub.tv) return;
+  const perfil = perfilReal();
+  try{
+    const prm = pub.tv.sender.getParameters();
+    if(!prm.encodings || !prm.encodings.length) prm.encodings=[{}];
+    prm.encodings[0].maxBitrate = Math.round(perfil.mbps*1e6);
+    prm.encodings[0].maxFramerate = perfil.fps;
+    prm.encodings[0].scaleResolutionDownBy = 1;
+    prm.degradationPreference = 'maintain-framerate';
+    await pub.tv.sender.setParameters(prm);
+  }catch(e){ console.warn('perfil no servidor', e); }
+  try{ if(pub.ta) await bitrateAudio(pub.ta.sender, 128000); }catch{}
+}
+async function pararTelaNoSfu(){
+  const pub = SFU.pub; if(!pub) return;
+  SFU.pub = null;
+  const mids = [pub.tv, pub.ta].filter(Boolean).map(t=>({mid:t.mid}));
+  try{ await sfuPedir('PUT', '/sessao/'+pub.id+'/fechar', { tracks:mids, force:true }); }catch{}
+  try{ pub.pc.close(); }catch{}
+}
+async function quadrosSaindoPeloSfu(){
+  const pub = SFU.pub; if(!pub) return 0;
+  const rel = await pub.pc.getStats().catch(()=>null); if(!rel) return 0;
+  let n=0; rel.forEach(x=>{ if(x.type==='outbound-rtp' && x.kind==='video') n+=(x.framesSent||0); });
+  return n;
+}
+
+/* Entregar a tela para UMA pessoa: pelo servidor se der, direto se não. */
+async function entregarTela(par){
+  if(!est.streamTela) return;
+  if(SFU.pub && !par.semSfu && canalDe(par)){
+    enviar(par, {t:'telaSfu', sessao:SFU.pub.id, video:SFU.pub.video, audio:SFU.pub.audio});
+    par.viaSfu = 'pedido';
+    clearTimeout(par.relogioSfu);
+    par.relogioSfu = setTimeout(()=>{
+      if(par.viaSfu!=='pedido' || pares.get(par.id)!==par) return;
+      // não respondeu (site antigo?): direto, e avisa para não puxar do servidor também
+      par.viaSfu=null; par.semSfu=true;
+      enviar(par,{t:'telaSfu', v:false});
+      entregarDireto(par).catch(()=>{});
+      marcar((par.nome||'o amigo')+' não respondeu sobre o servidor — mandando direto');
+    }, 3500);
+    return;
+  }
+  await entregarDireto(par);
+}
+async function entregarDireto(par){
+  const s = est.streamTela; if(!s) return;
+  const v = s.getVideoTracks()[0], a = s.getAudioTracks()[0];
+  if(!par.senderVideo) throw new Error('sem vaga de vídeo negociada');
+  await par.senderVideo.replaceTrack(v);
+  if(a && par.senderTelaAudio){
+    await par.senderTelaAudio.replaceTrack(a);
+    // agora que a faixa existe, o ajuste de qualidade pega
+    await bitrateAudio(par.senderTelaAudio,128000);
+    par.prioridadesOk = false;   // faixa nova, confere tudo outra vez
+    await prioridadeDeRede(par.senderTelaAudio, PRIORIDADE.somDoJogo);
+  }
+  par.perfilAplicado = null;
+  await aplicarPerfilVideo(par);
+}
+/* a resposta de quem assiste */
+async function aoTelaSfuOk(par, ok){
+  clearTimeout(par.relogioSfu);
+  if(ok){
+    par.viaSfu = 'sim';
+    // se antes ia direto, para de gastar upload com ele
+    try{ if(par.senderVideo && par.senderVideo.track) await par.senderVideo.replaceTrack(null); }catch{}
+    try{ if(par.senderTelaAudio && par.senderTelaAudio.track) await par.senderTelaAudio.replaceTrack(null); }catch{}
+    marcar((par.nome||'o amigo')+' está assistindo pelo servidor');
+    reequilibrarVideo();
+  }else{
+    par.viaSfu = null; par.semSfu = true;
+    marcar((par.nome||'o amigo')+' não consegue pelo servidor — mandando direto');
+    await entregarDireto(par).catch(()=>{});
+  }
+}
+
+/* ---- quem ASSISTE: puxa do servidor ---- */
+async function puxarTelaDoSfu(par, d){
+  if(!sfuDisponivel()) return false;
+  if(par.telaSfu && par.telaSfu.sessao===d.sessao && par.telaSfu.video===d.video) return true;   // já estou puxando essa
+  if(par.telaSfu) await soltarTelaDoSfu(par);
+  try{
+    if(!SFU.puxa){
+      const pc = sfuNovoPc();
+      const S = { id:'', pc, donos:new Map() };
+      pc.ontrack = (ev)=>{
+        const dono = S.donos.get(ev.transceiver && ev.transceiver.mid);
+        if(!dono) return;
+        receberFaixaDoSfu(dono.par, ev.track, dono.ehAudio);
+      };
+      pc.onconnectionstatechange = ()=>{
+        if(SFU.puxa!==S) return;
+        if(pc.connectionState==='failed' || pc.connectionState==='closed'){
+          sfuFalhou(new Error('caiu ('+pc.connectionState+')'), 'assistindo');
+          const quem = [...pares.values()].filter(p=>p.telaSfu);
+          SFU.puxa = null; try{ pc.close(); }catch{}
+          quem.forEach(p=>{ desfazerTelaDoSfu(p); enviar(p,{t:'telaSfuOk', v:false}); });
+          pararPulso();
+        }
+      };
+      const sess = await sfuPedir('POST', '/sessao');
+      S.id = sess.sessionId;
+      SFU.puxa = S;
+    }
+    const S = SFU.puxa;
+    const pedidos = [{location:'remote', sessionId:d.sessao, trackName:d.video}];
+    if(d.audio) pedidos.push({location:'remote', sessionId:d.sessao, trackName:d.audio});
+    const r = await sfuPedir('POST', '/sessao/'+S.id+'/faixas', { tracks:pedidos });
+    const faixas = (r.tracks||[]).filter(t=>t.mid && !t.errorCode);
+    if(!faixas.length) throw new Error((r.tracks||[]).map(t=>t.errorDescription||t.errorCode).filter(Boolean).join(' · ') || 'servidor não achou a tela');
+    faixas.forEach(t=>S.donos.set(t.mid, {par, ehAudio: t.trackName===d.audio}));
+    par.telaSfu = { sessao:d.sessao, video:d.video, audio:d.audio, mids:faixas.map(t=>t.mid) };
+    if(r.requiresImmediateRenegotiation && r.sessionDescription){
+      await S.pc.setRemoteDescription(r.sessionDescription);
+      const resp = await S.pc.createAnswer();
+      await S.pc.setLocalDescription(resp);
+      await sfuPedir('PUT', '/sessao/'+S.id+'/renegociar', { sessionDescription:{ type:'answer', sdp:resp.sdp } });
+    }
+    marcar('assistindo '+(par.nome||'o amigo')+' pelo servidor');
+    ligarPulso();
+    return true;
+  }catch(e){
+    sfuFalhou(e, 'puxar');
+    desfazerTelaDoSfu(par);
+    return false;
+  }
+}
+function receberFaixaDoSfu(par, faixa, ehAudio){
+  if(pares.get(par.id)!==par || !par.telaSfu) return;
+  if(ehAudio){
+    if(!par.audioTela){
+      par.audioTela = new Audio();
+      par.audioTela.autoplay = true;
+      par.audioTela.dataset.papel = 'tela';
+      document.body.appendChild(par.audioTela);
+    }
+    // o amplificador (se tinha) está preso no stream antigo: refaz
+    try{ par.fonteTela && par.fonteTela.disconnect(); }catch{}
+    par.fonteTela=null; par.ganhoTela=null;
+    par.audioTela.srcObject = new MediaStream([faixa]);
+    par.audioTela.play().catch(()=>{});
+    par.idFaixaTela = faixa.id; par.telaSilenciosaDesde = 0; par.avisouTelaMuda = false;
+    aplicarVolume();
+    return;
+  }
+  clearTimeout(par.relogioSumir); clearTimeout(par.relogioVazio);
+  par.fluxo = new MediaStream([faixa]);
+  par.faixaVideo = faixa;
+  par.temTela = true;
+  mostrarTela(par);
+  faixa.addEventListener('ended', ()=>{ if(par.faixaVideo===faixa){ par.temTela=false; tirarQuadro('p-'+par.id); pintarGente(); } });
+}
+/* solta as faixas no servidor e volta a vaga direta ao lugar */
+async function soltarTelaDoSfu(par){
+  const t = par.telaSfu; if(!t) return;
+  desfazerTelaDoSfu(par);
+  const S = SFU.puxa; if(!S) return;
+  try{ await sfuPedir('PUT', '/sessao/'+S.id+'/fechar', { tracks:t.mids.map(m=>({mid:m})), force:true }); }catch{}
+  if(![...pares.values()].some(p=>p.telaSfu)){
+    // ninguém mais pelo servidor: fecha a conexão (e para de contar tráfego)
+    if(SFU.puxa===S){ SFU.puxa=null; try{ S.pc.close(); }catch{} }
+    pararPulso();
+  }
+}
+function desfazerTelaDoSfu(par){
+  const t = par.telaSfu; if(!t) return;
+  par.telaSfu = null;
+  if(SFU.puxa) t.mids.forEach(m=>SFU.puxa.donos.delete(m));
+  if(par.audioTela && par.audioTela.srcObject){
+    try{ par.fonteTela && par.fonteTela.disconnect(); }catch{}
+    par.fonteTela=null; par.ganhoTela=null;
+    par.audioTela.srcObject = new MediaStream();
+  }
+  par.fluxo = par.fluxoP2P || null;
+  par.faixaVideo = null;
+  par.temTela=false; tirarQuadro('p-'+par.id); pintarGente();
+}
+/* o pulso: a cada 5 min, quem assiste diz ao porteiro o que está puxando
+   — é assim que o tráfego do mês é contado (e o teto, respeitado) */
+function ligarPulso(){
+  if(SFU.relogioPulso) return;
+  const bater = async ()=>{
+    const faixas = [...pares.values()].filter(p=>p.telaSfu).map(p=>p.telaSfu.video);
+    if(!faixas.length) return pararPulso();
+    try{
+      const r = await sfuPedir('POST', '/pulso', { faixas });
+      if(r && r.morto) throw Object.assign(new Error('teto do mês'), {morto:true});
+    }catch(e){
+      if(!e.morto && !/porteiro respondeu 5|sem porteiro/.test(e.message||'')) return;   // soluço de rede: tenta no próximo
+      sfuFalhou(e, 'pulso');
+      [...pares.values()].filter(p=>p.telaSfu).forEach(p=>{ desfazerTelaDoSfu(p); enviar(p,{t:'telaSfuOk', v:false}); });
+      const S = SFU.puxa; SFU.puxa=null; try{ S && S.pc.close(); }catch{}
+      pararPulso();
+    }
+  };
+  bater();
+  SFU.relogioPulso = setInterval(bater, SFU.PULSO_MS);
+}
+function pararPulso(){ clearInterval(SFU.relogioPulso); SFU.relogioPulso=null; }
+
 async function pegarTela(){
   const p=PERFIS[cfg.qualidade]||PERFIS['1080-60-8'];
   let stream;
@@ -5340,19 +5674,13 @@ async function pegarTela(){
 
   const falhas=[];
   let foi=0;
+  // primeiro o servidor (sobe uma vez); quem não puder recebe direto
+  const pub = await publicarTelaNoSfu(stream);
   for(const par of pares.values()){
+    if(pub && !par.semSfu && canalDe(par)){ entregarTela(par); foi++; continue; }
     if(!par.senderVideo){ falhas.push((par.nome||par.id)+': sem vaga de vídeo negociada'); continue; }
-    try{
-      await par.senderVideo.replaceTrack(v);
-      if(aud && par.senderTelaAudio){
-        await par.senderTelaAudio.replaceTrack(aud);
-        // agora que a faixa existe, o ajuste de qualidade pega
-        await bitrateAudio(par.senderTelaAudio,128000);
-        par.prioridadesOk = false;   // faixa nova, confere tudo outra vez
-        await prioridadeDeRede(par.senderTelaAudio, PRIORIDADE.somDoJogo);
-      }
-      foi++;
-    }catch(e){
+    try{ await entregarDireto(par); foi++; }
+    catch(e){
       falhas.push((par.nome||par.id)+': '+(e&&e.name||e));
       console.warn('tela para '+par.id,e);
     }
@@ -5371,10 +5699,10 @@ async function pegarTela(){
   await reequilibrarVideo();
   vigiarPrimeirosQuadros();
 
-  const n=quantosRecebem();
+  const n=vivos().filter(x=>!x.naoAssiste).length;
   recado('Transmitindo em '+p.a+'p a '+p.fps+' fps'+(aud?' com som':'')+
-         (n>1?' para '+n+' pessoas':''),'ok');
-  if(n>=3) recado('Com '+n+' recebendo, o seu PC comprime a mesma tela '+n+' vezes — a resolução '+
+         (n>1?' para '+n+' pessoas':'')+(SFU.pub?' — pelo servidor':''),'ok');
+  if(n>=3 && !SFU.pub) recado('Com '+n+' recebendo, o seu PC comprime a mesma tela '+n+' vezes — a resolução '+
                   'baixa um pouco pra caber na sua subida E no seu processador.','');
 }
 
@@ -5405,6 +5733,7 @@ function vigiarPrimeirosQuadros(){
         }
       });
     }
+    saiu += await quadrosSaindoPeloSfu();
     if(saiu>0) return;                      // está saindo quadro, tudo bem
     if(!vivos().length) return;             // sozinho na sala: não tem pra quem sair — confere quando alguém entrar
 
@@ -5434,6 +5763,7 @@ async function conferirDeNovo(){
     if(!rel) continue;
     rel.forEach(x=>{ if(x.type==='outbound-rtp'&&x.kind==='video') saiu+=(x.framesSent||0); });
   }
+  saiu += await quadrosSaindoPeloSfu();
   if(saiu>0){ recado('Pronto, a tela está indo.','ok'); return; }
   erro('Mesmo com a compressão automática nenhum quadro sai daqui. Use "Copiar diagnóstico" '+
        'em Qualidade e ajustes e mande o texto — assim dá para descobrir onde trava.');
@@ -5447,7 +5777,9 @@ async function pararTela(){
   if(!indo) return;
   est.streamTela=null;
   indo.getTracks().forEach(t=>t.stop());
+  pararTelaNoSfu();
   for(const par of pares.values()){
+    clearTimeout(par.relogioSfu); par.viaSfu=null;
     try{ if(par.senderVideo && !est.streamTela) await par.senderVideo.replaceTrack(null); }catch{}
     try{ if(par.senderTelaAudio && !est.streamTela) await par.senderTelaAudio.replaceTrack(null); }catch{}
   }
@@ -8224,6 +8556,7 @@ async function montarDiagnostico(){
     const f=est.streamTela.getVideoTracks()[0];
     const a=est.streamTela.getAudioTracks()[0];
     dz('capturando: SIM');
+    dz('  servidor de tela: '+(SFU.pub ? ('SIM (sessão '+SFU.pub.id.slice(0,8)+'…, '+[...pares.values()].filter(x=>x.viaSfu==='sim').length+' assistindo por lá)') : ('não'+(sfuDisponivel()?'':' (indisponível'+(SFU.falhouEm?' — falhou há '+Math.round((Date.now()-SFU.falhouEm)/1000)+' s':'')+')'))));
     if(f){
       const c=f.getSettings();
       dz('  faixa: '+f.readyState+' | ligada: '+f.enabled+' | muda: '+f.muted);
